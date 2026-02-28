@@ -62,6 +62,8 @@ class ChatWidget(QWidget):
     """Chat widget for Agent conversation."""
     
     message_sent = pyqtSignal(str)  # User message signal
+    generate_clicked = pyqtSignal()  # Generate button clicked
+    pause_clicked = pyqtSignal()  # Pause button clicked
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -90,9 +92,28 @@ class ChatWidget(QWidget):
         # Quick action buttons
         quick_buttons_layout = QHBoxLayout()
         
+        # Generate button
+        self.generate_btn = QPushButton("▶ 生成测试")
+        self.generate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                padding: 5px 15px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        self.generate_btn.clicked.connect(self.on_generate)
+        quick_buttons_layout.addWidget(self.generate_btn)
+        
+        # Pause button
+        self.pause_btn = QPushButton("⏸ 暂停")
+        self.pause_btn.clicked.connect(self.on_pause)
+        quick_buttons_layout.addWidget(self.pause_btn)
+        
         quick_actions = [
-            ("⏸ 暂停", self.on_pause),
-            ("▶ 继续", self.on_resume),
             ("📊 状态", self.on_status),
             ("🗑 清空", self.on_clear),
         ]
@@ -156,15 +177,13 @@ class ChatWidget(QWidget):
         scrollbar = self.scroll_area.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
     
+    def on_generate(self):
+        """Handle generate button."""
+        self.generate_clicked.emit()
+    
     def on_pause(self):
         """Handle pause button."""
-        self.input_field.setText("暂停")
-        self.send_message()
-    
-    def on_resume(self):
-        """Handle resume button."""
-        self.input_field.setText("继续")
-        self.send_message()
+        self.pause_clicked.emit()
     
     def on_status(self):
         """Handle status button."""

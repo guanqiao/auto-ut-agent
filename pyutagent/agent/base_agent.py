@@ -49,7 +49,14 @@ class StepResult:
 
 
 class BaseAgent(ABC):
-    """Base class for UT generation agents."""
+    """Base class for UT generation agents.
+    
+    Features:
+    - State management and history tracking
+    - Stop signal handling for graceful shutdown
+    - Progress callback support
+    - State persistence (save/load)
+    """
     
     def __init__(
         self,
@@ -77,6 +84,10 @@ class BaseAgent(ABC):
         self.max_iterations = working_memory.max_iterations
         self.target_coverage = working_memory.target_coverage
         
+        # Stop signal for graceful shutdown
+        self._stop_requested = False
+        self._stop_event = None  # Will be initialized when needed
+        
     def _update_state(self, new_state: AgentState, message: str = ""):
         """Update agent state and record history."""
         self.state = new_state
@@ -95,7 +106,16 @@ class BaseAgent(ABC):
             })
     
     def _should_continue(self) -> bool:
-        """Check if the agent should continue execution."""
+        """Check if the agent should continue execution.
+        
+        Returns False if:
+        - Stop was requested
+        - State is PAUSED
+        - Max iterations reached
+        - Target coverage reached
+        """
+        if self._stop_requested:
+            return False
         if self.state == AgentState.PAUSED:
             return False
         if self.current_iteration >= self.max_iterations:
@@ -104,13 +124,42 @@ class BaseAgent(ABC):
             return False
         return True
     
-    def pause(self):
-        """Pause agent execution."""
-        self._update_state(AgentState.PAUSED, "Execution paused by user")
+    def request_stop(self) -> bool:
+        """Request agent to stop execution gracefully.
+        
+        This is the primary way to stop the agent. The agent will
+        finish the current operation and then exit.
+        
+        Returns:
+            True if stop was requested successfully
+        """
+        self._stop_requested = True
+        self._update_state(AgentState.PAUSED, "Stop requested by user")
         self.working_memory.pause()
+        return True
+    
+    def is_stop_requested(self) -> bool:
+        """Check if stop has been requested.
+        
+        Returns:
+            True if stop was requested
+        """
+        return self._stop_requested
+    
+    def reset_stop_signal(self):
+        """Reset the stop signal.
+        
+        Call this before starting a new operation after a stop.
+        """
+        self._stop_requested = False
+    
+    def pause(self):
+        """Pause agent execution (legacy, use request_stop instead)."""
+        self.request_stop()
     
     def resume(self):
         """Resume agent execution."""
+        self.reset_stop_signal()
         self.working_memory.resume()
         self._update_state(AgentState.IDLE, "Execution resumed")
     

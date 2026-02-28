@@ -14,9 +14,16 @@ PyYAML>=6.0.2
 numpy>=1.26.0
 aiofiles>=24.1.0
 python-dotenv>=1.0.1
+gitpython>=3.1.40
+pathspec>=0.12.1
+tenacity>=8.2.0
+backoff>=2.2.0
 
 [dev]
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
 pytest-qt>=4.4.0
 pytest-cov>=6.0.0
+pytest-html>=4.1.0
+pytest-metadata>=3.1.0
+allure-pytest>=2.13.0

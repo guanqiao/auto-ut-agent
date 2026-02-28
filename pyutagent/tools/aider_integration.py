@@ -1,4 +1,4 @@
-"""Aider integration for precise test code editing.
+"""Aider integration for precise test code editing with enhanced fault tolerance.
 
 This module integrates Aider's Search/Replace editing strategy with the
 Java unit test generation workflow. It provides:
@@ -6,6 +6,7 @@ Java unit test generation workflow. It provides:
 - Edit generation based on compilation errors and test failures
 - Feedback loop for iterative code improvement
 - Integration with existing error and failure analyzers
+- Enhanced fault tolerance with retry, fallback, and circuit breaker patterns
 """
 
 import logging
@@ -21,6 +22,18 @@ from .code_editor import (
 from .edit_validator import EditValidator, ValidationResult, validate_test_code
 from .error_analyzer import ErrorAnalysis, CompilationError, ErrorType
 from .failure_analyzer import FailureAnalysis, TestFailure, FailureType
+from .error_recovery import (
+    RecoveryManager, StatePreserver, ErrorClassifier,
+    create_recovery_manager, is_retryable_error
+)
+from .retry_manager import (
+    RetryManager, CircuitBreaker, TimeoutManager,
+    retry_with_backoff, circuit_breaker, get_retry_manager
+)
+from .fallback_strategies import (
+    FallbackManager, FallbackLevel, FallbackResult,
+    create_fallback_manager, apply_fallback
+)
 from ..llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -271,24 +284,57 @@ Format:
 
 
 class AiderCodeFixer:
-    """Main class for fixing code using Aider-style editing."""
+    """Main class for fixing code using Aider-style editing with enhanced fault tolerance."""
     
     def __init__(
         self,
         llm_client: LLMClient,
-        max_attempts: int = 3
+        max_attempts: int = 3,
+        enable_fallback: bool = True,
+        enable_circuit_breaker: bool = True,
+        timeout_seconds: float = 120.0
     ):
         """Initialize Aider code fixer.
         
         Args:
             llm_client: LLM client for generating fixes
             max_attempts: Maximum number of fix attempts
+            enable_fallback: Whether to enable fallback strategies
+            enable_circuit_breaker: Whether to enable circuit breaker
+            timeout_seconds: Timeout for LLM calls
         """
         self.llm_client = llm_client
         self.max_attempts = max_attempts
+        self.enable_fallback = enable_fallback
+        self.timeout_seconds = timeout_seconds
         self.editor = TestCodeEditor()
         self.validator = EditValidator()
         self.prompt_builder = AiderPromptBuilder()
+        
+        # Enhanced fault tolerance components
+        self.recovery_manager = create_recovery_manager(max_retries=max_attempts)
+        self.retry_manager = get_retry_manager()
+        self.state_preserver = StatePreserver()
+        self.fallback_manager: Optional[FallbackManager] = None
+        if enable_fallback:
+            self.fallback_manager = create_fallback_manager(llm_client)
+        
+        # Circuit breaker for LLM calls
+        self.circuit_breaker: Optional[CircuitBreaker] = None
+        if enable_circuit_breaker:
+            self.circuit_breaker = self.retry_manager.get_circuit_breaker(
+                "aider_llm_calls",
+                failure_threshold=5,
+                recovery_timeout=60.0
+            )
+        
+        # Statistics
+        self.stats = {
+            "total_fixes": 0,
+            "successful_fixes": 0,
+            "fallback_uses": 0,
+            "circuit_breaker_opens": 0
+        }
     
     async def fix_compilation_errors(
         self,
@@ -373,26 +419,40 @@ class AiderCodeFixer:
         self,
         context: EditContext,
         system_prompt: str,
-        user_prompt: str
+        user_prompt: str,
+        use_circuit_breaker: bool = True,
+        use_fallback: bool = True
     ) -> FixResult:
-        """Attempt to fix code with retries.
+        """Attempt to fix code with retries and enhanced fault tolerance.
         
         Args:
             context: Edit context
             system_prompt: System prompt for LLM
             user_prompt: User prompt for LLM
+            use_circuit_breaker: Whether to use circuit breaker
+            use_fallback: Whether to use fallback strategies
             
         Returns:
             FixResult with success status
         """
+        self.stats["total_fixes"] += 1
         current_code = context.original_code
+        
+        # Save initial state for potential rollback
+        state_version = self.state_preserver.save_state(
+            {"code": current_code, "context": context},
+            label="fix_attempt_start"
+        )
         
         for attempt in range(1, self.max_attempts + 1):
             logger.info(f"Fix attempt {attempt}/{self.max_attempts}")
+            context.iteration = attempt
             
             try:
-                # Generate fix from LLM
-                diff_text = await self.llm_client.agenerate(user_prompt, system_prompt)
+                # Generate fix from LLM with circuit breaker and timeout
+                diff_text = await self._generate_fix_with_protection(
+                    user_prompt, system_prompt, use_circuit_breaker
+                )
                 
                 # Apply the fix
                 edit_result = self.editor.apply_test_fixes(
@@ -445,8 +505,30 @@ class AiderCodeFixer:
             except Exception as e:
                 logger.exception(f"Error during fix attempt {attempt}")
                 context.previous_attempts.append(f"Attempt {attempt}: Exception - {str(e)}")
+                
+                # Check if error is retryable
+                if not is_retryable_error(e):
+                    logger.error(f"Non-retryable error encountered: {e}")
+                    break
         
-        # All attempts failed
+        # All attempts failed - try fallback strategies
+        if use_fallback and self.fallback_manager:
+            logger.info("Attempting fallback strategies...")
+            fallback_result = await self._try_fallback(
+                context, current_code, state_version
+            )
+            if fallback_result.success:
+                self.stats["fallback_uses"] += 1
+                return FixResult(
+                    success=True,
+                    original_code=context.original_code,
+                    fixed_code=fallback_result.code,
+                    strategy_used=FixStrategy.FULL_REGENERATE,
+                    attempts=self.max_attempts,
+                    fix_summary=f"Fixed using fallback: {fallback_result.message}"
+                )
+        
+        # All attempts and fallbacks failed
         logger.error(f"All {self.max_attempts} fix attempts failed")
         
         return FixResult(
@@ -458,6 +540,96 @@ class AiderCodeFixer:
             error_message=f"Failed after {self.max_attempts} attempts",
             fix_summary="; ".join(context.previous_attempts)
         )
+    
+    async def _generate_fix_with_protection(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        use_circuit_breaker: bool
+    ) -> str:
+        """Generate fix with circuit breaker and timeout protection.
+        
+        Args:
+            user_prompt: User prompt for LLM
+            system_prompt: System prompt for LLM
+            use_circuit_breaker: Whether to use circuit breaker
+            
+        Returns:
+            Generated diff text
+        """
+        async def _call_llm():
+            return await self.llm_client.agenerate(user_prompt, system_prompt)
+        
+        if use_circuit_breaker and self.circuit_breaker:
+            # Use circuit breaker
+            return await self.circuit_breaker.call(_call_llm)
+        else:
+            # Use timeout only
+            return await TimeoutManager.with_timeout(
+                _call_llm(),
+                timeout=self.timeout_seconds,
+                timeout_message=f"LLM call timed out after {self.timeout_seconds}s"
+            )
+    
+    async def _try_fallback(
+        self,
+        context: EditContext,
+        current_code: str,
+        state_version: int
+    ) -> FallbackResult:
+        """Try fallback strategies.
+        
+        Args:
+            context: Edit context
+            current_code: Current code state
+            state_version: Saved state version for rollback
+            
+        Returns:
+            FallbackResult
+        """
+        if not self.fallback_manager:
+            return FallbackResult(
+                success=False,
+                code=current_code,
+                level_used=FallbackLevel.MANUAL,
+                message="No fallback manager available"
+            )
+        
+        # Try fallback strategies
+        fallback_result = await self.fallback_manager.execute_with_fallback(
+            original_code=current_code,
+            error_analysis=context.error_analysis,
+            failure_analysis=context.failure_analysis,
+            context=context.class_info
+        )
+        
+        if not fallback_result.success:
+            # Restore original state
+            original_state = self.state_preserver.restore_state(state_version)
+            if original_state:
+                logger.info("Restored original state after fallback failure")
+        
+        return fallback_result
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get fixer statistics.
+        
+        Returns:
+            Statistics dictionary
+        """
+        stats = self.stats.copy()
+        if self.circuit_breaker:
+            stats["circuit_breaker"] = self.circuit_breaker.get_stats()
+        return stats
+    
+    def reset_stats(self):
+        """Reset statistics."""
+        self.stats = {
+            "total_fixes": 0,
+            "successful_fixes": 0,
+            "fallback_uses": 0,
+            "circuit_breaker_opens": 0
+        }
     
     def apply_direct_edit(
         self,
@@ -536,6 +708,7 @@ class AiderTestGenerator:
         default_system_prompt = """You are a Java unit test expert. Generate JUnit 5 test code.
 Follow best practices:
 - Use @Test, @BeforeEach annotations
+- Use @DisplayName annotation for each test method to describe the test purpose
 - Use meaningful test method names
 - Include assertions
 - Mock external dependencies
