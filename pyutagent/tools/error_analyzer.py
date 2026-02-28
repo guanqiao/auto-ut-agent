@@ -159,7 +159,8 @@ class CompilationErrorAnalyzer:
     def _match_error_line(self, line: str) -> Optional[re.Match]:
         """Match an error line pattern."""
         # Pattern: file.java:line:column: error: message
-        pattern = r'(.+\.java):(\d+):(?:\d+)?\s*(error|warning):\s*(.+)'
+        # Also supports: file.java:line:error: message (without column)
+        pattern = r'(.+\.java):(\d+)(?::\d+)?\s*:\s*(error|warning):\s*(.+)'
         return re.match(pattern, line)
     
     def _is_new_error(self, line: str) -> bool:
