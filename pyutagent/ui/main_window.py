@@ -4,13 +4,15 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QSplitter, QTreeWidget, QTreeWidgetItem, QMenuBar,
     QMenu, QFileDialog, QLabel, QProgressBar, QTextEdit,
-    QStatusBar, QMessageBox
+    QStatusBar, QMessageBox, QDialog
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction
 from pathlib import Path
 
 from .chat_widget import ChatWidget
+from .dialogs.llm_config_dialog import LLMConfigDialog
+from ..llm.config import LLMConfig
 
 
 class ProjectTreeWidget(QTreeWidget):
@@ -141,6 +143,8 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 1400, 900)
         
         self.current_project: str = ""
+        self.llm_config: LLMConfig = LLMConfig()
+        
         self.setup_ui()
         self.setup_menu()
         self.setup_status_bar()
@@ -194,6 +198,14 @@ class MainWindow(QMainWindow):
         exit_action.setShortcut("Alt+F4")
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
+        
+        # Settings menu
+        settings_menu = menubar.addMenu("设置(&S)")
+        
+        # LLM Config action
+        llm_config_action = QAction("LLM 配置(&L)...", self)
+        llm_config_action.triggered.connect(self.on_llm_config)
+        settings_menu.addAction(llm_config_action)
         
         # Tools menu
         tools_menu = menubar.addMenu("工具(&T)")
@@ -252,6 +264,15 @@ class MainWindow(QMainWindow):
             self.chat_widget.add_agent_message(
                 f"已打开项目: {Path(dir_path).name}\n"
                 "请选择一个 Java 文件，然后告诉我生成测试。"
+            )
+    
+    def on_llm_config(self):
+        """Handle LLM config action."""
+        dialog = LLMConfigDialog(self.llm_config, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.llm_config = dialog.config
+            self.status_bar.showMessage(
+                f"LLM 配置已更新: {self.llm_config.provider} - {self.llm_config.model}"
             )
     
     def on_scan_project(self):

@@ -10,6 +10,7 @@ AI 驱动的 Java 单元测试生成器，基于 Agent 架构，支持对话式�
 - 🔍 **向量检索**: sqlite-vec 存储和检索相似测试模式
 - ⏸️ **暂停/恢复**: 随时暂停生成任务，保存状态后可恢复
 - 📊 **覆盖率分析**: 集成 JaCoCo，实时显示覆盖率报告
+- 🔧 **LLM 配置**: 支持 OpenAI、Anthropic、DeepSeek、Ollama 等多种提供商
 
 ## 安装
 
@@ -44,34 +45,70 @@ python -m pyutagent
 
 ## 使用指南
 
-### 1. 打开项目
+### 1. 配置 LLM
+- 点击菜单 `设置 -> LLM 配置`
+- 选择提供商（OpenAI、Anthropic、DeepSeek、Ollama）
+- 输入 API Key 和模型名称
+- 点击 `测试连接` 验证配置
+- 支持参数：Temperature、Max Tokens、Timeout、Retries
+
+### 2. 打开项目
 - 点击菜单 `文件 -> 打开项目`
 - 选择一个 Maven 项目目录（包含 pom.xml）
 
-### 2. 生成测试
+### 3. 生成测试
 - 在左侧文件树中选择一个 Java 文件
 - 在对话区域输入: "生成 UserService 的测试"
 - 或使用快捷键 `Ctrl+G`
 
-### 3. 控制生成过程
+### 4. 控制生成过程
 - **暂停**: 输入 "暂停" 或点击暂停按钮
 - **继续**: 输入 "继续" 恢复生成
 - **查看状态**: 输入 "状态" 查看当前进度
 
-### 4. 查看结果
+### 5. 查看结果
 - 生成的测试文件保存在 `src/test/java` 目录
 - 覆盖率报告在右侧进度面板显示
 
+## 支持的 LLM 提供商
+
+| 提供商 | 默认 Endpoint | 推荐模型 |
+|--------|--------------|---------|
+| OpenAI | https://api.openai.com/v1 | gpt-4, gpt-4-turbo, gpt-3.5-turbo |
+| Anthropic | https://api.anthropic.com/v1 | claude-3-opus, claude-3-sonnet |
+| DeepSeek | https://api.deepseek.com/v1 | deepseek-chat, deepseek-coder |
+| Ollama | http://localhost:11434/v1 | llama2, codellama, mistral |
+| Custom | 自定义 | 任意兼容 OpenAI API 的模型 |
+
 ## 配置
 
-创建 `.env` 文件配置 LLM:
+### 环境变量
 
-```env
+```bash
 PYUT_LLM_PROVIDER=openai
 PYUT_LLM_API_KEY=your-api-key
 PYUT_LLM_MODEL=gpt-4
 PYUT_TARGET_COVERAGE=0.8
 PYUT_MAX_ITERATIONS=10
+```
+
+### 配置文件
+
+配置保存在 `~/.pyutagent/config.json`：
+
+```json
+{
+  "llm": {
+    "provider": "openai",
+    "endpoint": "https://api.openai.com/v1",
+    "api_key": "sk-...",
+    "model": "gpt-4",
+    "temperature": 0.7,
+    "max_tokens": 4096,
+    "timeout": 300,
+    "max_retries": 5
+  }
+}
 ```
 
 ## 测试
@@ -99,11 +136,17 @@ pyutagent/
 ├── tools/            # 工具
 │   ├── java_parser.py       # Java 代码解析
 │   └── maven_tools.py       # Maven 工具
+├── llm/              # LLM 相关
+│   ├── config.py            # LLM 配置模型
+│   ├── client.py            # LLM 客户端
+│   └── model_router.py      # 模型路由器
 ├── ui/               # UI 组件
 │   ├── main_window.py       # 主窗口
-│   └── chat_widget.py       # 对话组件
+│   ├── chat_widget.py       # 对话组件
+│   └── dialogs/
+│       └── llm_config_dialog.py  # LLM 配置对话框
 ├── main.py           # 入口点
-└── config.py         # 配置
+└── config.py         # 配置管理
 ```
 
 ## 技术栈
@@ -123,6 +166,7 @@ pyutagent/
 - [x] Java 代码解析
 - [x] Maven 工具
 - [x] PyQt6 UI
+- [x] LLM 配置功能
 - [ ] Agent 核心 (ReAct)
 - [ ] 对话管理器
 - [ ] 暂停/恢复功能
