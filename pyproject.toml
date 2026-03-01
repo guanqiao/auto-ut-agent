@@ -60,6 +60,7 @@ dev = [
 
 [project.scripts]
 pyutagent = "pyutagent.main:main"
+pyutagent-cli = "pyutagent.cli.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
