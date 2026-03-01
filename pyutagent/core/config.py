@@ -394,7 +394,11 @@ class Settings(BaseModel):
 
     This consolidates all application-level settings.
     """
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(
+        use_enum_values=True,
+        env_prefix="PYUT_",
+        env_file=".env"
+    )
 
     data_dir: Path = Field(
         default_factory=lambda: Path.home() / ".pyutagent",
@@ -420,10 +424,6 @@ class Settings(BaseModel):
         default=False,
         description="Enable debug mode"
     )
-
-    class Config:
-        env_prefix = "PYUT_"
-        env_file = ".env"
 
 
 _global_settings: Optional[Settings] = None
