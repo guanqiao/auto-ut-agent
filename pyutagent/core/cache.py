@@ -6,6 +6,7 @@ by avoiding redundant computations and I/O operations.
 
 import hashlib
 import logging
+import threading
 from functools import wraps
 from pathlib import Path
 from typing import Dict, Optional, Any, Callable
@@ -15,97 +16,103 @@ logger = logging.getLogger(__name__)
 
 
 class FileCache:
-    """Cache for file contents with modification time checking."""
-    
+    """Thread-safe cache for file contents with modification time checking."""
+
     def __init__(self, max_size: int = 100):
         """Initialize file cache.
-        
+
         Args:
             max_size: Maximum number of files to cache
         """
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._max_size = max_size
         self._access_count: Dict[str, int] = {}
+        self._lock = threading.RLock()
     
     def get(self, file_path: str) -> Optional[str]:
-        """Get cached file content if valid.
-        
+        """Get cached file content if valid (thread-safe).
+
         Args:
             file_path: Path to the file
-            
+
         Returns:
             Cached content or None if not cached or stale
         """
         path = Path(file_path)
-        
+
         if not path.exists():
             return None
-        
+
         cache_key = str(path.resolve())
-        cached = self._cache.get(cache_key)
-        
-        if cached is None:
-            return None
-        
-        # Check if file has been modified
-        current_mtime = path.stat().st_mtime
-        if current_mtime != cached['mtime']:
-            logger.debug(f"[FileCache] Cache stale for: {file_path}")
-            del self._cache[cache_key]
-            del self._access_count[cache_key]
-            return None
-        
-        self._access_count[cache_key] = self._access_count.get(cache_key, 0) + 1
-        logger.debug(f"[FileCache] Cache hit for: {file_path}")
-        return cached['content']
+
+        with self._lock:
+            cached = self._cache.get(cache_key)
+
+            if cached is None:
+                return None
+
+            # Check if file has been modified
+            current_mtime = path.stat().st_mtime
+            if current_mtime != cached['mtime']:
+                logger.debug(f"[FileCache] Cache stale for: {file_path}")
+                del self._cache[cache_key]
+                del self._access_count[cache_key]
+                return None
+
+            self._access_count[cache_key] = self._access_count.get(cache_key, 0) + 1
+            logger.debug(f"[FileCache] Cache hit for: {file_path}")
+            return cached['content']
     
     def set(self, file_path: str, content: str) -> None:
-        """Cache file content.
-        
+        """Cache file content (thread-safe).
+
         Args:
             file_path: Path to the file
             content: File content to cache
         """
         path = Path(file_path)
         cache_key = str(path.resolve())
-        
-        # Evict least recently used if cache is full
-        if len(self._cache) >= self._max_size and cache_key not in self._cache:
-            self._evict_lru()
-        
-        self._cache[cache_key] = {
-            'content': content,
-            'mtime': path.stat().st_mtime,
-            'cached_at': datetime.now()
-        }
-        self._access_count[cache_key] = 1
-        logger.debug(f"[FileCache] Cached: {file_path}")
-    
+
+        with self._lock:
+            # Evict least recently used if cache is full
+            if len(self._cache) >= self._max_size and cache_key not in self._cache:
+                self._evict_lru()
+
+            self._cache[cache_key] = {
+                'content': content,
+                'mtime': path.stat().st_mtime,
+                'cached_at': datetime.now()
+            }
+            self._access_count[cache_key] = 1
+            logger.debug(f"[FileCache] Cached: {file_path}")
+
     def invalidate(self, file_path: str) -> None:
-        """Invalidate cache for a specific file.
-        
+        """Invalidate cache for a specific file (thread-safe).
+
         Args:
             file_path: Path to the file
         """
         path = Path(file_path)
         cache_key = str(path.resolve())
-        
-        if cache_key in self._cache:
-            del self._cache[cache_key]
-            del self._access_count[cache_key]
-            logger.debug(f"[FileCache] Invalidated: {file_path}")
-    
+
+        with self._lock:
+            if cache_key in self._cache:
+                del self._cache[cache_key]
+                del self._access_count[cache_key]
+                logger.debug(f"[FileCache] Invalidated: {file_path}")
+
     def clear(self) -> None:
-        """Clear all cached entries."""
-        self._cache.clear()
-        self._access_count.clear()
-        logger.info("[FileCache] Cache cleared")
-    
+        """Clear all cached entries (thread-safe)."""
+        with self._lock:
+            self._cache.clear()
+            self._access_count.clear()
+            logger.info("[FileCache] Cache cleared")
+
     def _evict_lru(self) -> None:
-        """Evict least recently used entry."""
+        """Evict least recently used entry (internal, called with lock held)."""
         if not self._access_count:
             return
-        
+
         lru_key = min(self._access_count, key=self._access_count.get)
         del self._cache[lru_key]
         del self._access_count[lru_key]

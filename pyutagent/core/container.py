@@ -9,9 +9,11 @@ Features:
 - Factory-based component creation
 - Configuration injection
 - Easy testing with mock injection
+- Thread-safe singleton initialization
 """
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import (
@@ -297,28 +299,33 @@ class Container:
 
 
 _global_container: Optional[Container] = None
+_container_lock = threading.Lock()
 
 
 def get_container() -> Container:
-    """Get the global container instance.
+    """Get the global container instance (thread-safe).
 
     Returns:
         The global Container instance
     """
     global _global_container
     if _global_container is None:
-        _global_container = Container()
-        logger.info("[Container] Created global container")
+        with _container_lock:
+            # Double-checked locking pattern
+            if _global_container is None:
+                _global_container = Container()
+                logger.info("[Container] Created global container")
     return _global_container
 
 
 def reset_container() -> None:
     """Reset the global container (useful for testing)."""
     global _global_container
-    if _global_container is not None:
-        _global_container.clear()
-    _global_container = None
-    logger.info("[Container] Reset global container")
+    with _container_lock:
+        if _global_container is not None:
+            _global_container.clear()
+        _global_container = None
+        logger.info("[Container] Reset global container")
 
 
 def configure_container(
