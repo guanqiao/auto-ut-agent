@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import AsyncIterator, Iterator, Optional
 
 from .config import LLMConfig, LLMProvider
@@ -56,20 +57,23 @@ class LLMClient:
         self.max_tokens = max_tokens
         self.provider = provider
         
-        # Initialize LangChain client (lazy import)
         self._client = None
         
-        # Usage tracking
         self._total_calls = 0
         self._total_tokens = 0
+        
+        logger.info(f"[LLMClient] Initializing - Model: {model}, Provider: {provider}, Endpoint: {endpoint}")
+        logger.debug(f"[LLMClient] Configuration - Timeout: {timeout}s, MaxRetries: {max_retries}, Temperature: {temperature}")
+        if ca_cert:
+            logger.info(f"[LLMClient] Using custom CA certificate: {ca_cert}")
     
     def _get_client(self):
         """Get or create LangChain client (lazy import)."""
         if self._client is None:
             try:
+                logger.debug(f"[LLMClient] Creating LangChain client - Model: {self.model}")
                 from langchain_openai import ChatOpenAI
                 
-                # Configure SSL if CA cert provided
                 http_client = None
                 if self.ca_cert:
                     import httpx
@@ -77,6 +81,7 @@ class LLMClient:
                         verify=self.ca_cert,
                         timeout=self.timeout
                     )
+                    logger.debug(f"[LLMClient] Configuring HTTPS client with CA certificate")
                 
                 self._client = ChatOpenAI(
                     model=self.model,
@@ -88,8 +93,9 @@ class LLMClient:
                     max_retries=self.max_retries,
                     http_client=http_client,
                 )
+                logger.info(f"[LLMClient] LangChain client created successfully")
             except Exception as e:
-                logger.error(f"Failed to initialize LLM client: {e}")
+                logger.exception(f"[LLMClient] Failed to create LangChain client: {e}")
                 raise
         
         return self._client
@@ -104,6 +110,7 @@ class LLMClient:
         Returns:
             LLMClient instance
         """
+        logger.info(f"[LLMClient] Creating client from config - ConfigID: {config.id}, Name: {config.name}")
         return cls(
             endpoint=config.endpoint,
             api_key=config.api_key.get_secret_value(),
@@ -139,14 +146,21 @@ class LLMClient:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
         
+        prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
+        logger.info(f"[LLM] Starting sync generation - Model: {self.model}, Endpoint: {self.endpoint}, PromptLength: {len(prompt)}")
+        logger.debug(f"[LLM] Prompt preview: {prompt_preview}")
+        
+        start_time = time.time()
         try:
             response = client.invoke(messages)
             self._total_calls += 1
-            # Estimate tokens (actual count may vary)
             self._total_tokens += len(prompt.split()) + len(response.content.split())
+            elapsed = time.time() - start_time
+            logger.info(f"[LLM] Sync generation complete - ResponseLength: {len(response.content)}, Elapsed: {elapsed:.2f}s")
             return response.content
         except Exception as e:
-            logger.error(f"Generation failed: {e}")
+            elapsed = time.time() - start_time
+            logger.exception(f"[LLM] Sync generation failed - Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
     async def agenerate(
@@ -172,13 +186,68 @@ class LLMClient:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
         
+        prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
+        logger.info(f"[LLM] Starting async generation - Model: {self.model}, Endpoint: {self.endpoint}, PromptLength: {len(prompt)}")
+        logger.debug(f"[LLM] Prompt preview: {prompt_preview}")
+        
+        start_time = time.time()
         try:
             response = await client.ainvoke(messages)
             self._total_calls += 1
             self._total_tokens += len(prompt.split()) + len(response.content.split())
+            elapsed = time.time() - start_time
+            logger.info(f"[LLM] Async generation complete - ResponseLength: {len(response.content)}, Elapsed: {elapsed:.2f}s")
             return response.content
         except Exception as e:
-            logger.error(f"Async generation failed: {e}")
+            elapsed = time.time() - start_time
+            logger.exception(f"[LLM] Async generation failed - Elapsed: {elapsed:.2f}s, Error: {e}")
+            raise
+    
+    async def complete(
+        self,
+        messages: list[dict[str, str]],
+        **kwargs
+    ) -> str:
+        """Complete a conversation with messages.
+        
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+            **kwargs: Additional arguments
+            
+        Returns:
+            Generated response text
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+        
+        client = self._get_client()
+        
+        lc_messages = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                lc_messages.append(SystemMessage(content=content))
+            elif role == "user":
+                lc_messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                lc_messages.append(AIMessage(content=content))
+            else:
+                lc_messages.append(HumanMessage(content=content))
+        
+        logger.info(f"[LLM] Starting conversation completion - Model: {self.model}, Endpoint: {self.endpoint}, MessageCount: {len(messages)}")
+        
+        start_time = time.time()
+        try:
+            response = await client.ainvoke(lc_messages)
+            self._total_calls += 1
+            total_input = sum(len(m.content.split()) for m in lc_messages)
+            self._total_tokens += total_input + len(response.content.split())
+            elapsed = time.time() - start_time
+            logger.info(f"[LLM] Conversation completion done - ResponseLength: {len(response.content)}, Elapsed: {elapsed:.2f}s")
+            return response.content
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.exception(f"[LLM] Conversation completion failed - Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
     def stream(
@@ -204,13 +273,18 @@ class LLMClient:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
         
+        logger.info(f"[LLM] Starting stream generation - Model: {self.model}, PromptLength: {len(prompt)}")
+        
         try:
+            chunk_count = 0
             for chunk in client.stream(messages):
                 if chunk.content:
+                    chunk_count += 1
                     yield chunk.content
             self._total_calls += 1
+            logger.info(f"[LLM] Stream generation complete - TotalChunks: {chunk_count}")
         except Exception as e:
-            logger.error(f"Streaming failed: {e}")
+            logger.exception(f"[LLM] Stream generation failed: {e}")
             raise
     
     async def astream(
@@ -236,13 +310,18 @@ class LLMClient:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
         
+        logger.info(f"[LLM] Starting async stream generation - Model: {self.model}, PromptLength: {len(prompt)}")
+        
         try:
+            chunk_count = 0
             async for chunk in client.astream(messages):
                 if chunk.content:
+                    chunk_count += 1
                     yield chunk.content
             self._total_calls += 1
+            logger.info(f"[LLM] Async stream generation complete - TotalChunks: {chunk_count}")
         except Exception as e:
-            logger.error(f"Async streaming failed: {e}")
+            logger.exception(f"[LLM] Async stream generation failed: {e}")
             raise
     
     def count_tokens(self, text: str) -> int:
@@ -254,7 +333,6 @@ class LLMClient:
         Returns:
             Estimated token count
         """
-        # Simple approximation: ~4 characters per token
         return len(text) // 4
     
     async def test_connection(self) -> tuple[bool, str]:
@@ -263,15 +341,22 @@ class LLMClient:
         Returns:
             Tuple of (success, message)
         """
+        logger.info(f"[LLM] Starting connection test - Model: {self.model}, Endpoint: {self.endpoint}")
+        start_time = time.time()
         try:
             response = await self.agenerate(
                 prompt="Hello, this is a connection test. Please respond with 'OK'.",
                 system_prompt="You are a helpful assistant."
             )
+            elapsed = time.time() - start_time
             if response and len(response) > 0:
+                logger.info(f"[LLM] Connection test successful - Elapsed: {elapsed:.2f}s, Model: {self.model}")
                 return True, f"Connection successful! Model: {self.model}"
+            logger.warning(f"[LLM] Connection test returned empty response - Elapsed: {elapsed:.2f}s")
             return False, "Empty response from model"
         except Exception as e:
+            elapsed = time.time() - start_time
+            logger.exception(f"[LLM] Connection test failed - Elapsed: {elapsed:.2f}s, Error: {e}")
             return False, f"Connection failed: {str(e)}"
     
     def get_usage_stats(self) -> dict:
@@ -280,14 +365,17 @@ class LLMClient:
         Returns:
             Dictionary with usage stats
         """
-        return {
+        stats = {
             "total_calls": self._total_calls,
             "total_tokens": self._total_tokens,
             "model": self.model,
             "provider": self.provider,
         }
+        logger.debug(f"[LLM] Usage stats: {stats}")
+        return stats
     
     def reset_stats(self):
         """Reset usage statistics."""
+        logger.info(f"[LLM] Resetting usage stats - Previous: calls={self._total_calls}, tokens={self._total_tokens}")
         self._total_calls = 0
         self._total_tokens = 0
