@@ -6,7 +6,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
 
 from pyutagent.agent.react_agent import ReActAgent
-from pyutagent.agent.base_agent import AgentState, AgentResult, StepResult
+from pyutagent.agent.base_agent import StepResult
+from pyutagent.core.protocols import AgentState, AgentResult
 from pyutagent.llm.client import LLMClient
 from pyutagent.memory.working_memory import WorkingMemory
 

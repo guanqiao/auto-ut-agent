@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 import asyncio
 
-from .base_agent import BaseAgent, AgentState, AgentResult, StepResult
+from .base_agent import BaseAgent, StepResult
+from ..core.protocols import AgentState, AgentResult
 
 logger = logging.getLogger(__name__)
 from .prompts import PromptBuilder

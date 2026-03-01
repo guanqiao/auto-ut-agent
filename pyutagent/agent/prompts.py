@@ -49,7 +49,7 @@ Output only the Java code without any markdown formatting or explanations."""
         imports = class_info.get("imports", [])
         
         method_list = "\n".join([
-            f"- {m.get('name')}({', '.join([p.get('name', 'unknown') for p in m.get('parameters', [])])}): {m.get('return_type', 'void')}"
+            f"- {m.get('name')}({', '.join([p[1] if isinstance(p, tuple) else p.get('name', 'unknown') for p in m.get('parameters', [])])}): {m.get('return_type', 'void')}"
             for m in methods
         ])
         
@@ -275,7 +275,7 @@ Provide specific recommendations for improving coverage:"""
         return_type = method_info.get("return_type", "void")
         
         param_list = ", ".join([
-            f"{p.get('type', 'Object')} {p.get('name', 'param')}"
+            f"{p[0] if isinstance(p, tuple) else p.get('type', 'Object')} {p[1] if isinstance(p, tuple) else p.get('name', 'param')}"
             for p in parameters
         ])
         

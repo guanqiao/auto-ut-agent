@@ -9,7 +9,7 @@ Using protocols allows for:
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 from typing import (
@@ -345,17 +345,14 @@ class AgentState(Enum):
 class AgentResult(Generic[T]):
     """Result from agent execution."""
     success: bool
-    state: AgentState
-    data: Optional[T] = None
     message: str = ""
-    iterations: int = 0
-    coverage: float = 0.0
+    state: AgentState = AgentState.IDLE
+    data: Optional[T] = None
     test_file: Optional[str] = None
-    errors: List[str] = None
-
-    def __post_init__(self):
-        if self.errors is None:
-            self.errors = []
+    coverage: float = 0.0
+    iterations: int = 0
+    errors: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

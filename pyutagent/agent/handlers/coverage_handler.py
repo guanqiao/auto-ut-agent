@@ -4,7 +4,8 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any, Set
 
-from ..base_agent import AgentState, StepResult
+from ...core.protocols import AgentState
+from ..base_agent import StepResult
 from ...tools.maven_tools import MavenRunner, CoverageAnalyzer as MavenCoverageAnalyzer
 
 logger = logging.getLogger(__name__)

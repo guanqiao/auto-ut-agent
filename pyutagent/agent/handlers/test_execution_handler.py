@@ -4,7 +4,8 @@ import logging
 from pathlib import Path
 from typing import List, Optional, Callable, Dict, Any
 
-from ..base_agent import AgentState, StepResult
+from ...core.protocols import AgentState
+from ..base_agent import StepResult
 from ...tools.maven_tools import MavenRunner
 from ...core.config import get_settings
 

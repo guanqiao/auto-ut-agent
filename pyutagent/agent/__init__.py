@@ -1,10 +1,11 @@
 """Agent module for UT generation with self-feedback loop."""
 
-from .base_agent import BaseAgent, AgentState, AgentResult, StepResult
+from .base_agent import BaseAgent, StepResult
 from .react_agent import ReActAgent
 from .actions import Action, ActionRegistry
 from .prompts import PromptBuilder
-from .error_recovery import (
+from ..core.protocols import AgentState, AgentResult
+from ..core.error_recovery import (
     ErrorRecoveryManager,
     ErrorCategory,
     RecoveryStrategy,
@@ -35,6 +36,12 @@ from .utils import (
     StateManager,
 )
 
+from .services import (
+    TestGenerationService,
+    TestExecutionService,
+    CoverageAnalysisService,
+)
+
 __all__ = [
     "BaseAgent",
     "AgentState",
@@ -61,4 +68,7 @@ __all__ = [
     "AiderTestGenerator",
     "TestFileManager",
     "StateManager",
+    "TestGenerationService",
+    "TestExecutionService",
+    "CoverageAnalysisService",
 ]

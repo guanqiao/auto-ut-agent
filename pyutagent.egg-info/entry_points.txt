@@ -1,2 +1,3 @@
 [console_scripts]
 pyutagent = pyutagent.main:main
+pyutagent-cli = pyutagent.cli.main:main

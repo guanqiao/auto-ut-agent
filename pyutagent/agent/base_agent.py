@@ -4,42 +4,15 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum, auto
 from typing import Dict, List, Optional, Any, Callable
 from pathlib import Path
 import json
 
 from ..memory.working_memory import WorkingMemory
 from ..llm.client import LLMClient
+from ..core.protocols import AgentState, AgentResult
 
 logger = logging.getLogger(__name__)
-
-
-class AgentState(Enum):
-    """Agent execution states."""
-    IDLE = auto()
-    PARSING = auto()
-    GENERATING = auto()
-    COMPILING = auto()
-    TESTING = auto()
-    ANALYZING = auto()
-    FIXING = auto()
-    OPTIMIZING = auto()
-    COMPLETED = auto()
-    FAILED = auto()
-    PAUSED = auto()
-
-
-@dataclass
-class AgentResult:
-    """Result of agent execution."""
-    success: bool
-    message: str
-    test_file: Optional[str] = None
-    coverage: float = 0.0
-    iterations: int = 0
-    errors: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

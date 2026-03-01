@@ -6,6 +6,7 @@ This module contains the core components that are shared across the application:
 - Unified configuration management
 - Dependency injection container
 - Abstract base classes and protocols
+- Application context for global state management
 """
 
 from .retry_manager import (
@@ -61,6 +62,15 @@ from .config import (
     get_available_models,
 )
 from .container import Container, get_container, configure_container
+from .context import ApplicationContext, get_context, reset_context, initialize_context
+from .events import (
+    EventType,
+    AgentEvent,
+    EventEmitter,
+    EventSubscriber,
+    get_event_emitter,
+    reset_event_emitter,
+)
 from .protocols import (
     LLMClientProtocol,
     CodeEditorProtocol,
@@ -132,6 +142,16 @@ __all__ = [
     "Container",
     "get_container",
     "configure_container",
+    "ApplicationContext",
+    "get_context",
+    "reset_context",
+    "initialize_context",
+    "EventType",
+    "AgentEvent",
+    "EventEmitter",
+    "EventSubscriber",
+    "get_event_emitter",
+    "reset_event_emitter",
     "LLMClientProtocol",
     "CodeEditorProtocol",
     "TestRunnerProtocol",

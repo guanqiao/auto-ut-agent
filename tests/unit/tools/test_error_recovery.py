@@ -11,7 +11,7 @@ import allure
 from unittest.mock import Mock, AsyncMock
 from typing import Dict, Any
 
-from pyutagent.tools.error_recovery import (
+from pyutagent.core.error_recovery import (
     ErrorClassifier, ErrorCategory, RecoveryManager, RecoveryStrategy,
     StatePreserver, GracefulDegradation, ErrorContext, RecoveryResult,
     safe_execution_context, create_recovery_manager, classify_error,
