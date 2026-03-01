@@ -246,7 +246,7 @@ class GenerateTestsAction(Action):
                     source_code=source_code
                 )
             
-            response = await self.llm_client.generate(prompt)
+            response = await self.llm_client.agenerate(prompt)
             
             return ActionResult(
                 success=True,
@@ -472,7 +472,7 @@ class FixErrorsAction(Action):
                     class_info=class_info
                 )
             
-            response = await self.llm_client.generate(prompt)
+            response = await self.llm_client.agenerate(prompt)
             
             return ActionResult(
                 success=True,

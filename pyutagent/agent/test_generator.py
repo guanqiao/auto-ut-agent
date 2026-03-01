@@ -200,7 +200,7 @@ class TestGeneratorAgent:
             self._update_progress(50, "运行测试...")
             
             test_file_path = self._save_test_file(target_file, test_code)
-            success = self.maven_runner.run_tests()
+            success = await self.maven_runner.run_tests_async()
             
             if not success:
                 self.status = TaskStatus.FAILED
@@ -254,7 +254,7 @@ class TestGeneratorAgent:
                 self._append_test_code(test_file_path, additional_tests)
                 
                 # Re-run tests
-                success = self.maven_runner.run_tests()
+                success = await self.maven_runner.run_tests_async()
                 if not success:
                     self._log("测试运行失败，停止优化")
                     break

@@ -1,6 +1,7 @@
 """Base agent class for UT generation."""
 
 import logging
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -30,6 +31,8 @@ class BaseAgent(ABC):
     Features:
     - State management and history tracking
     - Stop signal handling for graceful shutdown
+    - Pause/Resume support with asyncio.Event
+    - Terminate support for immediate stop
     - Progress callback support
     - State persistence (save/load)
     """
@@ -64,6 +67,14 @@ class BaseAgent(ABC):
         self._stop_requested = False
         self._stop_event = None  # Will be initialized when needed
         
+        # Pause/Resume support
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()  # Not paused by default
+        self._is_paused = False
+        
+        # Terminate flag
+        self._terminated = False
+        
     def _update_state(self, new_state: AgentState, message: str = ""):
         """Update agent state and record history."""
         self.state = new_state
@@ -86,19 +97,34 @@ class BaseAgent(ABC):
         
         Returns False if:
         - Stop was requested
-        - State is PAUSED
+        - Terminated
         - Max iterations reached
         - Target coverage reached
         """
         if self._stop_requested:
             return False
-        if self.state == AgentState.PAUSED:
+        if self._terminated:
             return False
         if self.current_iteration >= self.max_iterations:
             return False
         if self.working_memory.current_coverage >= self.target_coverage:
             return False
         return True
+    
+    async def _check_pause(self):
+        """Check if paused and wait until resumed.
+        
+        This method should be called at key points in the execution loop
+        to support pause/resume functionality.
+        """
+        if not self._pause_event.is_set():
+            self._is_paused = True
+            self._update_state(AgentState.PAUSED, "Execution paused, waiting to resume...")
+            logger.info("[BaseAgent] Execution paused, waiting for resume...")
+            await self._pause_event.wait()
+            self._is_paused = False
+            self._update_state(AgentState.IDLE, "Execution resumed")
+            logger.info("[BaseAgent] Execution resumed")
     
     def request_stop(self) -> bool:
         """Request agent to stop execution gracefully.
@@ -130,14 +156,63 @@ class BaseAgent(ABC):
         self._stop_requested = False
     
     def pause(self):
-        """Pause agent execution (legacy, use request_stop instead)."""
-        self.request_stop()
+        """Pause agent execution.
+        
+        The agent will pause at the next check point.
+        """
+        self._pause_event.clear()
+        self._is_paused = True
+        self.working_memory.pause()
+        self._update_state(AgentState.PAUSED, "Pause requested, will pause at next checkpoint...")
+        logger.info("[BaseAgent] Pause requested")
     
     def resume(self):
         """Resume agent execution."""
-        self.reset_stop_signal()
+        self._pause_event.set()
+        self._is_paused = False
+        self._stop_requested = False
         self.working_memory.resume()
         self._update_state(AgentState.IDLE, "Execution resumed")
+        logger.info("[BaseAgent] Resume requested")
+    
+    def terminate(self):
+        """Terminate agent execution immediately.
+        
+        This will stop the agent as soon as possible and clean up resources.
+        """
+        self._terminated = True
+        self._stop_requested = True
+        self._pause_event.set()  # Release any waiting pause
+        self.working_memory.pause()
+        self._update_state(AgentState.FAILED, "Execution terminated by user")
+        logger.info("[BaseAgent] Terminate requested")
+    
+    def reset(self):
+        """Reset agent to initial state."""
+        self._stop_requested = False
+        self._terminated = False
+        self._pause_event.set()
+        self._is_paused = False
+        self.state = AgentState.IDLE
+        self.current_iteration = 0
+        self.working_memory.resume()
+        logger.info("[BaseAgent] Agent reset to initial state")
+    
+    def is_paused(self) -> bool:
+        """Check if agent is currently paused.
+        
+        Returns:
+            True if agent is paused
+        """
+        return self._is_paused
+    
+    def is_terminated(self) -> bool:
+        """Check if agent has been terminated.
+        
+        Returns:
+            True if agent is terminated
+        """
+        return self._terminated
     
     @abstractmethod
     async def generate_tests(self, target_file: str) -> AgentResult:

@@ -1,489 +1,625 @@
-"""Error prediction for proactive error prevention.
+"""Error predictor for pre-compilation error detection.
 
 This module provides error prediction capabilities:
-- Static analysis for potential errors
-- Pattern-based prediction
-- Risk assessment
-- Preventive recommendations
+- Static code analysis for error patterns
+- Dynamic prediction based on historical data
+- Test failure prediction
+- Confidence scoring
 """
 
 import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Any, Set, Tuple
+from pathlib import Path
+
+from .error_knowledge_base import ErrorKnowledgeBase
 
 logger = logging.getLogger(__name__)
 
 
-class PredictionConfidence(Enum):
-    """Confidence levels for predictions."""
-    LOW = auto()
-    MEDIUM = auto()
-    HIGH = auto()
-    VERY_HIGH = auto()
-
-
 class ErrorType(Enum):
-    """Types of predictable errors."""
-    MISSING_IMPORT = auto()
-    UNDEFINED_VARIABLE = auto()
+    """Types of errors that can be predicted."""
+    SYNTAX_ERROR = auto()
     TYPE_MISMATCH = auto()
     NULL_POINTER = auto()
-    SYNTAX_ERROR = auto()
-    COMPILATION_ERROR = auto()
-    TEST_FAILURE = auto()
-    ASSERTION_FAILURE = auto()
-    MOCK_CONFIGURATION = auto()
+    IMPORT_MISSING = auto()
+    METHOD_NOT_FOUND = auto()
+    VARIABLE_NOT_FOUND = auto()
+    ACCESS_VIOLATION = auto()
     RESOURCE_LEAK = auto()
     CONCURRENCY_ISSUE = auto()
+    TEST_ASSERTION_FAILURE = auto()
+    TEST_SETUP_FAILURE = auto()
+
+
+class Severity(Enum):
+    """Severity levels for predicted errors."""
+    CRITICAL = auto()  # Will definitely cause failure
+    HIGH = auto()      # Very likely to cause failure
+    MEDIUM = auto()    # May cause failure
+    LOW = auto()       # Minor issue
 
 
 @dataclass
 class PredictedError:
-    """A predicted error."""
+    """A predicted error with metadata."""
     error_type: ErrorType
+    severity: Severity
     message: str
-    location: Optional[Tuple[int, int]]
-    confidence: PredictionConfidence
-    probability: float
-    prevention_suggestion: str
-    related_code: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    line_number: Optional[int] = None
+    column: Optional[int] = None
+    confidence: float = 0.0  # 0.0 - 1.0
+    suggestion: str = ""
+    code_snippet: str = ""
+    related_patterns: List[str] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "error_type": self.error_type.name,
+            "severity": self.severity.name,
+            "message": self.message,
+            "line_number": self.line_number,
+            "column": self.column,
+            "confidence": self.confidence,
+            "suggestion": self.suggestion,
+            "code_snippet": self.code_snippet,
+            "related_patterns": self.related_patterns
+        }
 
 
 @dataclass
 class PredictionResult:
     """Result of error prediction."""
-    predictions: List[PredictedError]
-    overall_risk_score: float
-    analyzed_lines: int
-    analysis_time: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-class StaticAnalyzer:
-    """Static analysis for error prediction."""
+    predicted_errors: List[PredictedError]
+    overall_risk_score: float  # 0.0 - 1.0
+    has_critical_errors: bool
     
-    def __init__(self):
-        self._patterns = self._load_patterns()
+    @property
+    def has_errors(self) -> bool:
+        return len(self.predicted_errors) > 0
     
-    def _load_patterns(self) -> Dict[ErrorType, List[re.Pattern]]:
-        """Load error detection patterns."""
-        return {
-            ErrorType.MISSING_IMPORT: [
-                re.compile(r'\b(List|Map|Set|ArrayList|HashMap|HashSet)\b'),
-                re.compile(r'\b(assertEquals|assertTrue|assertFalse|assertNull)\b'),
-                re.compile(r'\b(Mock|InjectMocks|Mockito)\b'),
-                re.compile(r'\b(Test|BeforeEach|AfterEach|BeforeAll|AfterAll)\b'),
-            ],
-            ErrorType.UNDEFINED_VARIABLE: [
-                re.compile(r'\b\w+\s*\.\s*\w+\s*\('),
-            ],
-            ErrorType.NULL_POINTER: [
-                re.compile(r'\.\w+\(\)(?!\s*;|\s*\))'),
-                re.compile(r'return\s+null\s*;'),
-            ],
-            ErrorType.TYPE_MISMATCH: [
-                re.compile(r'=\s*null\s*;(?![^;]*String|[^;]*Integer|[^;]*Object)'),
-            ],
-            ErrorType.ASSERTION_FAILURE: [
-                re.compile(r'assertEquals\s*\(\s*null\s*,'),
-                re.compile(r'assertTrue\s*\(\s*false\s*\)'),
-                re.compile(r'assertFalse\s*\(\s*true\s*\)'),
-            ],
-            ErrorType.MOCK_CONFIGURATION: [
-                re.compile(r'@Mock(?![\s\S]*MockitoAnnotations\.openMocks)'),
-                re.compile(r'@InjectMocks(?![\s\S]*MockitoAnnotations\.openMocks)'),
-            ],
-        }
+    @property
+    def error_count(self) -> int:
+        return len(self.predicted_errors)
     
-    def analyze(self, code: str) -> List[PredictedError]:
-        """Analyze code for potential errors.
-        
-        Args:
-            code: Code to analyze
-            
-        Returns:
-            List of predicted errors
-        """
-        predictions = []
-        lines = code.split('\n')
-        
-        imports = self._extract_imports(code)
-        
-        for error_type, patterns in self._patterns.items():
-            for pattern in patterns:
-                for match in pattern.finditer(code):
-                    line_no = code[:match.start()].count('\n') + 1
-                    
-                    if error_type == ErrorType.MISSING_IMPORT:
-                        symbol = match.group(1) if match.groups() else match.group(0)
-                        if not self._is_imported(symbol, imports):
-                            predictions.append(PredictedError(
-                                error_type=error_type,
-                                message=f"Potential missing import for: {symbol}",
-                                location=(line_no, match.start() - code[:match.start()].rfind('\n')),
-                                confidence=PredictionConfidence.HIGH,
-                                probability=0.85,
-                                prevention_suggestion=f"Add import statement for {symbol}",
-                                related_code=match.group(0)
-                            ))
-                    
-                    elif error_type == ErrorType.ASSERTION_FAILURE:
-                        predictions.append(PredictedError(
-                            error_type=error_type,
-                            message="Assertion that always fails",
-                            location=(line_no, match.start() - code[:match.start()].rfind('\n')),
-                            confidence=PredictionConfidence.VERY_HIGH,
-                            probability=0.95,
-                            prevention_suggestion="Review assertion logic",
-                            related_code=match.group(0)
-                        ))
-                    
-                    elif error_type == ErrorType.MOCK_CONFIGURATION:
-                        if '@BeforeEach' not in code and 'MockitoAnnotations.openMocks' not in code:
-                            predictions.append(PredictedError(
-                                error_type=error_type,
-                                message="Mock annotations without initialization",
-                                location=(line_no, match.start() - code[:match.start()].rfind('\n')),
-                                confidence=PredictionConfidence.HIGH,
-                                probability=0.80,
-                                prevention_suggestion="Add MockitoAnnotations.openMocks(this) in @BeforeEach",
-                                related_code=match.group(0)
-                            ))
-        
-        return predictions
+    def get_errors_by_severity(self, severity: Severity) -> List[PredictedError]:
+        """Get errors filtered by severity."""
+        return [e for e in self.predicted_errors if e.severity == severity]
     
-    def _extract_imports(self, code: str) -> List[str]:
-        """Extract import statements."""
-        imports = []
-        for match in re.finditer(r'import\s+(?:static\s+)?([\w.]+)', code):
-            imports.append(match.group(1))
-        return imports
-    
-    def _is_imported(self, symbol: str, imports: List[str]) -> bool:
-        """Check if a symbol is imported."""
-        for imp in imports:
-            if imp.endswith(f'.{symbol}') or imp.endswith('.*'):
-                return True
-            if imp.split('.')[-1] == symbol:
-                return True
-        return False
-
-
-class PatternBasedPredictor:
-    """Predicts errors based on historical patterns."""
-    
-    def __init__(self):
-        self._error_patterns: Dict[str, List[Dict[str, Any]]] = {}
-    
-    def register_pattern(
-        self,
-        code_pattern: str,
-        predicted_error: PredictedError
-    ):
-        """Register an error pattern."""
-        if code_pattern not in self._error_patterns:
-            self._error_patterns[code_pattern] = []
-        self._error_patterns[code_pattern].append({
-            "error": predicted_error,
-            "occurrences": 0,
-            "confirmed": 0
-        })
-    
-    def predict(self, code: str) -> List[PredictedError]:
-        """Predict errors based on patterns.
-        
-        Args:
-            code: Code to analyze
-            
-        Returns:
-            List of predicted errors
-        """
-        predictions = []
-        
-        for pattern, errors in self._error_patterns.items():
-            if re.search(pattern, code, re.DOTALL):
-                for error_data in errors:
-                    error = error_data["error"]
-                    occurrences = error_data["occurrences"]
-                    confirmed = error_data["confirmed"]
-                    
-                    probability = confirmed / occurrences if occurrences > 0 else 0.5
-                    
-                    predictions.append(PredictedError(
-                        error_type=error.error_type,
-                        message=error.message,
-                        location=error.location,
-                        confidence=self._get_confidence(probability),
-                        probability=probability,
-                        prevention_suggestion=error.prevention_suggestion,
-                        metadata={"pattern": pattern}
-                    ))
-        
-        return predictions
-    
-    def _get_confidence(self, probability: float) -> PredictionConfidence:
-        """Get confidence level from probability."""
-        if probability >= 0.8:
-            return PredictionConfidence.VERY_HIGH
-        elif probability >= 0.6:
-            return PredictionConfidence.HIGH
-        elif probability >= 0.4:
-            return PredictionConfidence.MEDIUM
-        return PredictionConfidence.LOW
-    
-    def record_occurrence(self, pattern: str, confirmed: bool):
-        """Record a pattern occurrence."""
-        if pattern in self._error_patterns:
-            for error_data in self._error_patterns[pattern]:
-                error_data["occurrences"] += 1
-                if confirmed:
-                    error_data["confirmed"] += 1
-
-
-class RiskAssessor:
-    """Assesses overall risk of code."""
-    
-    def __init__(self):
-        self._risk_weights = {
-            ErrorType.COMPILATION_ERROR: 0.9,
-            ErrorType.NULL_POINTER: 0.8,
-            ErrorType.MISSING_IMPORT: 0.7,
-            ErrorType.TYPE_MISMATCH: 0.7,
-            ErrorType.TEST_FAILURE: 0.6,
-            ErrorType.ASSERTION_FAILURE: 0.5,
-            ErrorType.MOCK_CONFIGURATION: 0.5,
-            ErrorType.UNDEFINED_VARIABLE: 0.8,
-            ErrorType.SYNTAX_ERROR: 0.9,
-            ErrorType.RESOURCE_LEAK: 0.6,
-            ErrorType.CONCURRENCY_ISSUE: 0.7,
-        }
-    
-    def assess_risk(
-        self,
-        predictions: List[PredictedError]
-    ) -> float:
-        """Assess overall risk score.
-        
-        Args:
-            predictions: List of predicted errors
-            
-        Returns:
-            Risk score (0.0-1.0)
-        """
-        if not predictions:
-            return 0.0
-        
-        total_risk = 0.0
-        
-        for pred in predictions:
-            weight = self._risk_weights.get(pred.error_type, 0.5)
-            confidence_mult = {
-                PredictionConfidence.VERY_HIGH: 1.0,
-                PredictionConfidence.HIGH: 0.8,
-                PredictionConfidence.MEDIUM: 0.6,
-                PredictionConfidence.LOW: 0.4,
-            }.get(pred.confidence, 0.5)
-            
-            risk = weight * pred.probability * confidence_mult
-            total_risk += risk
-        
-        max_possible_risk = len(predictions)
-        normalized_risk = min(1.0, total_risk / max_possible_risk) if max_possible_risk > 0 else 0.0
-        
-        return normalized_risk
+    def get_errors_by_type(self, error_type: ErrorType) -> List[PredictedError]:
+        """Get errors filtered by type."""
+        return [e for e in self.predicted_errors if e.error_type == error_type]
 
 
 class ErrorPredictor:
-    """Main error predictor combining all strategies.
+    """Error predictor for pre-compilation error detection.
     
     Features:
-    - Static analysis
-    - Pattern-based prediction
-    - Risk assessment
-    - Prevention recommendations
+    - Static code analysis for common error patterns
+    - Dynamic prediction based on historical error data
+    - Test failure prediction
+    - Confidence scoring
     """
     
-    def __init__(self):
-        self.static_analyzer = StaticAnalyzer()
-        self.pattern_predictor = PatternBasedPredictor()
-        self.risk_assessor = RiskAssessor()
-        
-        self._load_default_patterns()
-    
-    def _load_default_patterns(self):
-        """Load default error patterns."""
-        self.pattern_predictor.register_pattern(
-            r'@Test\s+public\s+void\s+\w+\(\)\s*\{[^}]*\}',
-            PredictedError(
-                error_type=ErrorType.TEST_FAILURE,
-                message="Test method without assertions",
-                location=None,
-                confidence=PredictionConfidence.MEDIUM,
-                probability=0.6,
-                prevention_suggestion="Add assertions to verify expected behavior"
-            )
-        )
-        
-        self.pattern_predictor.register_pattern(
-            r'new\s+\w+\(\)\s*;\s*(?!\s*assert)',
-            PredictedError(
-                error_type=ErrorType.TEST_FAILURE,
-                message="Object created but not used in assertions",
-                location=None,
-                confidence=PredictionConfidence.LOW,
-                probability=0.4,
-                prevention_suggestion="Use the created object in assertions"
-            )
-        )
-    
-    def predict_compilation_errors(
-        self,
-        code: str
-    ) -> List[PredictedError]:
-        """Predict compilation errors.
+    def __init__(self, knowledge_base: Optional[ErrorKnowledgeBase] = None):
+        """Initialize error predictor.
         
         Args:
-            code: Code to analyze
-            
-        Returns:
-            List of predicted compilation errors
+            knowledge_base: Optional error knowledge base for learning
         """
-        import time
-        start_time = time.time()
+        self.knowledge_base = knowledge_base
         
-        static_predictions = self.static_analyzer.analyze(code)
+        # Compile regex patterns for efficiency
+        self._init_patterns()
         
-        pattern_predictions = self.pattern_predictor.predict(code)
-        
-        all_predictions = static_predictions + pattern_predictions
-        
-        compilation_types = {
-            ErrorType.MISSING_IMPORT,
-            ErrorType.SYNTAX_ERROR,
-            ErrorType.TYPE_MISMATCH,
-            ErrorType.UNDEFINED_VARIABLE,
-        }
-        
-        compilation_predictions = [
-            p for p in all_predictions
-            if p.error_type in compilation_types
+        logger.info("[ErrorPredictor] Initialized")
+    
+    def _init_patterns(self):
+        """Initialize error detection patterns."""
+        # Syntax error patterns
+        self.syntax_patterns = [
+            (r'\)\s*\{', "Missing semicolon before brace", Severity.MEDIUM),
+            (r'\b(if|while|for)\s*\([^)]+\)\s*[^;{]', "Missing braces for control statement", Severity.LOW),
+            (r'\bclass\s+\w+\s*\{[^}]*\bclass\s+', "Nested class without proper structure", Severity.HIGH),
+            (r'\breturn\s+[^;]+[^;{}]\s*$', "Missing semicolon after return", Severity.CRITICAL),
         ]
         
-        logger.info(
-            f"[ErrorPredictor] Found {len(compilation_predictions)} potential "
-            f"compilation errors in {time.time() - start_time:.2f}s"
-        )
-        
-        return compilation_predictions
-    
-    def predict_test_failures(
-        self,
-        test_code: str
-    ) -> List[PredictedError]:
-        """Predict test failures.
-        
-        Args:
-            test_code: Test code to analyze
-            
-        Returns:
-            List of predicted test failures
-        """
-        import time
-        start_time = time.time()
-        
-        static_predictions = self.static_analyzer.analyze(test_code)
-        
-        pattern_predictions = self.pattern_predictor.predict(test_code)
-        
-        all_predictions = static_predictions + pattern_predictions
-        
-        test_types = {
-            ErrorType.TEST_FAILURE,
-            ErrorType.ASSERTION_FAILURE,
-            ErrorType.MOCK_CONFIGURATION,
-            ErrorType.NULL_POINTER,
-        }
-        
-        test_predictions = [
-            p for p in all_predictions
-            if p.error_type in test_types
+        # Type mismatch patterns
+        self.type_patterns = [
+            (r'\bString\s+\w+\s*=\s*\d+\b', "Assigning number to String", Severity.HIGH),
+            (r'\bint\s+\w+\s*=\s*"[^"]*"', "Assigning string to int", Severity.CRITICAL),
+            (r'\.equals\s*\(\s*\d+\s*\)', "Using equals() with primitive", Severity.HIGH),
+            (r'==\s*"[^"]*"', "Using == for String comparison", Severity.MEDIUM),
         ]
         
-        logger.info(
-            f"[ErrorPredictor] Found {len(test_predictions)} potential "
-            f"test failures in {time.time() - start_time:.2f}s"
-        )
+        # Null pointer patterns
+        self.null_patterns = [
+            (r'\b\w+\s*\.\s*\w+\s*\([^)]*\)', "Method call on potentially null object", Severity.MEDIUM),
+            (r'\.\s*length\b', "Accessing length without null check", Severity.MEDIUM),
+            (r'\.\s*get\s*\(', "Calling get() without null check", Severity.MEDIUM),
+            (r'@Nullable.*\n.*\.', "Using @Nullable without check", Severity.HIGH),
+        ]
         
-        return test_predictions
+        # Import missing patterns
+        self.import_patterns = [
+            (r'\bList\s*<', "Missing import for List", Severity.MEDIUM),
+            (r'\bMap\s*<', "Missing import for Map", Severity.MEDIUM),
+            (r'\bSet\s*<', "Missing import for Set", Severity.MEDIUM),
+            (r'\bArrayList\s*<', "Missing import for ArrayList", Severity.MEDIUM),
+            (r'\bHashMap\s*<', "Missing import for HashMap", Severity.MEDIUM),
+            (r'\b@Test\b', "Missing JUnit import", Severity.MEDIUM),
+            (r'\b@BeforeEach\b', "Missing JUnit import", Severity.MEDIUM),
+            (r'\bassertEquals\s*\(', "Missing Assertions import", Severity.MEDIUM),
+            (r'\bMockito\.', "Missing Mockito import", Severity.MEDIUM),
+            (r'\bwhen\s*\(', "Missing Mockito import", Severity.MEDIUM),
+        ]
+        
+        # Method not found patterns
+        self.method_patterns = [
+            (r'\.\s*size\s*\(\s*\)', "Using size() on array (should be length)", Severity.HIGH),
+            (r'\.\s*length\s*\(\s*\)', "Using length() on String (should be length())", Severity.MEDIUM),
+            (r'\.\s*add\s*\(\s*\d+\s*,', "Using add(index, element) without checking List type", Severity.LOW),
+        ]
+        
+        # Variable not found patterns
+        self.variable_patterns = [
+            (r'\b\w+\s*=\\w+\s*;', "Using undefined variable", Severity.CRITICAL),
+        ]
+        
+        # Resource leak patterns
+        self.resource_patterns = [
+            (r'\bnew\s+FileInputStream\s*\(', "FileInputStream not closed", Severity.MEDIUM),
+            (r'\bnew\s+FileOutputStream\s*\(', "FileOutputStream not closed", Severity.MEDIUM),
+            (r'\bnew\s+Scanner\s*\(', "Scanner not closed", Severity.LOW),
+            (r'\.create\(\)', "Resource created but not closed", Severity.LOW),
+        ]
+        
+        # Concurrency patterns
+        self.concurrency_patterns = [
+            (r'\bArrayList\s*<[^>]*>\s+\w+\s*=\s*new\s+ArrayList', "Using non-thread-safe ArrayList in concurrent context", Severity.MEDIUM),
+            (r'\bHashMap\s*<[^>]*>\s+\w+\s*=\s*new\s+HashMap', "Using non-thread-safe HashMap in concurrent context", Severity.MEDIUM),
+        ]
+        
+        # Test assertion patterns
+        self.test_assertion_patterns = [
+            (r'assertEquals\s*\(\s*expected\s*,\s*actual\s*\)', "assertEquals with wrong argument order", Severity.HIGH),
+            (r'assertTrue\s*\(\s*false\s*\)', "assertTrue(false) - always fails", Severity.CRITICAL),
+            (r'assertFalse\s*\(\s*true\s*\)', "assertFalse(true) - always fails", Severity.CRITICAL),
+            (r'assertNull\s*\(\s*new\s+', "assertNull with new object - always fails", Severity.CRITICAL),
+            (r'assertNotNull\s*\(\s*null\s*\)', "assertNotNull(null) - always fails", Severity.CRITICAL),
+        ]
+        
+        # Test setup patterns
+        self.test_setup_patterns = [
+            (r'@Test\s+void\s+\w+\s*\(\s*\)\s*\{\s*\}', "Empty test method", Severity.LOW),
+            (r'@Test\s+void\s+\w+\s*\(\s*\)\s*\{[^}]*//\s*TODO', "Test with TODO comment", Severity.LOW),
+        ]
     
-    def analyze(
-        self,
-        code: str,
-        code_type: str = "source"
-    ) -> PredictionResult:
-        """Perform full error prediction analysis.
+    def predict_compilation_errors(self, code: str, file_path: Optional[str] = None) -> PredictionResult:
+        """Predict compilation errors before compilation.
         
         Args:
-            code: Code to analyze
-            code_type: Type of code ("source" or "test")
+            code: Java source code
+            file_path: Optional file path for context
             
         Returns:
-            PredictionResult with all predictions
+            PredictionResult with predicted errors
         """
-        import time
-        start_time = time.time()
+        predicted_errors = []
         
-        static_predictions = self.static_analyzer.analyze(code)
-        pattern_predictions = self.pattern_predictor.predict(code)
+        # Check syntax patterns
+        predicted_errors.extend(self._check_syntax_patterns(code))
         
-        all_predictions = static_predictions + pattern_predictions
+        # Check type patterns
+        predicted_errors.extend(self._check_type_patterns(code))
         
-        all_predictions.sort(key=lambda p: p.probability, reverse=True)
+        # Check null pointer patterns
+        predicted_errors.extend(self._check_null_patterns(code))
         
-        overall_risk = self.risk_assessor.assess_risk(all_predictions)
+        # Check import patterns
+        predicted_errors.extend(self._check_import_patterns(code))
         
+        # Check method patterns
+        predicted_errors.extend(self._check_method_patterns(code))
+        
+        # Check from knowledge base if available
+        if self.knowledge_base:
+            predicted_errors.extend(self._check_historical_patterns(code))
+        
+        # Calculate overall risk score
+        risk_score = self._calculate_risk_score(predicted_errors)
+        has_critical = any(e.severity == Severity.CRITICAL for e in predicted_errors)
+        
+        result = PredictionResult(
+            predicted_errors=predicted_errors,
+            overall_risk_score=risk_score,
+            has_critical_errors=has_critical
+        )
+        
+        logger.info(f"[ErrorPredictor] Predicted {len(predicted_errors)} errors, "
+                   f"risk score: {risk_score:.2f}")
+        
+        return result
+    
+    def predict_test_failures(self, test_code: str, source_code: Optional[str] = None) -> PredictionResult:
+        """Predict test failures before execution.
+        
+        Args:
+            test_code: Test source code
+            source_code: Optional source code being tested
+            
+        Returns:
+            PredictionResult with predicted failures
+        """
+        predicted_errors = []
+        
+        # Check assertion patterns
+        predicted_errors.extend(self._check_assertion_patterns(test_code))
+        
+        # Check test setup patterns
+        predicted_errors.extend(self._check_test_setup_patterns(test_code))
+        
+        # Check resource patterns
+        predicted_errors.extend(self._check_resource_patterns(test_code))
+        
+        # Check concurrency patterns
+        predicted_errors.extend(self._check_concurrency_patterns(test_code))
+        
+        # If source code provided, check test coverage
+        if source_code:
+            predicted_errors.extend(self._check_test_coverage(test_code, source_code))
+        
+        # Calculate overall risk score
+        risk_score = self._calculate_risk_score(predicted_errors)
+        has_critical = any(e.severity == Severity.CRITICAL for e in predicted_errors)
+        
+        result = PredictionResult(
+            predicted_errors=predicted_errors,
+            overall_risk_score=risk_score,
+            has_critical_errors=has_critical
+        )
+        
+        logger.info(f"[ErrorPredictor] Predicted {len(predicted_errors)} test failures, "
+                   f"risk score: {risk_score:.2f}")
+        
+        return result
+    
+    def _check_syntax_patterns(self, code: str) -> List[PredictedError]:
+        """Check for syntax error patterns."""
+        errors = []
         lines = code.split('\n')
-        analysis_time = time.time() - start_time
         
-        logger.info(
-            f"[ErrorPredictor] Analysis complete - "
-            f"Predictions: {len(all_predictions)}, "
-            f"Risk: {overall_risk:.2f}, "
-            f"Time: {analysis_time:.2f}s"
-        )
+        for pattern, message, severity in self.syntax_patterns:
+            for i, line in enumerate(lines, 1):
+                if re.search(pattern, line):
+                    errors.append(PredictedError(
+                        error_type=ErrorType.SYNTAX_ERROR,
+                        severity=severity,
+                        message=message,
+                        line_number=i,
+                        confidence=0.8,
+                        suggestion="Check syntax and add missing elements",
+                        code_snippet=line.strip()
+                    ))
         
-        return PredictionResult(
-            predictions=all_predictions,
-            overall_risk_score=overall_risk,
-            analyzed_lines=len(lines),
-            analysis_time=analysis_time,
-            metadata={"code_type": code_type}
-        )
+        return errors
     
-    def get_prevention_recommendations(
-        self,
-        predictions: List[PredictedError]
-    ) -> List[str]:
-        """Get prevention recommendations.
+    def _check_type_patterns(self, code: str) -> List[PredictedError]:
+        """Check for type mismatch patterns."""
+        errors = []
+        lines = code.split('\n')
+        
+        for pattern, message, severity in self.type_patterns:
+            for i, line in enumerate(lines, 1):
+                if re.search(pattern, line):
+                    errors.append(PredictedError(
+                        error_type=ErrorType.TYPE_MISMATCH,
+                        severity=severity,
+                        message=message,
+                        line_number=i,
+                        confidence=0.85,
+                        suggestion="Ensure type compatibility in assignments and comparisons",
+                        code_snippet=line.strip()
+                    ))
+        
+        return errors
+    
+    def _check_null_patterns(self, code: str) -> List[PredictedError]:
+        """Check for null pointer patterns."""
+        errors = []
+        lines = code.split('\n')
+        
+        for pattern, message, severity in self.null_patterns:
+            for i, line in enumerate(lines, 1):
+                if re.search(pattern, line) and 'null' not in line.lower():
+                    errors.append(PredictedError(
+                        error_type=ErrorType.NULL_POINTER,
+                        severity=severity,
+                        message=message,
+                        line_number=i,
+                        confidence=0.6,
+                        suggestion="Add null check before accessing object members",
+                        code_snippet=line.strip()
+                    ))
+        
+        return errors
+    
+    def _check_import_patterns(self, code: str) -> List[PredictedError]:
+        """Check for missing import patterns."""
+        errors = []
+        
+        # Check if imports exist
+        has_import_section = 'import ' in code
+        
+        if has_import_section:
+            for pattern, message, severity in self.import_patterns:
+                if re.search(pattern, code):
+                    # Check if corresponding import exists
+                    import_map = {
+                        'List': 'java.util.List',
+                        'Map': 'java.util.Map',
+                        'Set': 'java.util.Set',
+                        'ArrayList': 'java.util.ArrayList',
+                        'HashMap': 'java.util.HashMap',
+                        '@Test': 'org.junit.jupiter.api.Test',
+                        '@BeforeEach': 'org.junit.jupiter.api.BeforeEach',
+                        'assertEquals': 'org.junit.jupiter.api.Assertions',
+                        'Mockito': 'org.mockito.Mockito',
+                        'when': 'org.mockito.Mockito',
+                    }
+                    
+                    for key, import_stmt in import_map.items():
+                        if key in message and import_stmt not in code:
+                            errors.append(PredictedError(
+                                error_type=ErrorType.IMPORT_MISSING,
+                                severity=severity,
+                                message=message,
+                                confidence=0.75,
+                                suggestion=f"Add import: {import_stmt}",
+                                code_snippet=f"import {import_stmt};"
+                            ))
+        
+        return errors
+    
+    def _check_method_patterns(self, code: str) -> List[PredictedError]:
+        """Check for method-related patterns."""
+        errors = []
+        lines = code.split('\n')
+        
+        for pattern, message, severity in self.method_patterns:
+            for i, line in enumerate(lines, 1):
+                if re.search(pattern, line):
+                    errors.append(PredictedError(
+                        error_type=ErrorType.METHOD_NOT_FOUND,
+                        severity=severity,
+                        message=message,
+                        line_number=i,
+                        confidence=0.7,
+                        suggestion="Check method name and signature",
+                        code_snippet=line.strip()
+                    ))
+        
+        return errors
+    
+    def _check_assertion_patterns(self, code: str) -> List[PredictedError]:
+        """Check for assertion error patterns."""
+        errors = []
+        lines = code.split('\n')
+        
+        for pattern, message, severity in self.test_assertion_patterns:
+            for i, line in enumerate(lines, 1):
+                if re.search(pattern, line):
+                    errors.append(PredictedError(
+                        error_type=ErrorType.TEST_ASSERTION_FAILURE,
+                        severity=severity,
+                        message=message,
+                        line_number=i,
+                        confidence=0.9,
+                        suggestion="Fix assertion logic",
+                        code_snippet=line.strip()
+                    ))
+        
+        return errors
+    
+    def _check_test_setup_patterns(self, code: str) -> List[PredictedError]:
+        """Check for test setup patterns."""
+        errors = []
+        lines = code.split('\n')
+        
+        for pattern, message, severity in self.test_setup_patterns:
+            for i, line in enumerate(lines, 1):
+                if re.search(pattern, line):
+                    errors.append(PredictedError(
+                        error_type=ErrorType.TEST_SETUP_FAILURE,
+                        severity=severity,
+                        message=message,
+                        line_number=i,
+                        confidence=0.6,
+                        suggestion="Complete test implementation",
+                        code_snippet=line.strip()
+                    ))
+        
+        return errors
+    
+    def _check_resource_patterns(self, code: str) -> List[PredictedError]:
+        """Check for resource leak patterns."""
+        errors = []
+        lines = code.split('\n')
+        
+        for pattern, message, severity in self.resource_patterns:
+            for i, line in enumerate(lines, 1):
+                if re.search(pattern, line):
+                    # Check if resource is closed
+                    resource_var = re.search(r'(\w+)\s*=\s*new', line)
+                    if resource_var:
+                        var_name = resource_var.group(1)
+                        if not re.search(rf'{var_name}\.close\(\)', code):
+                            errors.append(PredictedError(
+                                error_type=ErrorType.RESOURCE_LEAK,
+                                severity=severity,
+                                message=message,
+                                line_number=i,
+                                confidence=0.65,
+                                suggestion=f"Close resource: {var_name}.close() or use try-with-resources",
+                                code_snippet=line.strip()
+                            ))
+        
+        return errors
+    
+    def _check_concurrency_patterns(self, code: str) -> List[PredictedError]:
+        """Check for concurrency issue patterns."""
+        errors = []
+        lines = code.split('\n')
+        
+        # Check for synchronized or concurrent annotations
+        is_concurrent = any(annotation in code for annotation in 
+                          ['@ThreadSafe', '@Synchronized', 'synchronized', 'Executor', 'Thread'])
+        
+        if is_concurrent:
+            for pattern, message, severity in self.concurrency_patterns:
+                for i, line in enumerate(lines, 1):
+                    if re.search(pattern, line):
+                        errors.append(PredictedError(
+                            error_type=ErrorType.CONCURRENCY_ISSUE,
+                            severity=severity,
+                            message=message,
+                            line_number=i,
+                            confidence=0.7,
+                            suggestion="Use thread-safe alternatives (Vector, ConcurrentHashMap, CopyOnWriteArrayList)",
+                            code_snippet=line.strip()
+                        ))
+        
+        return errors
+    
+    def _check_historical_patterns(self, code: str) -> List[PredictedError]:
+        """Check for patterns from historical errors."""
+        errors = []
+        
+        if not self.knowledge_base:
+            return errors
+        
+        # Query knowledge base for similar errors
+        similar_errors = self.knowledge_base.find_similar_errors(code, top_k=5)
+        
+        for error_record in similar_errors:
+            if error_record.get('similarity', 0) > 0.7:
+                errors.append(PredictedError(
+                    error_type=ErrorType.SYNTAX_ERROR,  # Default type
+                    severity=Severity.MEDIUM,
+                    message=f"Similar to historical error: {error_record.get('message', '')}",
+                    confidence=error_record.get('similarity', 0.5),
+                    suggestion=error_record.get('solution', 'Review and fix'),
+                    related_patterns=[error_record.get('pattern', '')]
+                ))
+        
+        return errors
+    
+    def _check_test_coverage(self, test_code: str, source_code: str) -> List[PredictedError]:
+        """Check for potential test coverage issues."""
+        errors = []
+        
+        # Extract methods from source code
+        source_methods = re.findall(r'(?:public|private|protected)\s+\w+\s+(\w+)\s*\(', source_code)
+        
+        # Extract test method names
+        test_methods = re.findall(r'@Test\s+(?:public\s+)?void\s+(\w+)\s*\(', test_code)
+        
+        # Check for untested methods
+        for method in source_methods:
+            method_tested = any(method.lower() in test.lower() for test in test_methods)
+            if not method_tested and not method.startswith('get') and not method.startswith('set'):
+                errors.append(PredictedError(
+                    error_type=ErrorType.TEST_SETUP_FAILURE,
+                    severity=Severity.LOW,
+                    message=f"Method '{method}' may not have corresponding test",
+                    confidence=0.5,
+                    suggestion=f"Consider adding test for {method}",
+                    related_patterns=[method]
+                ))
+        
+        return errors
+    
+    def _calculate_risk_score(self, errors: List[PredictedError]) -> float:
+        """Calculate overall risk score from predicted errors.
         
         Args:
-            predictions: List of predicted errors
+            errors: List of predicted errors
             
         Returns:
-            List of recommendations
+            Risk score from 0.0 to 1.0
         """
-        recommendations = []
+        if not errors:
+            return 0.0
         
-        for pred in sorted(predictions, key=lambda p: p.probability, reverse=True):
-            if pred.prevention_suggestion not in recommendations:
-                recommendations.append(pred.prevention_suggestion)
+        # Weight by severity
+        severity_weights = {
+            Severity.CRITICAL: 1.0,
+            Severity.HIGH: 0.7,
+            Severity.MEDIUM: 0.4,
+            Severity.LOW: 0.1
+        }
         
-        return recommendations[:10]
+        total_weight = sum(
+            severity_weights.get(e.severity, 0.1) * e.confidence
+            for e in errors
+        )
+        
+        # Normalize to 0-1 range
+        max_possible = len(errors) * 1.0
+        risk_score = min(total_weight / max_possible if max_possible > 0 else 0, 1.0)
+        
+        return risk_score
+    
+    def get_prediction_summary(self, result: PredictionResult) -> str:
+        """Get human-readable prediction summary.
+        
+        Args:
+            result: Prediction result
+            
+        Returns:
+            Summary string
+        """
+        lines = [
+            f"Error Prediction Summary:",
+            f"  Total predicted errors: {result.error_count}",
+            f"  Overall risk score: {result.overall_risk_score:.1%}",
+            f"  Critical errors: {len(result.get_errors_by_severity(Severity.CRITICAL))}",
+            f"  High severity: {len(result.get_errors_by_severity(Severity.HIGH))}",
+            f"  Medium severity: {len(result.get_errors_by_severity(Severity.MEDIUM))}",
+            f"  Low severity: {len(result.get_errors_by_severity(Severity.LOW))}",
+            "",
+            "Top issues:"
+        ]
+        
+        # Show top 5 errors by severity and confidence
+        sorted_errors = sorted(
+            result.predicted_errors,
+            key=lambda e: (e.severity.value, e.confidence),
+            reverse=True
+        )
+        
+        for error in sorted_errors[:5]:
+            lines.append(f"  [{error.severity.name}] {error.message}")
+            if error.line_number:
+                lines.append(f"    Line {error.line_number}: {error.suggestion}")
+            else:
+                lines.append(f"    {error.suggestion}")
+        
+        return "\n".join(lines)
 
 
-def create_error_predictor() -> ErrorPredictor:
-    """Create an ErrorPredictor instance."""
-    return ErrorPredictor()
+def create_error_predictor(
+    knowledge_base: Optional[ErrorKnowledgeBase] = None
+) -> ErrorPredictor:
+    """Create an error predictor instance.
+    
+    Args:
+        knowledge_base: Optional error knowledge base
+        
+    Returns:
+        Configured ErrorPredictor
+    """
+    return ErrorPredictor(knowledge_base=knowledge_base)

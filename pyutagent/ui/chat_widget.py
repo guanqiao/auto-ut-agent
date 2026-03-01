@@ -1,15 +1,121 @@
-"""Chat widget for Agent conversation."""
+"""Chat widget for Agent conversation with streaming support."""
 
 import logging
+from typing import Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLineEdit, QPushButton, QScrollArea, QLabel,
-    QFrame, QSizePolicy
+    QFrame, QSizePolicy, QTextBrowser
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QThread
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
+from PyQt6.QtGui import QColor, QFont, QTextCursor
 
 logger = logging.getLogger(__name__)
+
+
+class StreamingMessageWidget(QFrame):
+    """Widget for streaming message display with code highlighting."""
+    
+    def __init__(self, role: str, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self._role = role
+        self._content = ""
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 5, 10, 5)
+        
+        avatar_label = QLabel("🤖" if role == "agent" else "👤")
+        avatar_label.setStyleSheet("font-size: 20px;")
+        layout.addWidget(avatar_label)
+        
+        self.content_browser = QTextBrowser()
+        self.content_browser.setOpenExternalLinks(True)
+        self.content_browser.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred
+        )
+        self.content_browser.setMinimumHeight(30)
+        self.content_browser.setStyleSheet("""
+            QTextBrowser {
+                border: none;
+                background: transparent;
+            }
+        """)
+        
+        layout.addWidget(self.content_browser, stretch=1)
+        
+        if role == "agent":
+            self.setStyleSheet("""
+                StreamingMessageWidget {
+                    background-color: #e3f2fd;
+                    border-radius: 10px;
+                    margin: 5px 50px 5px 5px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                StreamingMessageWidget {
+                    background-color: #f5f5f5;
+                    border-radius: 10px;
+                    margin: 5px 5px 5px 50px;
+                }
+            """)
+    
+    def append_chunk(self, chunk: str):
+        """Append a chunk of streaming content."""
+        self._content += chunk
+        self._update_display()
+    
+    def update_content(self, content: str):
+        """Update full content."""
+        self._content = content
+        self._update_display()
+    
+    def _update_display(self):
+        """Update the display with formatted content."""
+        formatted = self._format_content(self._content)
+        self.content_browser.setHtml(formatted)
+        
+        QTimer.singleShot(10, self._adjust_height)
+    
+    def _format_content(self, content: str) -> str:
+        """Format content with basic highlighting."""
+        formatted = content
+        
+        formatted = formatted.replace('&', '&amp;')
+        formatted = formatted.replace('<', '&lt;')
+        formatted = formatted.replace('>', '&gt;')
+        
+        import re
+        
+        code_block_pattern = r'```(\w*)\n(.*?)```'
+        def replace_code_block(match):
+            lang = match.group(1) or 'java'
+            code = match.group(2)
+            return f'<pre style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto;"><code class="{lang}">{code}</code></pre>'
+        formatted = re.sub(code_block_pattern, replace_code_block, formatted, flags=re.DOTALL)
+        
+        inline_code_pattern = r'`([^`]+)`'
+        formatted = re.sub(inline_code_pattern, r'<code style="background-color: #e0e0e0; padding: 2px 5px; border-radius: 3px;">\1</code>', formatted)
+        
+        bold_pattern = r'\*\*([^*]+)\*\*'
+        formatted = re.sub(bold_pattern, r'<b>\1</b>', formatted)
+        
+        formatted = formatted.replace('\n', '<br>')
+        
+        return f'<div style="font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;">{formatted}</div>'
+    
+    def _adjust_height(self):
+        """Adjust height to fit content."""
+        doc = self.content_browser.document()
+        doc.setTextWidth(self.content_browser.width())
+        height = doc.size().height() + 20
+        self.content_browser.setMinimumHeight(int(height))
+    
+    def get_content(self) -> str:
+        """Get the raw content."""
+        return self._content
 
 
 class ChatMessageWidget(QFrame):
@@ -22,12 +128,10 @@ class ChatMessageWidget(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 5, 10, 5)
         
-        # Avatar/role indicator
         avatar_label = QLabel("🤖" if role == "agent" else "👤")
         avatar_label.setStyleSheet("font-size: 20px;")
         layout.addWidget(avatar_label)
         
-        # Message content
         self.content_label = QLabel(content)
         self.content_label.setWordWrap(True)
         self.content_label.setTextFormat(Qt.TextFormat.PlainText)
@@ -36,7 +140,6 @@ class ChatMessageWidget(QFrame):
             QSizePolicy.Policy.Preferred
         )
         
-        # Style based on role
         if role == "agent":
             self.setStyleSheet("""
                 ChatMessageWidget {
@@ -62,15 +165,20 @@ class ChatMessageWidget(QFrame):
 
 
 class ChatWidget(QWidget):
-    """Chat widget for Agent conversation."""
+    """Chat widget for Agent conversation with streaming support."""
     
-    message_sent = pyqtSignal(str)  # User message signal
-    generate_clicked = pyqtSignal()  # Generate button clicked
-    pause_clicked = pyqtSignal()  # Pause button clicked
+    message_sent = pyqtSignal(str)
+    generate_clicked = pyqtSignal()
+    pause_clicked = pyqtSignal()
+    resume_clicked = pyqtSignal()
+    terminate_clicked = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.messages: list[ChatMessageWidget] = []
+        self.messages: list = []
+        self._is_running = False
+        self._is_paused = False
+        self._current_streaming_widget: Optional[StreamingMessageWidget] = None
         self.setup_ui()
     
     def setup_ui(self):
@@ -78,12 +186,10 @@ class ChatWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         
-        # Header
         header = QLabel("💬 对话")
         header.setStyleSheet("font-size: 16px; font-weight: bold; padding: 5px;")
         layout.addWidget(header)
         
-        # Message area (scrollable)
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_content = QWidget()
@@ -107,25 +213,76 @@ class ChatWidget(QWidget):
             QPushButton:hover {
                 background-color: #45a049;
             }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
         """)
         self.generate_btn.clicked.connect(self.on_generate)
         quick_buttons_layout.addWidget(self.generate_btn)
         
         # Pause button
         self.pause_btn = QPushButton("⏸ 暂停")
+        self.pause_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                font-weight: bold;
+                padding: 5px 15px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
         self.pause_btn.clicked.connect(self.on_pause)
+        self.pause_btn.setEnabled(False)  # Disabled by default
         quick_buttons_layout.addWidget(self.pause_btn)
         
-        quick_actions = [
-            ("📊 状态", self.on_status),
-            ("🗑 清空", self.on_clear),
-        ]
+        # Resume button
+        self.resume_btn = QPushButton("▶ 恢复")
+        self.resume_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                font-weight: bold;
+                padding: 5px 15px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        self.resume_btn.clicked.connect(self.on_resume)
+        self.resume_btn.setEnabled(False)  # Disabled by default
+        quick_buttons_layout.addWidget(self.resume_btn)
         
-        for text, callback in quick_actions:
-            btn = QPushButton(text)
-            btn.setMaximumWidth(80)
-            btn.clicked.connect(callback)
-            quick_buttons_layout.addWidget(btn)
+        # Terminate button
+        self.terminate_btn = QPushButton("⏹ 终止")
+        self.terminate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #F44336;
+                color: white;
+                font-weight: bold;
+                padding: 5px 15px;
+            }
+            QPushButton:hover {
+                background-color: #D32F2F;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        self.terminate_btn.clicked.connect(self.on_terminate)
+        self.terminate_btn.setEnabled(False)  # Disabled by default
+        quick_buttons_layout.addWidget(self.terminate_btn)
         
         quick_buttons_layout.addStretch()
         layout.addLayout(quick_buttons_layout)
@@ -145,18 +302,16 @@ class ChatWidget(QWidget):
         
         layout.addLayout(input_layout)
     
-    def add_message(self, role: str, content: str) -> ChatMessageWidget:
+    def add_message(self, role: str, content: str):
         """Add a message to the chat."""
         try:
             msg_widget = ChatMessageWidget(role, content)
-            # Insert before the stretch
             self.messages_layout.insertWidget(
                 self.messages_layout.count() - 1,
                 msg_widget
             )
             self.messages.append(msg_widget)
 
-            # Scroll to bottom
             self.scroll_to_bottom()
 
             logger.debug(f"Added {role} message to chat")
@@ -165,11 +320,62 @@ class ChatWidget(QWidget):
             logger.exception("Failed to add message to chat")
             raise
     
+    def add_streaming_message(self, role: str = "agent") -> StreamingMessageWidget:
+        """Add a streaming message widget.
+        
+        Args:
+            role: Role for the message ('agent' or 'user')
+            
+        Returns:
+            StreamingMessageWidget for appending chunks
+        """
+        try:
+            msg_widget = StreamingMessageWidget(role)
+            self.messages_layout.insertWidget(
+                self.messages_layout.count() - 1,
+                msg_widget
+            )
+            self.messages.append(msg_widget)
+            self._current_streaming_widget = msg_widget
+            
+            self.scroll_to_bottom()
+            
+            logger.debug(f"Added streaming {role} message to chat")
+            return msg_widget
+        except Exception as e:
+            logger.exception("Failed to add streaming message to chat")
+            raise
+    
+    def append_to_streaming(self, chunk: str):
+        """Append a chunk to the current streaming message.
+        
+        Args:
+            chunk: Text chunk to append
+        """
+        if self._current_streaming_widget:
+            self._current_streaming_widget.append_chunk(chunk)
+            self.scroll_to_bottom()
+    
+    def finish_streaming(self, final_content: Optional[str] = None):
+        """Finish the current streaming message.
+        
+        Args:
+            final_content: Optional final content to set
+        """
+        if self._current_streaming_widget:
+            if final_content:
+                self._current_streaming_widget.update_content(final_content)
+            self._current_streaming_widget = None
+    
     def update_last_message(self, content: str):
         """Update the last message (for streaming)."""
         if self.messages:
-            current_text = self.messages[-1].content_label.text()
-            self.messages[-1].update_content(current_text + content)
+            last = self.messages[-1]
+            if isinstance(last, StreamingMessageWidget):
+                last.append_chunk(content)
+            elif isinstance(last, ChatMessageWidget):
+                current_text = last.content_label.text()
+                last.update_content(current_text + content)
             self.scroll_to_bottom()
     
     def send_message(self):
@@ -196,6 +402,45 @@ class ChatWidget(QWidget):
     def on_pause(self):
         """Handle pause button."""
         self.pause_clicked.emit()
+    
+    def on_resume(self):
+        """Handle resume button."""
+        self.resume_clicked.emit()
+    
+    def on_terminate(self):
+        """Handle terminate button."""
+        self.terminate_clicked.emit()
+    
+    def set_running_state(self, is_running: bool, is_paused: bool = False):
+        """Update button states based on running state.
+        
+        Args:
+            is_running: Whether the agent is currently running
+            is_paused: Whether the agent is currently paused
+        """
+        self._is_running = is_running
+        self._is_paused = is_paused
+        
+        if not is_running:
+            # Not running - only generate button enabled
+            self.generate_btn.setEnabled(True)
+            self.pause_btn.setEnabled(False)
+            self.resume_btn.setEnabled(False)
+            self.terminate_btn.setEnabled(False)
+        elif is_paused:
+            # Paused - resume and terminate enabled
+            self.generate_btn.setEnabled(False)
+            self.pause_btn.setEnabled(False)
+            self.resume_btn.setEnabled(True)
+            self.terminate_btn.setEnabled(True)
+        else:
+            # Running - pause and terminate enabled
+            self.generate_btn.setEnabled(False)
+            self.pause_btn.setEnabled(True)
+            self.resume_btn.setEnabled(False)
+            self.terminate_btn.setEnabled(True)
+        
+        logger.debug(f"[ChatWidget] Button states updated - running: {is_running}, paused: {is_paused}")
     
     def on_status(self):
         """Handle status button."""

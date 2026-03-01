@@ -50,6 +50,7 @@ from .multi_file_editor import (
 )
 from ..llm.client import LLMClient
 from ..core.config import AiderConfig
+from ..utils.code_extractor import CodeExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -922,23 +923,7 @@ Return only the Java code without explanations."""
 
     def _extract_code_from_markdown(self, text: str) -> str:
         """Extract code from markdown code blocks."""
-        import re
-
-        # Look for Java code block
-        pattern = r'```java\n(.*?)```'
-        match = re.search(pattern, text, re.DOTALL)
-
-        if match:
-            return match.group(1).strip()
-
-        # Look for generic code block
-        pattern = r'```\n(.*?)```'
-        match = re.search(pattern, text, re.DOTALL)
-
-        if match:
-            return match.group(1).strip()
-
-        return text.strip()
+        return CodeExtractor.extract_code_from_markdown(text, language="java")
 
 
 # Convenience functions for direct use

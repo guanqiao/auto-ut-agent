@@ -45,6 +45,9 @@ class AgentWorker(QThread):
     log_message = pyqtSignal(str)
     completed = pyqtSignal(dict)
     error = pyqtSignal(str)
+    paused = pyqtSignal()  # Emitted when agent is paused
+    resumed = pyqtSignal()  # Emitted when agent is resumed
+    terminated = pyqtSignal()  # Emitted when agent is terminated
 
     def __init__(
         self,
@@ -61,6 +64,9 @@ class AgentWorker(QThread):
         self.target_coverage = target_coverage
         self.max_iterations = max_iterations
         self._is_running = True
+        self._is_paused = False
+        self.agent: Optional[ReActAgent] = None
+        self._lock = asyncio.Lock()
 
     def run(self):
         """Run the agent."""
@@ -71,7 +77,7 @@ class AgentWorker(QThread):
                 current_file=self.target_file
             )
 
-            agent = ReActAgent(
+            self.agent = ReActAgent(
                 llm_client=self.llm_client,
                 working_memory=working_memory,
                 project_path=self.project_path,
@@ -89,12 +95,12 @@ class AgentWorker(QThread):
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(
                         asyncio.run,
-                        agent.generate_tests(self.target_file)
+                        self._run_agent()
                     )
                     result = future.result()
             else:
                 result = loop.run_until_complete(
-                    agent.generate_tests(self.target_file)
+                    self._run_agent()
                 )
 
             if result.success:
@@ -112,6 +118,38 @@ class AgentWorker(QThread):
             logger.exception("Agent worker failed")
             self.error.emit(str(e))
 
+    async def _run_agent(self):
+        """Run the agent with pause/resume support."""
+        return await self.agent.generate_tests(self.target_file)
+
+    def pause(self):
+        """Pause the agent."""
+        if self.agent and not self._is_paused:
+            self.agent.pause()
+            self._is_paused = True
+            self.paused.emit()
+            logger.info("[AgentWorker] Agent paused")
+
+    def resume(self):
+        """Resume the agent."""
+        if self.agent and self._is_paused:
+            self.agent.resume()
+            self._is_paused = False
+            self.resumed.emit()
+            logger.info("[AgentWorker] Agent resumed")
+
+    def terminate_agent(self):
+        """Terminate the agent immediately."""
+        if self.agent:
+            self.agent.terminate()
+            self._is_paused = False
+            self.terminated.emit()
+            logger.info("[AgentWorker] Agent terminated")
+
+    def is_paused(self) -> bool:
+        """Check if agent is paused."""
+        return self._is_paused
+
     def _on_progress(self, progress_info: dict):
         """Handle progress updates."""
         self.progress_updated.emit(progress_info)
@@ -123,6 +161,8 @@ class AgentWorker(QThread):
     def stop(self):
         """Stop the worker."""
         self._is_running = False
+        if self.agent:
+            self.agent.stop()
         self.wait(1000)
 
 
@@ -385,6 +425,9 @@ class MainWindow(QMainWindow):
         self.setup_menu()
         self.setup_status_bar()
         self.setup_llm_client()
+        
+        # Initialize button states
+        self.chat_widget.set_running_state(False, is_paused=False)
 
     def setup_ui(self):
         """Setup the main UI."""
@@ -404,6 +447,8 @@ class MainWindow(QMainWindow):
         self.chat_widget.message_sent.connect(self.on_message_sent)
         self.chat_widget.generate_clicked.connect(self.on_generate_tests)
         self.chat_widget.pause_clicked.connect(self.on_pause_generation)
+        self.chat_widget.resume_clicked.connect(self.on_resume_generation)
+        self.chat_widget.terminate_clicked.connect(self.on_terminate_generation)
         splitter.addWidget(self.chat_widget)
 
         self.progress_widget = ProgressWidget()
@@ -781,12 +826,40 @@ class MainWindow(QMainWindow):
         """Handle pause generation."""
         try:
             if self.agent_worker and self.agent_worker.isRunning():
-                self.agent_worker.stop()
-                self.progress_widget.update_state("PAUSED", "Generation paused")
-                self.chat_widget.add_agent_message("Generation paused. Click continue to resume.")
+                self.agent_worker.pause()
+                self.chat_widget.set_running_state(True, is_paused=True)
+                self.progress_widget.update_state("PAUSED", "Generation paused - waiting to resume...")
+                self.chat_widget.add_agent_message("⏸ Generation paused. Click '恢复' to resume or '终止' to stop.")
+                self.status_bar.showMessage("Generation paused")
                 logger.info("Test generation paused")
         except Exception as e:
             logger.exception("Failed to pause generation")
+
+    def on_resume_generation(self):
+        """Handle resume generation."""
+        try:
+            if self.agent_worker and self.agent_worker.isRunning():
+                self.agent_worker.resume()
+                self.chat_widget.set_running_state(True, is_paused=False)
+                self.progress_widget.update_state("RESUMED", "Generation resumed")
+                self.chat_widget.add_agent_message("▶ Generation resumed.")
+                self.status_bar.showMessage("Generation resumed")
+                logger.info("Test generation resumed")
+        except Exception as e:
+            logger.exception("Failed to resume generation")
+
+    def on_terminate_generation(self):
+        """Handle terminate generation."""
+        try:
+            if self.agent_worker and self.agent_worker.isRunning():
+                self.agent_worker.terminate_agent()
+                self.chat_widget.set_running_state(False, is_paused=False)
+                self.progress_widget.update_state("TERMINATED", "Generation terminated")
+                self.chat_widget.add_agent_message("⏹ Generation terminated by user.")
+                self.status_bar.showMessage("Generation terminated")
+                logger.info("Test generation terminated")
+        except Exception as e:
+            logger.exception("Failed to terminate generation")
 
     def start_generation(self, target_file: str):
         """Start test generation.
@@ -823,14 +896,35 @@ class MainWindow(QMainWindow):
             self.agent_worker.log_message.connect(self.on_agent_log)
             self.agent_worker.completed.connect(self.on_agent_completed)
             self.agent_worker.error.connect(self.on_agent_error)
+            self.agent_worker.paused.connect(self.on_agent_paused)
+            self.agent_worker.resumed.connect(self.on_agent_resumed)
+            self.agent_worker.terminated.connect(self.on_agent_terminated)
 
             self.agent_worker.start()
+
+            # Update button states - running state
+            self.chat_widget.set_running_state(True, is_paused=False)
 
             self.chat_widget.add_agent_message(f"🚀 Starting test generation for {file_name}...")
             self.status_bar.showMessage(f"Generating tests: {file_name}")
             logger.info(f"Started generation for: {target_file}")
         except Exception as e:
             logger.exception("Failed to start generation")
+
+    def on_agent_paused(self):
+        """Handle agent paused signal."""
+        self.chat_widget.set_running_state(True, is_paused=True)
+        self.status_bar.showMessage("Generation paused")
+
+    def on_agent_resumed(self):
+        """Handle agent resumed signal."""
+        self.chat_widget.set_running_state(True, is_paused=False)
+        self.status_bar.showMessage("Generation resumed")
+
+    def on_agent_terminated(self):
+        """Handle agent terminated signal."""
+        self.chat_widget.set_running_state(False, is_paused=False)
+        self.status_bar.showMessage("Generation terminated")
 
     def on_agent_progress(self, progress_info: dict):
         """Handle agent progress updates."""
@@ -880,6 +974,9 @@ class MainWindow(QMainWindow):
             coverage = result.get("coverage", 0.0)
             iterations = result.get("iterations", 0)
 
+            # Reset button states
+            self.chat_widget.set_running_state(False, is_paused=False)
+
             if success:
                 self.progress_widget.add_log(f"🎉 Test generation completed successfully!", "INFO")
                 self.progress_widget.add_log(f"📁 Test file: {test_file}", "INFO")
@@ -906,6 +1003,9 @@ class MainWindow(QMainWindow):
     def on_agent_error(self, error_message: str):
         """Handle agent errors."""
         try:
+            # Reset button states
+            self.chat_widget.set_running_state(False, is_paused=False)
+            
             self.progress_widget.add_log(f"❌ Error: {error_message}", "ERROR")
             self.chat_widget.add_agent_message(f"❌ Error: {error_message}")
             self.progress_widget.update_state("FAILED", f"❌ {error_message}")

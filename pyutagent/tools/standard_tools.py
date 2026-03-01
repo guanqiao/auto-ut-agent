@@ -11,11 +11,13 @@ This module provides:
 
 import asyncio
 import logging
+import mmap
 import os
 import re
 import subprocess
+from abc import ABC
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from .tool import (
     Tool,
@@ -29,7 +31,113 @@ from .tool import (
 logger = logging.getLogger(__name__)
 
 
-class ReadTool(Tool):
+class BaseFileTool(Tool, ABC):
+    """Base class for file-based tools.
+    
+    Provides common functionality for tools that work with files:
+    - Path resolution relative to base path
+    - Common file error handling
+    - Utility methods for file operations
+    """
+
+    def __init__(self, base_path: Optional[str] = None):
+        """Initialize base file tool.
+
+        Args:
+            base_path: Base path for relative file paths
+        """
+        super().__init__()
+        self._base_path = Path(base_path) if base_path else None
+
+    def _resolve_path(self, file_path: str) -> Path:
+        """Resolve file path relative to base path.
+        
+        Args:
+            file_path: File path (absolute or relative)
+            
+        Returns:
+            Resolved absolute Path object
+        """
+        path = Path(file_path)
+        if not path.is_absolute() and self._base_path:
+            path = self._base_path / path
+        return path.resolve()
+
+    def _handle_file_error(self, error: Exception, operation: str, path: str) -> ToolResult:
+        """Handle common file errors with specific messages.
+        
+        Args:
+            error: The exception that occurred
+            operation: Description of the operation being performed
+            path: The file path being operated on
+            
+        Returns:
+            ToolResult with appropriate error message
+        """
+        error_handlers = {
+            PermissionError: (f"Permission denied accessing: {path}", "warning"),
+            FileNotFoundError: (f"File not found: {path}", "warning"),
+            IsADirectoryError: (f"Path is a directory: {path}", "warning"),
+            UnicodeDecodeError: (f"Cannot decode file (not UTF-8): {path}", "error"),
+            OSError: (f"OS error accessing: {path} - {error}", "error"),
+        }
+        
+        for error_type, (message, level) in error_handlers.items():
+            if isinstance(error, error_type):
+                getattr(logger, level)(f"[{self.__class__.__name__}] {message}")
+                return ToolResult(success=False, error=message)
+        
+        logger.exception(f"[{self.__class__.__name__}] Unexpected error during {operation}: {error}")
+        return ToolResult(success=False, error=f"Unexpected error: {str(error)}")
+
+    def _validate_file_exists(self, path: Path) -> Optional[ToolResult]:
+        """Validate that a file exists and is a file.
+        
+        Args:
+            path: Path to validate
+            
+        Returns:
+            ToolResult with error if validation fails, None if successful
+        """
+        if not path.exists():
+            return ToolResult(
+                success=False,
+                error=f"File not found: {path}"
+            )
+        
+        if not path.is_file():
+            return ToolResult(
+                success=False,
+                error=f"Path is not a file: {path}"
+            )
+        
+        return None
+
+    def _validate_directory_exists(self, path: Path) -> Optional[ToolResult]:
+        """Validate that a directory exists.
+        
+        Args:
+            path: Path to validate
+            
+        Returns:
+            ToolResult with error if validation fails, None if successful
+        """
+        if not path.exists():
+            return ToolResult(
+                success=False,
+                error=f"Directory not found: {path}"
+            )
+        
+        if not path.is_dir():
+            return ToolResult(
+                success=False,
+                error=f"Path is not a directory: {path}"
+            )
+        
+        return None
+
+
+class ReadTool(BaseFileTool):
     """Tool for reading file contents.
 
     Supports:
@@ -44,8 +152,7 @@ class ReadTool(Tool):
         Args:
             base_path: Base path for relative file paths
         """
-        super().__init__()
-        self._base_path = Path(base_path) if base_path else None
+        super().__init__(base_path)
         self._definition = ToolDefinition(
             name="read_file",
             description="Read the contents of a file from the file system. "
@@ -110,17 +217,10 @@ class ReadTool(Tool):
         try:
             path = self._resolve_path(file_path)
 
-            if not path.exists():
-                return ToolResult(
-                    success=False,
-                    error=f"File not found: {path}"
-                )
-
-            if not path.is_file():
-                return ToolResult(
-                    success=False,
-                    error=f"Path is not a file: {path}"
-                )
+            # Use base class validation
+            validation_error = self._validate_file_exists(path)
+            if validation_error:
+                return validation_error
 
             content = path.read_text(encoding="utf-8")
             lines = content.split("\n")
@@ -154,21 +254,11 @@ class ReadTool(Tool):
                 }
             )
 
-        except PermissionError:
-            return ToolResult(success=False, error=f"Permission denied: {file_path}")
         except Exception as e:
-            logger.exception(f"[ReadTool] Failed to read file: {e}")
-            return ToolResult(success=False, error=f"Failed to read file: {str(e)}")
-
-    def _resolve_path(self, file_path: str) -> Path:
-        """Resolve file path relative to base path."""
-        path = Path(file_path)
-        if not path.is_absolute() and self._base_path:
-            path = self._base_path / path
-        return path.resolve()
+            return self._handle_file_error(e, "reading", file_path)
 
 
-class WriteTool(Tool):
+class WriteTool(BaseFileTool):
     """Tool for writing content to files.
 
     Supports:
@@ -183,8 +273,7 @@ class WriteTool(Tool):
         Args:
             base_path: Base path for relative file paths
         """
-        super().__init__()
-        self._base_path = Path(base_path) if base_path else None
+        super().__init__(base_path)
         self._definition = ToolDefinition(
             name="write_file",
             description="Write content to a file. Creates the file or overwrites existing content. "
@@ -271,21 +360,11 @@ class WriteTool(Tool):
                 }
             )
 
-        except PermissionError:
-            return ToolResult(success=False, error=f"Permission denied: {file_path}")
         except Exception as e:
-            logger.exception(f"[WriteTool] Failed to write file: {e}")
-            return ToolResult(success=False, error=f"Failed to write file: {str(e)}")
-
-    def _resolve_path(self, file_path: str) -> Path:
-        """Resolve file path relative to base path."""
-        path = Path(file_path)
-        if not path.is_absolute() and self._base_path:
-            path = self._base_path / path
-        return path.resolve()
+            return self._handle_file_error(e, "writing", file_path)
 
 
-class EditTool(Tool):
+class EditTool(BaseFileTool):
     """Tool for precise Search/Replace style editing.
 
     This is similar to Aider's editing approach - find a specific
@@ -298,8 +377,7 @@ class EditTool(Tool):
         Args:
             base_path: Base path for relative file paths
         """
-        super().__init__()
-        self._base_path = Path(base_path) if base_path else None
+        super().__init__(base_path)
         self._definition = ToolDefinition(
             name="edit_file",
             description="Make targeted edits to a file using Search/Replace. "
@@ -375,11 +453,10 @@ class EditTool(Tool):
         try:
             path = self._resolve_path(file_path)
 
-            if not path.exists():
-                return ToolResult(
-                    success=False,
-                    error=f"File not found: {path}"
-                )
+            # Use base class validation
+            validation_error = self._validate_file_exists(path)
+            if validation_error:
+                return validation_error
 
             original_content = path.read_text(encoding="utf-8")
             content = original_content
@@ -418,17 +495,8 @@ class EditTool(Tool):
                 }
             )
 
-        except PermissionError:
-            return ToolResult(success=False, error=f"Permission denied: {file_path}")
         except Exception as e:
-            logger.exception(f"[EditTool] Failed to edit file: {e}")
-            return ToolResult(success=False, error=f"Failed to edit file: {str(e)}")
-
-    def _resolve_path(self, file_path: str) -> Path:
-        """Resolve file path relative to base path."""
-        path = Path(file_path)
-        if not path.is_absolute() and self._base_path:
-            path = self._base_path / path
+            return self._handle_file_error(e, "editing", file_path)
         return path.resolve()
 
 

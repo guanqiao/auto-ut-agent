@@ -14,7 +14,6 @@ This module consolidates the functionality from:
 
 import asyncio
 import logging
-import re
 import time
 import traceback
 from contextlib import contextmanager
@@ -34,6 +33,8 @@ from typing import (
 )
 
 logger = logging.getLogger(__name__)
+
+from ..utils.code_extractor import CodeExtractor
 
 T = TypeVar('T')
 
@@ -868,7 +869,7 @@ class ErrorRecoveryManager:
                 ]
             )
 
-            response = await self.llm_client.generate(prompt)
+            response = await self.llm_client.agenerate(prompt)
             fixed_code = self._extract_java_code(response)
 
             return {
@@ -935,13 +936,7 @@ class ErrorRecoveryManager:
         }
 
     def _extract_java_code(self, response: str) -> str:
-        code_block_pattern = r'```(?:java)?\s*\n(.*?)```'
-        matches = re.findall(code_block_pattern, response, re.DOTALL)
-
-        if matches:
-            return matches[0].strip()
-
-        return response.strip()
+        return CodeExtractor.extract_java_code(response)
 
     def get_recovery_summary(self) -> Dict[str, Any]:
         if not self.recovery_history:

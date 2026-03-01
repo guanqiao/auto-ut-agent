@@ -19,6 +19,7 @@ class LLMClient:
     - Automatic retry with exponential backoff
     - Token counting
     - Connection testing
+    - Performance statistics
     """
     
     def __init__(
@@ -61,6 +62,15 @@ class LLMClient:
         
         self._total_calls = 0
         self._total_tokens = 0
+        
+        # Performance statistics
+        self._call_stats = {
+            "generate": [],
+            "agenerate": [],
+            "complete": [],
+            "stream": [],
+            "astream": [],
+        }
         
         logger.info(f"[LLMClient] Initializing - Model: {model}, Provider: {provider}, Endpoint: {endpoint}")
         logger.debug(f"[LLMClient] Configuration - Timeout: {timeout}s, MaxRetries: {max_retries}, Temperature: {temperature}")
@@ -147,7 +157,7 @@ class LLMClient:
         messages.append(HumanMessage(content=prompt))
         
         prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
-        logger.info(f"[LLM] Starting sync generation - Model: {self.model}, Endpoint: {self.endpoint}, PromptLength: {len(prompt)}")
+        logger.info(f"[LLM] Starting sync generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)}")
         logger.debug(f"[LLM] Prompt preview: {prompt_preview}")
         
         start_time = time.time()
@@ -156,11 +166,13 @@ class LLMClient:
             self._total_calls += 1
             self._total_tokens += len(prompt.split()) + len(response.content.split())
             elapsed = time.time() - start_time
-            logger.info(f"[LLM] Sync generation complete - ResponseLength: {len(response.content)}, Elapsed: {elapsed:.2f}s")
+            self._call_stats["generate"].append(elapsed)
+            logger.info(f"[LLM] Sync generation complete - Model: {self.model}, Endpoint: {self.endpoint}, ResponseLength: {len(response.content)}, Elapsed: {elapsed:.2f}s")
             return response.content
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.exception(f"[LLM] Sync generation failed - Elapsed: {elapsed:.2f}s, Error: {e}")
+            self._call_stats["generate"].append(elapsed)
+            logger.exception(f"[LLM] Sync generation failed - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
     async def agenerate(
@@ -187,7 +199,7 @@ class LLMClient:
         messages.append(HumanMessage(content=prompt))
         
         prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
-        logger.info(f"[LLM] 🚀 Starting async generation - Model: {self.model}, PromptLength: {len(prompt)} chars")
+        logger.info(f"[LLM] 🚀 Starting async generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)} chars")
         logger.info(f"[LLM] ⏳ Waiting for LLM response... (this may take 10-60 seconds)")
         logger.debug(f"[LLM] Prompt preview: {prompt_preview}")
         
@@ -197,11 +209,13 @@ class LLMClient:
             self._total_calls += 1
             self._total_tokens += len(prompt.split()) + len(response.content.split())
             elapsed = time.time() - start_time
-            logger.info(f"[LLM] ✅ Async generation complete - ResponseLength: {len(response.content)} chars, Elapsed: {elapsed:.2f}s")
+            self._call_stats["agenerate"].append(elapsed)
+            logger.info(f"[LLM] ✅ Async generation complete - Model: {self.model}, Endpoint: {self.endpoint}, ResponseLength: {len(response.content)} chars, Elapsed: {elapsed:.2f}s")
             return response.content
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.exception(f"[LLM] ❌ Async generation failed - Elapsed: {elapsed:.2f}s, Error: {e}")
+            self._call_stats["agenerate"].append(elapsed)
+            logger.exception(f"[LLM] ❌ Async generation failed - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
     async def complete(
@@ -235,7 +249,7 @@ class LLMClient:
             else:
                 lc_messages.append(HumanMessage(content=content))
         
-        logger.info(f"[LLM] Starting conversation completion - Model: {self.model}, Endpoint: {self.endpoint}, MessageCount: {len(messages)}")
+        logger.info(f"[LLM] Starting conversation completion - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, MessageCount: {len(messages)}")
         
         start_time = time.time()
         try:
@@ -244,11 +258,13 @@ class LLMClient:
             total_input = sum(len(m.content.split()) for m in lc_messages)
             self._total_tokens += total_input + len(response.content.split())
             elapsed = time.time() - start_time
-            logger.info(f"[LLM] Conversation completion done - ResponseLength: {len(response.content)}, Elapsed: {elapsed:.2f}s")
+            self._call_stats["complete"].append(elapsed)
+            logger.info(f"[LLM] Conversation completion done - Model: {self.model}, Endpoint: {self.endpoint}, ResponseLength: {len(response.content)}, Elapsed: {elapsed:.2f}s")
             return response.content
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.exception(f"[LLM] Conversation completion failed - Elapsed: {elapsed:.2f}s, Error: {e}")
+            self._call_stats["complete"].append(elapsed)
+            logger.exception(f"[LLM] Conversation completion failed - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
     def stream(
@@ -274,8 +290,9 @@ class LLMClient:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
         
-        logger.info(f"[LLM] Starting stream generation - Model: {self.model}, PromptLength: {len(prompt)}")
+        logger.info(f"[LLM] Starting stream generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)}")
         
+        start_time = time.time()
         try:
             chunk_count = 0
             for chunk in client.stream(messages):
@@ -283,9 +300,13 @@ class LLMClient:
                     chunk_count += 1
                     yield chunk.content
             self._total_calls += 1
-            logger.info(f"[LLM] Stream generation complete - TotalChunks: {chunk_count}")
+            elapsed = time.time() - start_time
+            self._call_stats["stream"].append(elapsed)
+            logger.info(f"[LLM] Stream generation complete - Model: {self.model}, Endpoint: {self.endpoint}, TotalChunks: {chunk_count}, Elapsed: {elapsed:.2f}s")
         except Exception as e:
-            logger.exception(f"[LLM] Stream generation failed: {e}")
+            elapsed = time.time() - start_time
+            self._call_stats["stream"].append(elapsed)
+            logger.exception(f"[LLM] Stream generation failed - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
     async def astream(
@@ -311,8 +332,9 @@ class LLMClient:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
         
-        logger.info(f"[LLM] Starting async stream generation - Model: {self.model}, PromptLength: {len(prompt)}")
+        logger.info(f"[LLM] Starting async stream generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)}")
         
+        start_time = time.time()
         try:
             chunk_count = 0
             async for chunk in client.astream(messages):
@@ -320,9 +342,13 @@ class LLMClient:
                     chunk_count += 1
                     yield chunk.content
             self._total_calls += 1
-            logger.info(f"[LLM] Async stream generation complete - TotalChunks: {chunk_count}")
+            elapsed = time.time() - start_time
+            self._call_stats["astream"].append(elapsed)
+            logger.info(f"[LLM] Async stream generation complete - Model: {self.model}, Endpoint: {self.endpoint}, TotalChunks: {chunk_count}, Elapsed: {elapsed:.2f}s")
         except Exception as e:
-            logger.exception(f"[LLM] Async stream generation failed: {e}")
+            elapsed = time.time() - start_time
+            self._call_stats["astream"].append(elapsed)
+            logger.exception(f"[LLM] Async stream generation failed - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
     def count_tokens(self, text: str) -> int:
@@ -371,12 +397,68 @@ class LLMClient:
             "total_tokens": self._total_tokens,
             "model": self.model,
             "provider": self.provider,
+            "endpoint": self.endpoint,
         }
         logger.debug(f"[LLM] Usage stats: {stats}")
         return stats
+    
+    def get_performance_report(self) -> dict:
+        """Get detailed performance statistics report.
+        
+        Returns:
+            Dictionary with performance stats for each operation type
+        """
+        report = {
+            "model": self.model,
+            "provider": self.provider,
+            "endpoint": self.endpoint,
+            "operations": {}
+        }
+        
+        for op_name, times in self._call_stats.items():
+            if times:
+                report["operations"][op_name] = {
+                    "count": len(times),
+                    "total_time": sum(times),
+                    "avg_time": sum(times) / len(times),
+                    "min_time": min(times),
+                    "max_time": max(times),
+                }
+            else:
+                report["operations"][op_name] = {
+                    "count": 0,
+                    "total_time": 0.0,
+                    "avg_time": 0.0,
+                    "min_time": 0.0,
+                    "max_time": 0.0,
+                }
+        
+        logger.info(f"[LLM] Performance report generated - Model: {self.model}, Operations: {list(report['operations'].keys())}")
+        return report
+    
+    def print_performance_report(self):
+        """Print performance report to logs."""
+        report = self.get_performance_report()
+        
+        logger.info("=" * 60)
+        logger.info(f"[LLM] Performance Report - Model: {report['model']}, Provider: {report['provider']}")
+        logger.info(f"[LLM] Endpoint: {report['endpoint']}")
+        logger.info("-" * 60)
+        
+        for op_name, stats in report["operations"].items():
+            if stats["count"] > 0:
+                logger.info(f"[LLM] {op_name:15} - Count: {stats['count']:3d}, "
+                           f"Total: {stats['total_time']:6.2f}s, "
+                           f"Avg: {stats['avg_time']:5.2f}s, "
+                           f"Min: {stats['min_time']:5.2f}s, "
+                           f"Max: {stats['max_time']:5.2f}s")
+        
+        logger.info("=" * 60)
     
     def reset_stats(self):
         """Reset usage statistics."""
         logger.info(f"[LLM] Resetting usage stats - Previous: calls={self._total_calls}, tokens={self._total_tokens}")
         self._total_calls = 0
         self._total_tokens = 0
+        for op_name in self._call_stats:
+            self._call_stats[op_name] = []
