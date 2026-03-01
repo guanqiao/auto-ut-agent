@@ -730,4 +730,193 @@ class SmartCodeAnalyzer:
 
     def _init_db(self):
         """初始化数据库"""
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # 实体表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS code_entities (
+                entity_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                line_start INTEGER NOT NULL,
+                line_end INTEGER NOT NULL,
+                parent_id TEXT,
+                signature TEXT,
+                docstring TEXT,
+                metadata_json TEXT
+            )
+        """)
+
+        # 依赖表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dependencies (
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                dependency_type TEXT NOT NULL,
+                strength REAL NOT NULL,
+                context_json TEXT,
+                PRIMARY KEY (source_id, target_id)
+            )
+        """)
+
+        # 语义上下文表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS semantic_contexts (
+                entity_id TEXT PRIMARY KEY,
+                purpose TEXT NOT NULL,
+                inputs_json TEXT NOT NULL,
+                outputs_json TEXT NOT NULL,
+                side_effects_json TEXT NOT NULL,
+                preconditions_json TEXT NOT NULL,
+                postconditions_json TEXT NOT NULL,
+                related_concepts_json TEXT NOT NULL
+            )
+        """)
+
+        conn.commit()
+        conn.close()
+
+    async def analyze_project(self, project_path: str) -> Dict[str, Any]:
+        """分析整个项目"""
+        project_path = Path(project_path)
+
+        # 收集所有Python文件
+        python_files = list(project_path.rglob("*.py"))
+
+        for file_path in python_files:
+            try:
+                source_code = file_path.read_text(encoding='utf-8')
+                entities = self.ast_analyzer.analyze_file(str(file_path), source_code)
+
+                for entity in entities:
+                    self.dependency_graph.add_entity(entity)
+
+                    # 语义分析
+                    semantic_context = self.semantic_analyzer.analyze_entity(entity)
+                    await self._save_semantic_context(semantic_context)
+
+            except Exception as e:
+                continue
+
+        # 初始化影响分析器和代码搜索
+        self.impact_analyzer = ImpactAnalyzer(self.dependency_graph)
+        self.code_search = SemanticCodeSearch(
+            self.dependency_graph.nodes,
+            self.semantic_analyzer.semantic_contexts
+        )
+
+        return {
+            'entities_count': len(self.dependency_graph.nodes),
+            'dependencies_count': len(self.dependency_graph.edges),
+            'cycles': len(self.dependency_graph.find_cycles())
+        }
+
+    async def _save_semantic_context(self, context: SemanticContext):
+        """保存语义上下文"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """INSERT OR REPLACE INTO semantic_contexts
+               (entity_id, purpose, inputs_json, outputs_json, side_effects_json,
+                preconditions_json, postconditions_json, related_concepts_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                context.entity_id,
+                context.purpose,
+                json.dumps(context.inputs),
+                json.dumps(context.outputs),
+                json.dumps(context.side_effects),
+                json.dumps(context.preconditions),
+                json.dumps(context.postconditions),
+                json.dumps(context.related_concepts)
+            )
+        )
+
+        conn.commit()
+        conn.close()
+
+    def search_code(self, query: str, top_k: int = 10) -> List[CodeSearchResult]:
+        """搜索代码"""
+        if not self.code_search:
+            raise RuntimeError("Project not analyzed yet. Call analyze_project first.")
+        return self.code_search.search(query, top_k)
+
+    def analyze_change_impact(self, entity_id: str) -> ImpactAnalysisResult:
+        """分析变更影响"""
+        if not self.impact_analyzer:
+            raise RuntimeError("Project not analyzed yet. Call analyze_project first.")
+        return self.impact_analyzer.analyze_impact(entity_id)
+
+    def get_entity_info(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        """获取实体信息"""
+        entity = self.dependency_graph.nodes.get(entity_id)
+        if not entity:
+            return None
+
+        context = self.semantic_analyzer.semantic_contexts.get(entity_id)
+
+        return {
+            'entity': entity,
+            'semantic_context': context,
+            'dependencies': self.dependency_graph.get_dependencies(entity_id),
+            'dependents': self.dependency_graph.get_dependents(entity_id)
+        }
+
+    def find_similar_code(self, entity_id: str, top_k: int = 5) -> List[CodeSearchResult]:
+        """查找相似代码"""
+        context = self.semantic_analyzer.semantic_contexts.get(entity_id)
+        if not context:
+            return []
+
+        # 使用相关概念作为查询
+        query = ' '.join(context.related_concepts)
+        results = self.search_code(query, top_k + 1)
+
+        # 过滤掉自身
+        return [r for r in results if r.entity_id != entity_id][:top_k]
+
+    def get_project_metrics(self) -> Dict[str, Any]:
+        """获取项目指标"""
+        metrics = {
+            'total_entities': len(self.dependency_graph.nodes),
+            'total_dependencies': len(self.dependency_graph.edges),
+            'cycles': self.dependency_graph.find_cycles(),
+            'entity_types': defaultdict(int),
+            'avg_complexity': 0
+        }
+
+        for entity in self.dependency_graph.nodes.values():
+            metrics['entity_types'][entity.entity_type.value] += 1
+
+        centrality = self.dependency_graph.compute_centrality()
+        if centrality:
+            metrics['avg_centrality'] = sum(centrality.values()) / len(centrality)
+            metrics['max_centrality'] = max(centrality.values())
+
+        return metrics
+
+
+# 便捷函数
+def quick_analyze_file(file_path: str) -> Dict[str, Any]:
+    """快速分析单个文件"""
+    analyzer = SmartCodeAnalyzer()
+
+    source_code = Path(file_path).read_text(encoding='utf-8')
+    entities = analyzer.ast_analyzer.analyze_file(file_path, source_code)
+
+    return {
+        'file': file_path,
+        'entities': [
+            {
+                'name': e.name,
+                'type': e.entity_type.value,
+                'line': e.line_start,
+                'signature': e.signature
+            }
+            for e in entities
+        ]
+    }
