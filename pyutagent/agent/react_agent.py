@@ -201,9 +201,11 @@ class ReActAgent(BaseAgent):
         6. Repeat until success or user stops
         """
         self._stop_requested = False
-        logger.info(f"[ReActAgent] Starting feedback loop - Target: {target_file}, MaxIterations: {self.max_iterations}, TargetCoverage: {self.target_coverage:.1%}")
+        logger.info(f"[ReActAgent] 🎯 Starting test generation for: {Path(target_file).name}")
+        logger.info(f"[ReActAgent] 📊 Configuration - MaxIterations: {self.max_iterations}, TargetCoverage: {self.target_coverage:.1%}")
         
-        logger.info("[ReActAgent] Step 1: Parsing target file")
+        self._update_state(AgentState.PARSING, "📖 Step 1/6: Parsing target Java file...")
+        logger.info("[ReActAgent] 📖 Step 1: Parsing target file")
         parse_result = await self._execute_with_recovery(
             self._parse_target_file,
             target_file,
@@ -220,9 +222,13 @@ class ReActAgent(BaseAgent):
         
         self.target_class_info = parse_result.data.get("class_info")
         self.working_memory.current_file = target_file
-        logger.info(f"[ReActAgent] Parsing complete - Class: {self.target_class_info.get('name', 'unknown')}")
+        class_name = self.target_class_info.get('name', 'unknown')
+        method_count = len(self.target_class_info.get('methods', []))
+        logger.info(f"[ReActAgent] ✅ Parsing complete - Class: {class_name}, Methods: {method_count}")
         
-        logger.info("[ReActAgent] Step 2: Generating initial tests")
+        self._update_state(AgentState.GENERATING, f"✨ Step 2/6: Generating initial tests for {class_name}...")
+        logger.info("[ReActAgent] ✨ Step 2: Generating initial tests")
+        logger.info(f"[ReActAgent] 🤖 Calling LLM to generate tests for {class_name} with {method_count} methods...")
         generate_result = await self._execute_with_recovery(
             self._generate_initial_tests,
             step_name="generating initial tests"
@@ -237,15 +243,18 @@ class ReActAgent(BaseAgent):
             )
         
         self.current_test_file = generate_result.data.get("test_file")
-        logger.info(f"[ReActAgent] Initial test generation complete - TestFile: {self.current_test_file}")
+        logger.info(f"[ReActAgent] ✅ Initial test generation complete - TestFile: {self.current_test_file}")
         
         loop_start_time = asyncio.get_event_loop().time()
+        
+        self._update_state(AgentState.COMPILING, "🔨 Step 3/6: Compiling generated tests...")
+        logger.info("[ReActAgent] 🔨 Step 3: Starting compile-test loop")
         
         while not self._stop_requested:
             self.current_iteration += 1
             self.working_memory.increment_iteration()
             
-            logger.info(f"[ReActAgent] ===== Iteration {self.current_iteration}/{self.max_iterations} started =====")
+            logger.info(f"[ReActAgent] 🔄 ===== Iteration {self.current_iteration}/{self.max_iterations} started =====")
             
             if self.current_iteration > self.max_iterations:
                 logger.warning(f"[ReActAgent] Max iterations reached - Max: {self.max_iterations}, FinalCoverage: {self.working_memory.current_coverage:.1%}")
@@ -263,25 +272,27 @@ class ReActAgent(BaseAgent):
                 )
                 break
             
-            logger.info("[ReActAgent] Step 3: Compiling tests")
+            logger.info(f"[ReActAgent] 🔨 Step 3: Compiling tests (Iteration {self.current_iteration})")
             compile_success = await self._compile_with_recovery()
             if not compile_success or self._stop_requested:
                 if self._stop_requested:
-                    logger.info("[ReActAgent] User stopped - Compilation phase")
+                    logger.info("[ReActAgent] ⏹️ User stopped - Compilation phase")
                     break
-                logger.warning("[ReActAgent] Compilation failed, preparing to retry")
+                logger.warning("[ReActAgent] ⚠️ Compilation failed, preparing to retry...")
                 continue
             
-            logger.info("[ReActAgent] Step 4: Running tests")
+            self._update_state(AgentState.TESTING, f"🧪 Step 4/6: Running tests (Iteration {self.current_iteration})...")
+            logger.info(f"[ReActAgent] 🧪 Step 4: Running tests (Iteration {self.current_iteration})")
             test_success = await self._run_tests_with_recovery()
             if not test_success or self._stop_requested:
                 if self._stop_requested:
-                    logger.info("[ReActAgent] User stopped - Test phase")
+                    logger.info("[ReActAgent] ⏹️ User stopped - Test phase")
                     break
-                logger.warning("[ReActAgent] Tests failed, preparing to retry")
+                logger.warning("[ReActAgent] ⚠️ Tests failed, preparing to retry...")
                 continue
             
-            logger.info("[ReActAgent] Step 5: Analyzing coverage")
+            self._update_state(AgentState.ANALYZING, f"📊 Step 5/6: Analyzing coverage (Iteration {self.current_iteration})...")
+            logger.info(f"[ReActAgent] 📊 Step 5: Analyzing coverage (Iteration {self.current_iteration})")
             coverage_result = await self._execute_with_recovery(
                 self._analyze_coverage,
                 step_name="analyzing coverage"
@@ -294,13 +305,13 @@ class ReActAgent(BaseAgent):
             
             current_coverage = coverage_result.data.get("line_coverage", 0.0)
             self.working_memory.update_coverage(current_coverage)
-            logger.info(f"[ReActAgent] Current coverage - {current_coverage:.1%}")
+            logger.info(f"[ReActAgent] 📈 Current coverage: {current_coverage:.1%} (Target: {self.target_coverage:.1%})")
             
             if current_coverage >= self.target_coverage:
-                logger.info(f"[ReActAgent] Target coverage reached - {current_coverage:.1%}")
+                logger.info(f"[ReActAgent] 🎉 Target coverage reached! {current_coverage:.1%}")
                 self._update_state(
                     AgentState.COMPLETED,
-                    f"Target coverage reached: {current_coverage:.1%}"
+                    f"🎉 Target coverage reached: {current_coverage:.1%}"
                 )
                 return AgentResult(
                     success=True,
@@ -310,10 +321,10 @@ class ReActAgent(BaseAgent):
                     iterations=self.current_iteration
                 )
             
-            logger.info(f"[ReActAgent] Step 6: Generating additional tests - Coverage: {current_coverage:.1%} < Target: {self.target_coverage:.1%}")
+            logger.info(f"[ReActAgent] 🚀 Step 6: Generating additional tests - Coverage: {current_coverage:.1%} < Target: {self.target_coverage:.1%}")
             self._update_state(
                 AgentState.OPTIMIZING,
-                f"Coverage {current_coverage:.1%} < target {self.target_coverage:.1%}, generating additional tests"
+                f"🚀 Coverage {current_coverage:.1%} < target {self.target_coverage:.1%}, calling LLM to generate additional tests..."
             )
             
             additional_result = await self._execute_with_recovery(
@@ -323,17 +334,17 @@ class ReActAgent(BaseAgent):
             )
             
             if not additional_result.success:
-                logger.warning("[ReActAgent] Additional test generation failed, preparing to retry")
-                self._update_state(AgentState.FIXING, "Additional test generation failed, retrying...")
+                logger.warning("[ReActAgent] ⚠️ Additional test generation failed, preparing to retry...")
+                self._update_state(AgentState.FIXING, "⚠️ Additional test generation failed, retrying...")
                 continue
             
-            logger.info(f"[ReActAgent] ===== Iteration {self.current_iteration} complete =====")
+            logger.info(f"[ReActAgent] ✅ ===== Iteration {self.current_iteration} complete =====")
         
         final_coverage = self.working_memory.current_coverage
         elapsed = asyncio.get_event_loop().time() - loop_start_time
         
         if self._stop_requested:
-            logger.info(f"[ReActAgent] User stopped - Iterations: {self.current_iteration}, Coverage: {final_coverage:.1%}, Time: {elapsed:.1f}s")
+            logger.info(f"[ReActAgent] ⏹️ User stopped - Iterations: {self.current_iteration}, Coverage: {final_coverage:.1%}, Time: {elapsed:.1f}s")
             return AgentResult(
                 success=False,
                 message="Generation stopped by user",
@@ -342,7 +353,7 @@ class ReActAgent(BaseAgent):
                 iterations=self.current_iteration
             )
         
-        logger.info(f"[ReActAgent] Feedback loop ended - Iterations: {self.current_iteration}, Coverage: {final_coverage:.1%}, Time: {elapsed:.1f}s")
+        logger.info(f"[ReActAgent] ✨ Feedback loop completed - Iterations: {self.current_iteration}, Coverage: {final_coverage:.1%}, Time: {elapsed:.1f}s")
         return AgentResult(
             success=final_coverage > 0,
             message=f"Completed after {self.current_iteration} iterations with {final_coverage:.1%} coverage",
@@ -499,29 +510,29 @@ class ReActAgent(BaseAgent):
         """
         attempt = 0
         
-        logger.info("[ReActAgent] Starting test compilation (with recovery)")
+        logger.info("[ReActAgent] 🔨 Starting test compilation (with recovery)")
         
         while not self._stop_requested:
             attempt += 1
-            self._update_state(AgentState.COMPILING, f"Attempt {attempt}: Compiling tests...")
+            self._update_state(AgentState.COMPILING, f"🔨 Attempt {attempt}: Compiling tests...")
             
-            logger.debug(f"[ReActAgent] Compilation attempt {attempt}")
+            logger.info(f"[ReActAgent] 🔨 Compilation attempt {attempt} - Running Maven compile...")
             
             try:
                 result = await self._compile_tests()
                 
                 if result.success:
-                    logger.info(f"[ReActAgent] Compilation successful - Attempt: {attempt}")
-                    self._update_state(AgentState.COMPILING, "Compilation successful")
+                    logger.info(f"[ReActAgent] ✅ Compilation successful - Attempt: {attempt}")
+                    self._update_state(AgentState.COMPILING, "✅ Compilation successful")
                     return True
                 else:
                     errors = result.data.get("errors", [])
                     self._update_state(
                         AgentState.FIXING,
-                        f"Compilation failed with {len(errors)} error(s). Analyzing..."
+                        f"❌ Compilation failed with {len(errors)} error(s). Analyzing..."
                     )
                     
-                    logger.warning(f"[ReActAgent] Compilation failed - Errors: {len(errors)}")
+                    logger.warning(f"[ReActAgent] ❌ Compilation failed - Errors: {len(errors)}, calling LLM to fix...")
                     
                     error = Exception("Compilation failed: " + "\n".join(errors[:3]))
                     recovery_result = await self._try_recover(
@@ -535,15 +546,17 @@ class ReActAgent(BaseAgent):
                         return False
                     
                     action = recovery_result.get("action", "retry")
-                    logger.info(f"[ReActAgent] Compilation recovery action - Action: {action}")
+                    logger.info(f"[ReActAgent] 🔧 Compilation recovery action - Action: {action}")
                     
                     if action == "fix":
                         fixed_code = recovery_result.get("fixed_code")
                         if fixed_code:
                             await self._write_test_file(fixed_code)
-                            self._update_state(AgentState.FIXING, "Applied fix, retrying compilation...")
+                            self._update_state(AgentState.FIXING, "🔧 Applied fix, retrying compilation...")
+                            logger.info("[ReActAgent] 🔧 Applied LLM fix, retrying compilation...")
                     elif action == "reset":
-                        self._update_state(AgentState.FIXING, "Resetting and regenerating...")
+                        self._update_state(AgentState.FIXING, "🔄 Resetting and regenerating...")
+                        logger.info("[ReActAgent] 🔄 Resetting and regenerating tests...")
                         reset_result = await self._execute_with_recovery(
                             self._generate_initial_tests,
                             step_name="regenerating after compilation failure"
@@ -551,13 +564,14 @@ class ReActAgent(BaseAgent):
                         if not reset_result.success:
                             return False
                     elif action == "fallback":
-                        self._update_state(AgentState.FIXING, "Trying alternative approach...")
+                        self._update_state(AgentState.FIXING, "🔄 Trying alternative approach...")
+                        logger.info("[ReActAgent] 🔄 Trying alternative approach...")
                     
                     continue
                     
             except Exception as e:
-                logger.exception(f"[ReActAgent] Compilation exception: {e}")
-                self._update_state(AgentState.FIXING, f"Compilation error: {str(e)}")
+                logger.exception(f"[ReActAgent] ❌ Compilation exception: {e}")
+                self._update_state(AgentState.FIXING, f"❌ Compilation error: {str(e)}")
                 
                 recovery_result = await self._try_recover(
                     e,
@@ -565,11 +579,12 @@ class ReActAgent(BaseAgent):
                 )
                 
                 if not recovery_result.get("should_continue", True):
+                    logger.error("[ReActAgent] ❌ Compilation recovery failed, cannot continue")
                     return False
                 
                 continue
         
-        logger.info("[ReActAgent] Compilation stopped (user request)")
+        logger.info("[ReActAgent] ⏹️ Compilation stopped (user request)")
         return False
     
     async def _run_tests_with_recovery(self) -> bool:
@@ -580,29 +595,29 @@ class ReActAgent(BaseAgent):
         """
         attempt = 0
         
-        logger.info("[ReActAgent] Starting test execution (with recovery)")
+        logger.info("[ReActAgent] 🧪 Starting test execution (with recovery)")
         
         while not self._stop_requested:
             attempt += 1
-            self._update_state(AgentState.TESTING, f"Attempt {attempt}: Running tests...")
+            self._update_state(AgentState.TESTING, f"🧪 Attempt {attempt}: Running tests...")
             
-            logger.debug(f"[ReActAgent] Test run attempt {attempt}")
+            logger.info(f"[ReActAgent] 🧪 Test run attempt {attempt} - Running Maven test...")
             
             try:
                 result = await self._run_tests()
                 
                 if result.success:
-                    logger.info(f"[ReActAgent] All tests passed - Attempt: {attempt}")
-                    self._update_state(AgentState.TESTING, "All tests passed")
+                    logger.info(f"[ReActAgent] ✅ All tests passed - Attempt: {attempt}")
+                    self._update_state(AgentState.TESTING, "✅ All tests passed")
                     return True
                 else:
                     failures = result.data.get("failures", [])
                     self._update_state(
                         AgentState.FIXING,
-                        f"{len(failures)} test(s) failed. Analyzing..."
+                        f"❌ {len(failures)} test(s) failed. Analyzing..."
                     )
                     
-                    logger.warning(f"[ReActAgent] Tests failed - Failures: {len(failures)}")
+                    logger.warning(f"[ReActAgent] ❌ Tests failed - Failures: {len(failures)}, calling LLM to fix...")
                     
                     error = Exception(f"Test failures: {len(failures)} tests failed")
                     recovery_result = await self._try_recover(
@@ -616,15 +631,17 @@ class ReActAgent(BaseAgent):
                         return False
                     
                     action = recovery_result.get("action", "retry")
-                    logger.info(f"[ReActAgent] Test recovery action - Action: {action}")
+                    logger.info(f"[ReActAgent] 🔧 Test recovery action - Action: {action}")
                     
                     if action == "fix":
                         fixed_code = recovery_result.get("fixed_code")
                         if fixed_code:
                             await self._write_test_file(fixed_code)
-                            self._update_state(AgentState.FIXING, "Applied fix, retrying tests...")
+                            self._update_state(AgentState.FIXING, "🔧 Applied fix, retrying tests...")
+                            logger.info("[ReActAgent] 🔧 Applied LLM fix, retrying tests...")
                     elif action == "reset":
-                        self._update_state(AgentState.FIXING, "Resetting and regenerating...")
+                        self._update_state(AgentState.FIXING, "🔄 Resetting and regenerating...")
+                        logger.info("[ReActAgent] 🔄 Resetting and regenerating tests...")
                         reset_result = await self._execute_with_recovery(
                             self._generate_initial_tests,
                             step_name="regenerating after test failure"
@@ -635,8 +652,8 @@ class ReActAgent(BaseAgent):
                     continue
                     
             except Exception as e:
-                logger.exception(f"[ReActAgent] Test execution exception: {e}")
-                self._update_state(AgentState.FIXING, f"Test execution error: {str(e)}")
+                logger.exception(f"[ReActAgent] ❌ Test execution exception: {e}")
+                self._update_state(AgentState.FIXING, f"❌ Test execution error: {str(e)}")
                 
                 recovery_result = await self._try_recover(
                     e,
@@ -644,11 +661,12 @@ class ReActAgent(BaseAgent):
                 )
                 
                 if not recovery_result.get("should_continue", True):
+                    logger.error("[ReActAgent] ❌ Test recovery failed, cannot continue")
                     return False
                 
                 continue
         
-        logger.info("[ReActAgent] Test execution stopped (user request)")
+        logger.info("[ReActAgent] ⏹️ Test execution stopped (user request)")
         return False
     
     async def _write_test_file(self, code: str):
@@ -743,7 +761,7 @@ class ReActAgent(BaseAgent):
             
             logger.debug(f"[ReActAgent] Initial test prompt - Length: {len(prompt)}")
             
-            response = await self.llm_client.generate(prompt)
+            response = await self.llm_client.agenerate(prompt)
             test_code = self._extract_java_code(response)
             
             logger.debug(f"[ReActAgent] Extracted test code - Length: {len(test_code)}")
@@ -940,7 +958,7 @@ class ReActAgent(BaseAgent):
             
             logger.debug(f"[ReActAgent] Additional tests prompt - Length: {len(prompt)}")
             
-            response = await self.llm_client.generate(prompt)
+            response = await self.llm_client.agenerate(prompt)
             additional_tests = self._extract_java_code(response)
             
             logger.debug(f"[ReActAgent] Extracted additional test code - Length: {len(additional_tests)}")

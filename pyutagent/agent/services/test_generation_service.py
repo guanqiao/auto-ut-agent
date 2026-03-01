@@ -76,8 +76,8 @@ class TestGenerationService:
                 message="Parsing stopped by user"
             )
         
-        logger.info(f"[TestGenerationService] Parsing target file - File: {target_file}")
-        self._update_state(AgentState.PARSING, f"Parsing {target_file}...")
+        logger.info(f"[TestGenerationService] 📖 Parsing target file - File: {target_file}")
+        self._update_state(AgentState.PARSING, f"📖 Parsing {target_file}...")
         
         try:
             file_path = self.project_path / target_file
@@ -115,20 +115,21 @@ class TestGenerationService:
                 'source': source_code,
             }
             
-            logger.info(f"[TestGenerationService] Parsing complete - Class: {class_info.get('name', 'unknown')}, Methods: {len(class_info.get('methods', []))}")
+            method_count = len(class_info.get('methods', []))
+            logger.info(f"[TestGenerationService] ✅ Parsing complete - Class: {class_info.get('name', 'unknown')}, Methods: {method_count}")
             
             return StepResult(
                 success=True,
                 state=AgentState.PARSING,
-                message=f"Successfully parsed {class_info.get('name', 'unknown')}",
+                message=f"✅ Successfully parsed {class_info.get('name', 'unknown')} ({method_count} methods)",
                 data={"class_info": class_info, "source_code": source_code}
             )
         except Exception as e:
-            logger.exception(f"[TestGenerationService] Failed to parse file: {e}")
+            logger.exception(f"[TestGenerationService] ❌ Failed to parse file: {e}")
             return StepResult(
                 success=False,
                 state=AgentState.FAILED,
-                message=f"Error parsing file: {str(e)}"
+                message=f"❌ Error parsing file: {str(e)}"
             )
     
     async def generate_initial_tests(
@@ -150,8 +151,11 @@ class TestGenerationService:
                 message="Generation stopped by user"
             )
         
-        logger.info("[TestGenerationService] Generating initial tests")
-        self._update_state(AgentState.GENERATING, "Generating initial tests...")
+        class_name = class_info.get('name', 'Unknown')
+        method_count = len(class_info.get('methods', []))
+        logger.info(f"[TestGenerationService] ✨ Generating initial tests for {class_name} ({method_count} methods)")
+        logger.info(f"[TestGenerationService] 🤖 Calling LLM to generate tests...")
+        self._update_state(AgentState.GENERATING, f"✨ Generating initial tests for {class_name}...")
         
         try:
             prompt = self.prompt_builder.build_initial_test_prompt(
@@ -182,20 +186,20 @@ class TestGenerationService:
                 f.write(test_code)
             
             relative_path = str(test_file_path.relative_to(self.project_path))
-            logger.info(f"[TestGenerationService] Initial test generation complete - TestFile: {relative_path}")
+            logger.info(f"[TestGenerationService] ✅ Initial test generation complete - TestFile: {relative_path}, CodeLength: {len(test_code)} chars")
             
             return StepResult(
                 success=True,
                 state=AgentState.GENERATING,
-                message=f"Generated initial tests: {relative_path}",
+                message=f"✅ Generated initial tests: {relative_path}",
                 data={"test_file": relative_path, "test_code": test_code}
             )
         except Exception as e:
-            logger.exception(f"[TestGenerationService] Failed to generate initial tests: {e}")
+            logger.exception(f"[TestGenerationService] ❌ Failed to generate initial tests: {e}")
             return StepResult(
                 success=False,
                 state=AgentState.FAILED,
-                message=f"Error generating tests: {str(e)}"
+                message=f"❌ Error generating tests: {str(e)}"
             )
     
     async def generate_additional_tests(
@@ -243,7 +247,7 @@ class TestGenerationService:
             
             logger.debug(f"[TestGenerationService] Additional tests prompt - Length: {len(prompt)}")
             
-            response = await self.llm_client.generate(prompt)
+            response = await self.llm_client.agenerate(prompt)
             additional_tests = self._extract_java_code(response)
             
             logger.debug(f"[TestGenerationService] Extracted additional test code - Length: {len(additional_tests)}")

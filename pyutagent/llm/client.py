@@ -187,7 +187,8 @@ class LLMClient:
         messages.append(HumanMessage(content=prompt))
         
         prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
-        logger.info(f"[LLM] Starting async generation - Model: {self.model}, Endpoint: {self.endpoint}, PromptLength: {len(prompt)}")
+        logger.info(f"[LLM] 🚀 Starting async generation - Model: {self.model}, PromptLength: {len(prompt)} chars")
+        logger.info(f"[LLM] ⏳ Waiting for LLM response... (this may take 10-60 seconds)")
         logger.debug(f"[LLM] Prompt preview: {prompt_preview}")
         
         start_time = time.time()
@@ -196,11 +197,11 @@ class LLMClient:
             self._total_calls += 1
             self._total_tokens += len(prompt.split()) + len(response.content.split())
             elapsed = time.time() - start_time
-            logger.info(f"[LLM] Async generation complete - ResponseLength: {len(response.content)}, Elapsed: {elapsed:.2f}s")
+            logger.info(f"[LLM] ✅ Async generation complete - ResponseLength: {len(response.content)} chars, Elapsed: {elapsed:.2f}s")
             return response.content
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.exception(f"[LLM] Async generation failed - Elapsed: {elapsed:.2f}s, Error: {e}")
+            logger.exception(f"[LLM] ❌ Async generation failed - Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
     async def complete(

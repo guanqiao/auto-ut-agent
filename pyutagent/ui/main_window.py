@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QSplitter, QTreeWidget, QTreeWidgetItem, QMenuBar,
     QMenu, QFileDialog, QLabel, QProgressBar, QTextEdit,
-    QStatusBar, QMessageBox, QDialog
+    QStatusBar, QMessageBox, QDialog, QPushButton, QFrame
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction
@@ -187,49 +187,97 @@ class ProjectTreeWidget(QTreeWidget):
 
 
 class ProgressWidget(QWidget):
-    """Widget displaying generation progress."""
+    """Widget displaying generation progress and logs."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui()
 
     def setup_ui(self):
-        """Setup the UI."""
+        """Setup the UI with vertical splitter for progress and logs."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Create vertical splitter
+        splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # Upper section: Progress info
+        progress_container = QWidget()
+        progress_layout = QVBoxLayout(progress_container)
+        progress_layout.setContentsMargins(10, 10, 10, 10)
 
         header = QLabel("Progress")
         header.setStyleSheet("font-size: 16px; font-weight: bold; padding: 5px;")
-        layout.addWidget(header)
+        progress_layout.addWidget(header)
 
         self.state_label = QLabel("Status: Ready")
         self.state_label.setStyleSheet("font-weight: bold; color: #666;")
-        layout.addWidget(self.state_label)
+        progress_layout.addWidget(self.state_label)
 
         self.status_label = QLabel("Waiting to start...")
-        layout.addWidget(self.status_label)
+        progress_layout.addWidget(self.status_label)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        layout.addWidget(self.progress_bar)
+        progress_layout.addWidget(self.progress_bar)
 
         self.coverage_label = QLabel("Coverage: -")
-        layout.addWidget(self.coverage_label)
+        progress_layout.addWidget(self.coverage_label)
 
         self.iteration_label = QLabel("Iteration: -")
-        layout.addWidget(self.iteration_label)
+        progress_layout.addWidget(self.iteration_label)
 
         self.details_label = QLabel("")
         self.details_label.setWordWrap(True)
-        layout.addWidget(self.details_label)
+        progress_layout.addWidget(self.details_label)
 
+        progress_layout.addStretch()
+        splitter.addWidget(progress_container)
+
+        # Lower section: Log display
+        log_container = QWidget()
+        log_layout = QVBoxLayout(log_container)
+        log_layout.setContentsMargins(10, 10, 10, 10)
+
+        # Log header with title and clear button
+        log_header_layout = QHBoxLayout()
+        log_header = QLabel("Logs")
+        log_header.setStyleSheet("font-size: 14px; font-weight: bold; padding: 5px;")
+        log_header_layout.addWidget(log_header)
+        log_header_layout.addStretch()
+
+        self.clear_log_btn = QPushButton("Clear")
+        self.clear_log_btn.setMaximumWidth(60)
+        self.clear_log_btn.clicked.connect(self.clear_log)
+        log_header_layout.addWidget(self.clear_log_btn)
+        log_layout.addLayout(log_header_layout)
+
+        # Log display area
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
-        self.log_area.setMaximumHeight(200)
-        layout.addWidget(self.log_area)
+        self.log_area.setStyleSheet("""
+            QTextEdit {
+                background-color: #1e1e1e;
+                color: #d4d4d4;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 12px;
+                border: 1px solid #3c3c3c;
+                border-radius: 4px;
+                padding: 5px;
+            }
+        """)
+        log_layout.addWidget(self.log_area)
 
-        layout.addStretch()
+        splitter.addWidget(log_container)
+
+        # Set initial sizes (progress:logs = 40:60)
+        splitter.setSizes([200, 300])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+
+        layout.addWidget(splitter)
 
     def update_progress(self, value: int, status: str = ""):
         """Update progress bar."""
@@ -278,11 +326,36 @@ class ProgressWidget(QWidget):
         """Update details text."""
         self.details_label.setText(details)
 
-    def add_log(self, message: str):
-        """Add log message."""
+    def add_log(self, message: str, level: str = "INFO"):
+        """Add log message with color coding.
+
+        Args:
+            message: Log message
+            level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        """
         from datetime import datetime
+
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_area.append(f"[{timestamp}] {message}")
+
+        # Color mapping for different log levels
+        colors = {
+            "DEBUG": "#808080",      # Gray
+            "INFO": "#4FC1FF",       # Light blue
+            "WARNING": "#FFCC00",    # Yellow/Orange
+            "ERROR": "#FF6B6B",      # Red
+            "CRITICAL": "#FF0000",   # Bright red
+        }
+        color = colors.get(level.upper(), "#d4d4d4")
+
+        # Format: [HH:MM:SS] [LEVEL] message
+        formatted_message = f"[{timestamp}] [{level.upper()}] {message}"
+
+        # Append with color
+        self.log_area.append(f'<span style="color: {color};">{formatted_message}</span>')
+
+        # Auto-scroll to bottom
+        scrollbar = self.log_area.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
     def clear_log(self):
         """Clear log area."""
@@ -729,6 +802,14 @@ class MainWindow(QMainWindow):
             self.progress_widget.update_progress(0)
 
             settings = get_settings()
+            file_name = Path(target_file).name
+            
+            # 添加初始日志信息
+            self.progress_widget.add_log(f"🚀 Starting test generation for {file_name}", "INFO")
+            self.progress_widget.add_log(f"📊 Target coverage: {settings.coverage.target_coverage:.1%}", "INFO")
+            self.progress_widget.add_log(f"🔄 Max iterations: {settings.coverage.max_iterations}", "INFO")
+            self.progress_widget.add_log("⏳ This process may take several minutes. Please wait...", "WARNING")
+            
             self.agent_worker = AgentWorker(
                 llm_client=self.llm_client,
                 project_path=self.current_project,
@@ -745,8 +826,7 @@ class MainWindow(QMainWindow):
 
             self.agent_worker.start()
 
-            file_name = Path(target_file).name
-            self.chat_widget.add_agent_message(f"Starting test generation for {file_name}...")
+            self.chat_widget.add_agent_message(f"🚀 Starting test generation for {file_name}...")
             self.status_bar.showMessage(f"Generating tests: {file_name}")
             logger.info(f"Started generation for: {target_file}")
         except Exception as e:
@@ -783,11 +863,13 @@ class MainWindow(QMainWindow):
     def on_agent_state_changed(self, state: str, message: str):
         """Handle agent state changes."""
         self.progress_widget.update_state(state, message)
-        self.progress_widget.add_log(f"[{state}] {message}")
+        # 只记录非重复的状态变更日志
+        if message and not message.startswith("["):
+            self.progress_widget.add_log(f"[{state}] {message}", "INFO")
 
-    def on_agent_log(self, message: str):
+    def on_agent_log(self, message: str, level: str = "INFO"):
         """Handle agent log messages."""
-        self.progress_widget.add_log(message)
+        self.progress_widget.add_log(message, level)
 
     def on_agent_completed(self, result: dict):
         """Handle agent completion."""
@@ -799,16 +881,22 @@ class MainWindow(QMainWindow):
             iterations = result.get("iterations", 0)
 
             if success:
+                self.progress_widget.add_log(f"🎉 Test generation completed successfully!", "INFO")
+                self.progress_widget.add_log(f"📁 Test file: {test_file}", "INFO")
+                self.progress_widget.add_log(f"📊 Coverage: {coverage:.1%}", "INFO")
+                self.progress_widget.add_log(f"🔄 Iterations: {iterations}", "INFO")
+                
                 self.chat_widget.add_agent_message(
-                    f"Test generation completed!\n\n"
+                    f"🎉 Test generation completed!\n\n"
                     f"{message}\n"
                     f"Test file: {test_file}\n"
                     f"Iterations: {iterations}"
                 )
-                self.progress_widget.update_progress(100, "Completed")
+                self.progress_widget.update_progress(100, "✅ Completed")
                 logger.info(f"Test generation completed successfully: {test_file}, coverage: {coverage:.1%}")
             else:
-                self.chat_widget.add_agent_message(f"Generation failed: {message}")
+                self.progress_widget.add_log(f"❌ Generation failed: {message}", "ERROR")
+                self.chat_widget.add_agent_message(f"❌ Generation failed: {message}")
                 logger.warning(f"Test generation failed: {message}")
 
             self.status_bar.showMessage("Ready")
@@ -818,8 +906,9 @@ class MainWindow(QMainWindow):
     def on_agent_error(self, error_message: str):
         """Handle agent errors."""
         try:
-            self.chat_widget.add_agent_message(f"Error: {error_message}")
-            self.progress_widget.update_state("FAILED", error_message)
+            self.progress_widget.add_log(f"❌ Error: {error_message}", "ERROR")
+            self.chat_widget.add_agent_message(f"❌ Error: {error_message}")
+            self.progress_widget.update_state("FAILED", f"❌ {error_message}")
             self.status_bar.showMessage("Generation failed")
             logger.error(f"Agent error: {error_message}")
         except Exception as e:
