@@ -1,41 +1,17 @@
-"""Error recovery module for agent.
+"""Error recovery - DEPRECATED.
 
-This module provides backward-compatible imports from core.error_recovery.
-All error recovery classes have been consolidated into core.error_recovery.
+This module is deprecated. Use pyutagent.core.error_recovery instead.
 """
 
-from ..core.error_recovery import (
-    ErrorRecoveryManager,
-    ErrorCategory,
-    RecoveryStrategy,
-    RecoveryResult,
-    RecoveryContext,
-    RecoveryAttempt,
-    ErrorContext,
-    ErrorClassifier,
-    StatePreserver,
-    GracefulDegradation,
-    RecoveryManager,
-    is_retryable_error,
-    classify_error,
-    create_recovery_manager,
-    safe_execution_context,
-)
+import warnings
 
-__all__ = [
-    "ErrorRecoveryManager",
-    "ErrorCategory",
-    "RecoveryStrategy",
-    "RecoveryResult",
-    "RecoveryContext",
-    "RecoveryAttempt",
-    "ErrorContext",
-    "ErrorClassifier",
-    "StatePreserver",
-    "GracefulDegradation",
-    "RecoveryManager",
-    "is_retryable_error",
-    "classify_error",
-    "create_recovery_manager",
-    "safe_execution_context",
-]
+# Import everything from core module
+from ..core.error_recovery import *  # noqa: F401,F403
+
+# Issue deprecation warning
+warnings.warn(
+    "Importing from pyutagent.agent.error_recovery is deprecated. "
+    "Use pyutagent.core.error_recovery instead.",
+    DeprecationWarning,
+    stacklevel=2
+)

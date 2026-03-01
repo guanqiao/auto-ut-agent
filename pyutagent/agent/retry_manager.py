@@ -1,45 +1,17 @@
-"""Retry manager module for agent.
+"""Retry manager - DEPRECATED.
 
-This module provides backward-compatible imports from core.retry_manager.
-All retry management classes have been consolidated into core.retry_manager.
+This module is deprecated. Use pyutagent.core.retry_manager instead.
 """
 
-from ..core.retry_manager import (
-    RetryManager,
-    RetryConfig,
-    RetryStrategy,
-    RetryResult,
-    RetryAttempt,
-    RetryCondition,
-    CircuitBreaker,
-    CircuitBreakerConfig,
-    CircuitState,
-    InfiniteRetryManager,
-    TimeoutManager,
-    with_retry,
-    circuit_breaker,
-    retry_with_backoff,
-    get_retry_manager,
-    create_retry_manager,
-    AsyncRetryWithBackoff,
-)
+import warnings
 
-__all__ = [
-    "RetryManager",
-    "RetryConfig",
-    "RetryStrategy",
-    "RetryResult",
-    "RetryAttempt",
-    "RetryCondition",
-    "CircuitBreaker",
-    "CircuitBreakerConfig",
-    "CircuitState",
-    "InfiniteRetryManager",
-    "TimeoutManager",
-    "with_retry",
-    "circuit_breaker",
-    "retry_with_backoff",
-    "get_retry_manager",
-    "create_retry_manager",
-    "AsyncRetryWithBackoff",
-]
+# Import everything from core module
+from ..core.retry_manager import *  # noqa: F401,F403
+
+# Issue deprecation warning
+warnings.warn(
+    "Importing from pyutagent.agent.retry_manager is deprecated. "
+    "Use pyutagent.core.retry_manager instead.",
+    DeprecationWarning,
+    stacklevel=2
+)

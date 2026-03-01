@@ -28,6 +28,15 @@ from .error_recovery import (
     is_retryable_error,
 )
 from .cache import FileCache, Memoize
+from .security import (
+    SecurityError,
+    PathValidator,
+    SensitiveField,
+    CommandBuilder,
+    sanitize_for_display,
+    validate_maven_project,
+)
+from .secure_logging import SecureLogger as SecureLogger
 from .config import (
     Settings,
     LLMConfig,
@@ -92,6 +101,13 @@ __all__ = [
     "is_retryable_error",
     "FileCache",
     "Memoize",
+    "SecurityError",
+    "PathValidator",
+    "SensitiveField",
+    "SecureLogger",
+    "CommandBuilder",
+    "sanitize_for_display",
+    "validate_maven_project",
     "Settings",
     "LLMConfig",
     "LLMConfigCollection",
