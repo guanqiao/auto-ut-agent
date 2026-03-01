@@ -450,3 +450,284 @@ class DependencyGraph:
             return direct
 
         all_deps = set(direct)
+        for dep in direct:
+            all_deps.update(self.get_dependents(dep, depth - 1))
+
+        return list(all_deps)
+
+    def find_cycles(self) -> List[List[str]]:
+        """查找循环依赖"""
+        cycles = []
+        visited = set()
+        rec_stack = set()
+
+        def dfs(node_id: str, path: List[str]):
+            visited.add(node_id)
+            rec_stack.add(node_id)
+            path.append(node_id)
+
+            for neighbor in self._adjacency.get(node_id, []):
+                if neighbor not in visited:
+                    dfs(neighbor, path)
+                elif neighbor in rec_stack:
+                    # 发现循环
+                    cycle_start = path.index(neighbor)
+                    cycles.append(path[cycle_start:] + [neighbor])
+
+            path.pop()
+            rec_stack.remove(node_id)
+
+        for node_id in self.nodes:
+            if node_id not in visited:
+                dfs(node_id, [])
+
+        return cycles
+
+    def compute_centrality(self) -> Dict[str, float]:
+        """计算节点中心性（基于依赖数量）"""
+        centrality = {}
+        for entity_id in self.nodes:
+            in_degree = len(self._reverse_adjacency.get(entity_id, []))
+            out_degree = len(self._adjacency.get(entity_id, []))
+            centrality[entity_id] = in_degree + out_degree
+        return centrality
+
+
+class ImpactAnalyzer:
+    """影响分析器"""
+
+    def __init__(self, dependency_graph: DependencyGraph):
+        self.graph = dependency_graph
+
+    def analyze_impact(self, changed_entity_id: str) -> ImpactAnalysisResult:
+        """分析变更影响"""
+        # 直接受影响
+        direct_dependents = self.graph.get_dependents(changed_entity_id, depth=1)
+
+        # 间接受影响
+        indirect_dependents = self.graph.get_dependents(changed_entity_id, depth=3)
+        indirect_dependents = [d for d in indirect_dependents if d not in direct_dependents]
+
+        # 需要检查的测试
+        test_entities = self._identify_test_entities(
+            direct_dependents + indirect_dependents
+        )
+
+        # 计算风险分数
+        risk_score = self._calculate_risk(
+            changed_entity_id,
+            direct_dependents,
+            indirect_dependents
+        )
+
+        # 估计工作量
+        estimated_effort = self._estimate_effort(
+            len(direct_dependents),
+            len(indirect_dependents),
+            len(test_entities)
+        )
+
+        return ImpactAnalysisResult(
+            changed_entity_id=changed_entity_id,
+            directly_affected=direct_dependents,
+            indirectly_affected=indirect_dependents,
+            test_entities_to_check=test_entities,
+            risk_score=risk_score,
+            estimated_effort=estimated_effort
+        )
+
+    def _identify_test_entities(self, affected_entities: List[str]) -> List[str]:
+        """识别需要检查的测试实体"""
+        test_entities = []
+
+        for entity_id in affected_entities:
+            entity = self.graph.nodes.get(entity_id)
+            if entity:
+                # 检查是否是测试
+                if 'test' in entity.name.lower() or entity.file_path.endswith('_test.py'):
+                    test_entities.append(entity_id)
+                else:
+                    # 查找相关的测试
+                    related_tests = self._find_related_tests(entity)
+                    test_entities.extend(related_tests)
+
+        return list(set(test_entities))
+
+    def _find_related_tests(self, entity: CodeEntity) -> List[str]:
+        """查找与实体相关的测试"""
+        related = []
+
+        for test_id, test_entity in self.graph.nodes.items():
+            if 'test' in test_entity.name.lower():
+                # 检查测试是否引用了该实体
+                if entity.name in test_entity.metadata.get('test_targets', []):
+                    related.append(test_id)
+
+        return related
+
+    def _calculate_risk(
+        self,
+        changed_id: str,
+        direct: List[str],
+        indirect: List[str]
+    ) -> float:
+        """计算变更风险"""
+        # 基于受影响实体数量和中心性计算风险
+        base_risk = min(1.0, (len(direct) * 0.1 + len(indirect) * 0.05))
+
+        # 考虑被修改实体的重要性
+        centrality = self.graph.compute_centrality()
+        max_centrality = max(centrality.values()) if centrality else 1
+        entity_centrality = centrality.get(changed_id, 0)
+
+        importance_factor = entity_centrality / max_centrality if max_centrality > 0 else 0
+
+        return min(1.0, base_risk + importance_factor * 0.3)
+
+    def _estimate_effort(
+        self,
+        direct_count: int,
+        indirect_count: int,
+        test_count: int
+    ) -> int:
+        """估计工作量（分钟）"""
+        # 简单估算：每个直接受影响实体5分钟，间接2分钟，测试10分钟
+        return direct_count * 5 + indirect_count * 2 + test_count * 10
+
+
+class SemanticCodeSearch:
+    """语义代码搜索"""
+
+    def __init__(
+        self,
+        entities: Dict[str, CodeEntity],
+        semantic_contexts: Dict[str, SemanticContext]
+    ):
+        self.entities = entities
+        self.semantic_contexts = semantic_contexts
+
+    def search(self, query: str, top_k: int = 10) -> List[CodeSearchResult]:
+        """语义搜索"""
+        query_concepts = self._extract_query_concepts(query)
+        results = []
+
+        for entity_id, entity in self.entities.items():
+            score = self._compute_relevance(entity_id, query_concepts, query)
+            if score > 0:
+                context = self.semantic_contexts.get(entity_id)
+                results.append(CodeSearchResult(
+                    entity_id=entity_id,
+                    relevance_score=score,
+                    match_type="semantic",
+                    matched_concepts=query_concepts,
+                    snippet=self._generate_snippet(entity, context)
+                ))
+
+        # 排序并返回前k个
+        results.sort(key=lambda r: r.relevance_score, reverse=True)
+        return results[:top_k]
+
+    def _extract_query_concepts(self, query: str) -> List[str]:
+        """提取查询中的概念"""
+        # 简单的关键词提取
+        words = re.findall(r'\b\w+\b', query.lower())
+        # 过滤停用词
+        stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+                      'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+                      'would', 'could', 'should', 'may', 'might', 'must', 'shall',
+                      'can', 'need', 'dare', 'ought', 'used', 'to', 'of', 'in',
+                      'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into',
+                      'through', 'during', 'before', 'after', 'above', 'below',
+                      'between', 'under', 'and', 'but', 'or', 'yet', 'so'}
+        return [w for w in words if w not in stop_words]
+
+    def _compute_relevance(
+        self,
+        entity_id: str,
+        query_concepts: List[str],
+        original_query: str
+    ) -> float:
+        """计算相关性分数"""
+        entity = self.entities.get(entity_id)
+        context = self.semantic_contexts.get(entity_id)
+
+        if not entity:
+            return 0.0
+
+        score = 0.0
+
+        # 名称匹配
+        name_parts = self._split_name(entity.name)
+        name_matches = sum(1 for c in query_concepts if any(c in p for p in name_parts))
+        score += name_matches * 0.3
+
+        # 文档字符串匹配
+        if entity.docstring:
+            doc_lower = entity.docstring.lower()
+            doc_matches = sum(1 for c in query_concepts if c in doc_lower)
+            score += doc_matches * 0.2
+
+        # 语义上下文匹配
+        if context:
+            concept_matches = sum(
+                1 for c in query_concepts if any(c in rc.lower() for rc in context.related_concepts)
+            )
+            score += concept_matches * 0.25
+
+            purpose_match = sum(1 for c in query_concepts if c in context.purpose.lower())
+            score += purpose_match * 0.15
+
+        # 完全匹配加分
+        if original_query.lower() in entity.name.lower():
+            score += 0.5
+
+        return min(1.0, score)
+
+    def _split_name(self, name: str) -> List[str]:
+        """分割名称"""
+        # 驼峰命名
+        parts = re.findall(r'[A-Z][^A-Z]*', name)
+        if parts:
+            return [p.lower() for p in parts]
+        # 蛇形命名
+        return name.lower().split('_')
+
+    def _generate_snippet(
+        self,
+        entity: CodeEntity,
+        context: Optional[SemanticContext]
+    ) -> str:
+        """生成代码片段"""
+        lines = []
+
+        if entity.signature:
+            lines.append(entity.signature)
+
+        if context:
+            lines.append(f"# {context.purpose}")
+
+        if entity.docstring:
+            first_line = entity.docstring.split('\n')[0][:100]
+            lines.append(f'"""{first_line}..."""')
+
+        return '\n'.join(lines)
+
+
+class SmartCodeAnalyzer:
+    """智能代码分析器主类"""
+
+    def __init__(self, db_path: Optional[str] = None):
+        self.db_path = db_path or str(
+            Path.home() / ".pyutagent" / "code_analysis.db"
+        )
+        self.ast_analyzer = ASTAnalyzer()
+        self.semantic_analyzer = SemanticAnalyzer()
+        self.dependency_graph = DependencyGraph()
+        self.impact_analyzer: Optional[ImpactAnalyzer] = None
+        self.code_search: Optional[SemanticCodeSearch] = None
+
+        self._init_db()
+
+    def _init_db(self):
+        """初始化数据库"""
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok
