@@ -366,3 +366,362 @@ class UserInteractionHandler:
         # 记录交互
         await self._record_interaction(
             InteractionType.REPAIR_CONFIRMATION,
+            context_hash,
+            suggestion,
+            user_choice,
+            feedback
+        )
+
+        # 更新偏好
+        self._update_preferences(suggestion, user_choice)
+
+        return user_choice, feedback
+
+    async def request_strategy_selection(
+        self,
+        strategies: List[Dict[str, Any]],
+        context: Dict[str, Any]
+    ) -> Tuple[int, Optional[str]]:
+        """请求用户选择策略"""
+        print("\n可用修复策略:")
+        for i, strategy in enumerate(strategies, 1):
+            print(f"  [{i}] {strategy.get('name', 'Unknown')}")
+            print(f"       {strategy.get('description', '')}")
+
+        choice_str = await self._get_user_input(f"选择策略 (1-{len(strategies)}): ")
+
+        try:
+            choice_idx = int(choice_str) - 1
+            if 0 <= choice_idx < len(strategies):
+                await self._record_interaction(
+                    InteractionType.STRATEGY_SELECTION,
+                    self._compute_context_hash(context),
+                    None,
+                    UserChoice.ACCEPT,
+                    f"Selected strategy: {strategies[choice_idx].get('name')}"
+                )
+                return choice_idx, None
+        except ValueError:
+            pass
+
+        return 0, "Invalid selection, using default"
+
+    async def request_parameter_adjustment(
+        self,
+        parameters: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """请求用户调整参数"""
+        print("\n当前参数:")
+        for key, value in parameters.items():
+            print(f"  {key}: {value}")
+
+        adjusted = parameters.copy()
+
+        while True:
+            param_name = await self._get_user_input(
+                "输入要修改的参数名 (或 'done' 完成): "
+            )
+
+            if param_name.lower() == 'done':
+                break
+
+            if param_name in adjusted:
+                new_value = await self._get_user_input(f"输入 {param_name} 的新值: ")
+                # 尝试保持原类型
+                try:
+                    if isinstance(adjusted[param_name], int):
+                        adjusted[param_name] = int(new_value)
+                    elif isinstance(adjusted[param_name], float):
+                        adjusted[param_name] = float(new_value)
+                    elif isinstance(adjusted[param_name], bool):
+                        adjusted[param_name] = new_value.lower() in ('true', 'yes', '1')
+                    else:
+                        adjusted[param_name] = new_value
+                except ValueError:
+                    adjusted[param_name] = new_value
+
+        await self._record_interaction(
+            InteractionType.PARAMETER_ADJUSTMENT,
+            self._compute_context_hash(context),
+            None,
+            UserChoice.ACCEPT,
+            json.dumps(adjusted)
+        )
+
+        return adjusted
+
+    def _try_auto_decide(
+        self,
+        suggestion: RepairSuggestion,
+        context_hash: str
+    ) -> Optional[UserChoice]:
+        """尝试自动决策"""
+        # 高置信度自动接受
+        if suggestion.confidence >= 0.95 and suggestion.estimated_impact == "low":
+            # 检查历史记录
+            similar_choices = self._get_similar_interactions(context_hash)
+            if similar_choices:
+                accept_ratio = sum(
+                    1 for c in similar_choices if c == UserChoice.ACCEPT
+                ) / len(similar_choices)
+                if accept_ratio > 0.8:
+                    return UserChoice.ACCEPT
+
+        # 低置信度自动请求帮助
+        if suggestion.confidence < 0.3:
+            return UserChoice.ASK_FOR_HELP
+
+        return None
+
+    def _get_similar_interactions(self, context_hash: str) -> List[UserChoice]:
+        """获取相似场景的交互历史"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # 使用前缀匹配找相似场景
+        prefix = context_hash[:16]
+        cursor.execute(
+            """SELECT user_choice FROM interaction_records
+               WHERE context_hash LIKE ?""",
+            (f"{prefix}%",)
+        )
+
+        choices = []
+        for row in cursor.fetchall():
+            try:
+                choices.append(UserChoice(row[0]))
+            except ValueError:
+                pass
+
+        conn.close()
+        return choices
+
+    async def _get_user_input(self, prompt: str) -> str:
+        """获取用户输入（异步包装）"""
+        # 在实际应用中，这里应该使用异步输入
+        # 这里使用模拟输入
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: input(prompt))
+
+    async def _record_interaction(
+        self,
+        interaction_type: InteractionType,
+        context_hash: str,
+        suggestion: Optional[RepairSuggestion],
+        user_choice: UserChoice,
+        user_feedback: Optional[str]
+    ):
+        """记录交互"""
+        record = InteractionRecord(
+            record_id=self._generate_id(),
+            interaction_type=interaction_type,
+            context_hash=context_hash,
+            suggestion=suggestion,
+            user_choice=user_choice,
+            user_feedback=user_feedback,
+            timestamp=datetime.now(),
+            session_id=self._get_session_id(),
+            metadata={}
+        )
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """INSERT INTO interaction_records
+               (record_id, interaction_type, context_hash, suggestion_json,
+                user_choice, user_feedback, timestamp, session_id, metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                record.record_id,
+                interaction_type.name,
+                context_hash,
+                json.dumps(asdict(suggestion)) if suggestion else None,
+                user_choice.value,
+                user_feedback,
+                record.timestamp.isoformat(),
+                record.session_id,
+                json.dumps(record.metadata)
+            )
+        )
+
+        conn.commit()
+        conn.close()
+
+        # 触发回调
+        self._trigger_callbacks(interaction_type, record)
+
+    def _update_preferences(self, suggestion: RepairSuggestion, choice: UserChoice):
+        """更新用户偏好"""
+        # 基于用户选择更新偏好
+        if choice == UserChoice.ACCEPT:
+            # 用户倾向于接受高置信度建议
+            if suggestion.confidence > 0.8:
+                self._increment_preference("auto_accept_high_confidence", 1)
+        elif choice == UserChoice.MODIFY:
+            # 用户倾向于修改建议
+            self._increment_preference("prefers_modification", 1)
+        elif choice == UserChoice.REJECT:
+            # 记录拒绝模式
+            self._increment_preference("rejection_count", 1)
+
+    def _increment_preference(self, category: str, delta: int):
+        """增加偏好计数"""
+        if category in self._preference_cache:
+            pref = self._preference_cache[category]
+            pref.value = pref.value + delta if isinstance(pref.value, (int, float)) else delta
+            pref.sample_count += 1
+            pref.last_updated = datetime.now()
+        else:
+            self._preference_cache[category] = UserPreference(
+                preference_id=self._generate_id(),
+                category=category,
+                value=delta,
+                confidence=0.5,
+                sample_count=1,
+                last_updated=datetime.now()
+            )
+
+        self._save_preference(self._preference_cache[category])
+
+    def _save_preference(self, preference: UserPreference):
+        """保存偏好到数据库"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """INSERT OR REPLACE INTO user_preferences
+               (preference_id, category, value, confidence, sample_count, last_updated)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                preference.preference_id,
+                preference.category,
+                json.dumps(preference.value),
+                preference.confidence,
+                preference.sample_count,
+                preference.last_updated.isoformat()
+            )
+        )
+
+        conn.commit()
+        conn.close()
+
+    def get_preference(self, category: str) -> Optional[UserPreference]:
+        """获取用户偏好"""
+        return self._preference_cache.get(category)
+
+    def get_interaction_stats(self) -> Dict[str, Any]:
+        """获取交互统计"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        stats = {}
+
+        # 总交互数
+        cursor.execute("SELECT COUNT(*) FROM interaction_records")
+        stats['total_interactions'] = cursor.fetchone()[0]
+
+        # 各类型交互数
+        cursor.execute(
+            """SELECT interaction_type, COUNT(*) FROM interaction_records
+               GROUP BY interaction_type"""
+        )
+        stats['by_type'] = dict(cursor.fetchall())
+
+        # 用户选择分布
+        cursor.execute(
+            """SELECT user_choice, COUNT(*) FROM interaction_records
+               GROUP BY user_choice"""
+        )
+        stats['choice_distribution'] = dict(cursor.fetchall())
+
+        # 接受率趋势（最近30天）
+        from datetime import timedelta
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+        cursor.execute(
+            """SELECT COUNT(*) FROM interaction_records
+               WHERE timestamp > ? AND user_choice = 'accept'""",
+            (thirty_days_ago,)
+        )
+        recent_accepts = cursor.fetchone()[0]
+
+        cursor.execute(
+            """SELECT COUNT(*) FROM interaction_records WHERE timestamp > ?""",
+            (thirty_days_ago,)
+        )
+        recent_total = cursor.fetchone()[0]
+
+        stats['recent_accept_rate'] = (
+            recent_accepts / recent_total if recent_total > 0 else 0
+        )
+
+        conn.close()
+        return stats
+
+    def register_callback(
+        self,
+        interaction_type: InteractionType,
+        callback: Callable[[InteractionRecord], None]
+    ):
+        """注册交互回调"""
+        if interaction_type not in self._interaction_callbacks:
+            self._interaction_callbacks[interaction_type] = []
+        self._interaction_callbacks[interaction_type].append(callback)
+
+    def _trigger_callbacks(self, interaction_type: InteractionType, record: InteractionRecord):
+        """触发回调"""
+        callbacks = self._interaction_callbacks.get(interaction_type, [])
+        for callback in callbacks:
+            try:
+                callback(record)
+            except Exception:
+                pass  # 忽略回调错误
+
+    def _compute_context_hash(self, context: Dict[str, Any]) -> str:
+        """计算上下文哈希"""
+        context_str = json.dumps(context, sort_keys=True, default=str)
+        return hashlib.sha256(context_str.encode()).hexdigest()
+
+    def _generate_id(self) -> str:
+        """生成唯一ID"""
+        return hashlib.sha256(
+            f"{datetime.now().isoformat()}".encode()
+        ).hexdigest()[:16]
+
+    def _get_session_id(self) -> str:
+        """获取当前会话ID"""
+        # 在实际应用中，这应该是一个真正的会话ID
+        return self._generate_id()
+
+
+# 便捷函数
+def create_repair_suggestion(
+    title: str,
+    description: str,
+    code_before: Optional[str] = None,
+    code_after: Optional[str] = None,
+    explanation: str = "",
+    confidence: float = 0.5,
+    estimated_impact: str = "medium",
+    affected_files: List[str] = None,
+    side_effects: List[str] = None,
+    alternatives: List[Dict[str, str]] = None,
+    **kwargs
+) -> RepairSuggestion:
+    """创建修复建议的便捷函数"""
+    return RepairSuggestion(
+        suggestion_id=hashlib.sha256(title.encode()).hexdigest()[:16],
+        title=title,
+        description=description,
+        code_before=code_before,
+        code_after=code_after,
+        explanation=explanation,
+        confidence=confidence,
+        estimated_impact=estimated_impact,
+        affected_files=affected_files or [],
+        side_effects=side_effects or [],
+        alternatives=alternatives or [],
+        metadata=kwargs
+    )
