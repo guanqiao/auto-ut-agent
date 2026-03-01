@@ -7,11 +7,14 @@ This module provides support for editing multiple files with:
 """
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional, Any, Tuple
 from pathlib import Path
 from collections import defaultdict, deque
 import re
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -478,7 +481,7 @@ Rules:
             try:
                 Path(file_path).write_text(content, encoding='utf-8')
             except Exception as e:
-                print(f"Failed to rollback {file_path}: {e}")
+                logger.warning(f"Failed to rollback {file_path}: {e}")
 
     def get_edit_plan(self, file_paths: List[str]) -> Dict[str, Any]:
         """Get edit plan showing dependency order.

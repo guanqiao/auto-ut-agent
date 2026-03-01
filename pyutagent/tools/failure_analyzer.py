@@ -1,11 +1,14 @@
 """Test failure analyzer for JUnit tests."""
 
+import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Dict, List, Optional, Any
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class FailureType(Enum):
@@ -161,7 +164,7 @@ class TestFailureAnalyzer:
                 error_tests += result["errors"]
                 skipped_tests += result["skipped"]
             except Exception as e:
-                print(f"Error parsing {xml_file}: {e}")
+                logger.warning(f"Error parsing {xml_file}: {e}")
         
         # Parse text reports for additional details
         for txt_file in self.surefire_dir.glob("*.txt"):
@@ -169,7 +172,7 @@ class TestFailureAnalyzer:
                 text_failures = self._parse_text_report(txt_file)
                 # Merge with existing failures if needed
             except Exception as e:
-                print(f"Error parsing {txt_file}: {e}")
+                logger.warning(f"Error parsing {txt_file}: {e}")
         
         # Generate analysis
         summary = self._generate_summary(failures, total_tests, passed_tests, failed_tests, error_tests)

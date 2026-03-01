@@ -786,45 +786,44 @@ class ReActAgent(BaseAgent):
             )
     
     async def _compile_tests(self) -> StepResult:
-        """Compile the generated tests."""
+        """Compile the generated tests asynchronously."""
         logger.info("[ReActAgent] Compiling tests")
-        
+
         try:
-            import subprocess
-            
             logger.debug("[ReActAgent] Getting Maven dependency classpath")
-            classpath_result = subprocess.run(
-                ["mvn", "dependency:build-classpath", "-Dmdep.outputFile=cp.txt", "-q"],
+
+            # Use async subprocess for Maven command
+            maven_process = await asyncio.create_subprocess_exec(
+                "mvn", "dependency:build-classpath", "-Dmdep.outputFile=cp.txt", "-q",
                 cwd=self.project_path,
-                capture_output=True,
-                text=True
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
-            
+            await maven_process.communicate()
+
             classpath = ""
             cp_file = Path(self.project_path) / "cp.txt"
             if cp_file.exists():
-                classpath = cp_file.read_text().strip()
+                classpath = cp_file.read_text(encoding='utf-8').strip()
                 logger.debug(f"[ReActAgent] Classpath length: {len(classpath)}")
-            
+
             settings = get_settings()
             classpath = f"{self.project_path}/{settings.project_paths.target_classes};{self.project_path}/{settings.project_paths.target_test_classes};{classpath}"
-            
+
             test_file_path = Path(self.project_path) / self.current_test_file
-            compile_cmd = [
+
+            # Use async subprocess for javac command
+            compile_process = await asyncio.create_subprocess_exec(
                 "javac", "-cp", classpath,
                 "-d", str(Path(self.project_path) / "target" / "test-classes"),
-                str(test_file_path)
-            ]
-            
-            logger.debug(f"[ReActAgent] Compile command: javac -cp ... {test_file_path}")
-            
-            result = subprocess.run(
-                compile_cmd,
-                capture_output=True,
-                text=True
+                str(test_file_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
-            
-            if result.returncode == 0:
+
+            stdout, stderr = await compile_process.communicate()
+
+            if compile_process.returncode == 0:
                 logger.info("[ReActAgent] Compilation successful")
                 return StepResult(
                     success=True,
@@ -832,13 +831,13 @@ class ReActAgent(BaseAgent):
                     message="Tests compiled successfully"
                 )
             else:
-                errors = [result.stderr] if result.stderr else ["Unknown compilation error"]
+                errors = [stderr.decode('utf-8', errors='replace')] if stderr else ["Unknown compilation error"]
                 logger.warning(f"[ReActAgent] Compilation failed - Errors: {len(errors)}")
                 return StepResult(
                     success=False,
                     state=AgentState.FIXING,
                     message="Compilation failed",
-                    data={"errors": errors, "stdout": result.stdout}
+                    data={"errors": errors, "stdout": stdout.decode('utf-8', errors='replace') if stdout else ""}
                 )
         except Exception as e:
             logger.exception(f"[ReActAgent] Compilation exception: {e}")
