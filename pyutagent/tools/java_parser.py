@@ -1,11 +1,14 @@
 """Java code parser using tree-sitter."""
 
+import logging
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from pathlib import Path
 
 from tree_sitter import Language, Parser, Node
 import tree_sitter_java as tsjava
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass

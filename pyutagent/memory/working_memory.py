@@ -1,8 +1,11 @@
 """Working memory for current task context."""
 
+import logging
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Any
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass

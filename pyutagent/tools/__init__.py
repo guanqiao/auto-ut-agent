@@ -8,6 +8,18 @@ from .maven_tools import (
     CoverageReport,
     FileCoverage
 )
+from .aider_integration import (
+    AiderCodeFixer,
+    AiderTestGenerator,
+    FixResult,
+    apply_diff_edit,
+)
+from .code_editor import CodeEditor
+from .edit_formats import EditFormat, EditFormatRegistry
+from .edit_validator import EditValidator
+from .error_analyzer import CompilationErrorAnalyzer, ErrorAnalysis
+from .failure_analyzer import TestFailureAnalyzer, FailureAnalysis
+from .architect_editor import ArchitectMode
 
 __all__ = [
     "JavaCodeParser",
@@ -17,5 +29,18 @@ __all__ = [
     "CoverageAnalyzer",
     "ProjectScanner",
     "CoverageReport",
-    "FileCoverage"
+    "FileCoverage",
+    "AiderCodeFixer",
+    "AiderTestGenerator",
+    "FixResult",
+    "apply_diff_edit",
+    "CodeEditor",
+    "EditFormat",
+    "EditFormatRegistry",
+    "EditValidator",
+    "CompilationErrorAnalyzer",
+    "ErrorAnalysis",
+    "TestFailureAnalyzer",
+    "FailureAnalysis",
+    "ArchitectMode",
 ]

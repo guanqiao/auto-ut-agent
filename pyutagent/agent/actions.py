@@ -1,9 +1,12 @@
 """Action registry for agent tools."""
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, List, Any, Optional, Callable
 from enum import Enum, auto
+
+logger = logging.getLogger(__name__)
 
 
 class ActionType(Enum):

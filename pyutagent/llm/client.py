@@ -5,7 +5,7 @@ import logging
 import time
 from typing import AsyncIterator, Iterator, Optional
 
-from .config import LLMConfig, LLMProvider
+from ..core.config import LLMConfig, LLMProvider
 
 logger = logging.getLogger(__name__)
 

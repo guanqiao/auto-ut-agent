@@ -34,7 +34,6 @@ class Lifecycle(Enum):
     """Component lifecycle types."""
     SINGLETON = auto()
     TRANSIENT = auto()
-    SCOPED = auto()
 
 
 @dataclass

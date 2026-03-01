@@ -1,6 +1,6 @@
 """LLM module for PyUT Agent."""
 
-from .config import LLMProvider, LLMConfig
+from ..core.config import LLMProvider, LLMConfig
 from .client import LLMClient
 from .model_router import ModelRouter, ModelTier, TaskType
 

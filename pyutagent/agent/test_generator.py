@@ -8,7 +8,8 @@ from enum import Enum, auto
 
 from .conversation import ConversationManager, MessageRole
 from ..memory.working_memory import WorkingMemory
-from ..llm.config import LLMConfig
+from ..core.config import LLMConfig
+from ..core.i18n import t
 from ..tools.java_parser import JavaCodeParser
 from ..tools.maven_tools import MavenRunner, CoverageAnalyzer, ProjectScanner
 from ..tools.error_analyzer import CompilationErrorAnalyzer, ErrorAnalysis
@@ -125,18 +126,18 @@ class TestGeneratorAgent:
         """Check if paused and wait if necessary."""
         if not self._pause_event.is_set():
             self.status = TaskStatus.PAUSED
-            self._log("任务已暂停，等待恢复...")
+            self._log(t("task_paused"))
             await self._pause_event.wait()
             self.status = TaskStatus.RUNNING
-            self._log("任务已恢复")
-    
+            self._log(t("task_resumed"))
+
     def pause(self):
         """Pause the current task."""
         if self.status == TaskStatus.RUNNING:
             self._pause_event.clear()
             self.status = TaskStatus.PAUSED
             self.working_memory.pause()
-            self._log("暂停请求已发送")
+            self._log(t("pause_requested"))
     
     def resume(self):
         """Resume the paused task."""
@@ -144,7 +145,7 @@ class TestGeneratorAgent:
             self._pause_event.set()
             self.status = TaskStatus.RUNNING
             self.working_memory.resume()
-            self._log("恢复请求已发送")
+            self._log(t("resume_requested"))
     
     def is_paused(self) -> bool:
         """Check if task is paused."""

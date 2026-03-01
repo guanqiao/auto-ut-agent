@@ -43,12 +43,16 @@ T = TypeVar('T')
 class RetryStrategy(Enum):
     """Retry strategies."""
     IMMEDIATE = auto()
+    FIXED = auto()
     FIXED_DELAY = auto()
+    EXPONENTIAL = auto()
     EXPONENTIAL_BACKOFF = auto()
     LINEAR_BACKOFF = auto()
+    RANDOM = auto()
     RANDOM_JITTER = auto()
     ADAPTIVE = auto()
     EXPONENTIAL_JITTER = auto()
+    STOP = auto()
 
 
 class CircuitState(Enum):
@@ -82,9 +86,12 @@ class RetryConfig:
     on_retry_callback: Optional[Callable[[int, Exception, float], None]] = None
     on_success_callback: Optional[Callable[[int, Any], None]] = None
     on_failure_callback: Optional[Callable[[int, Exception], None]] = None
+    retryable_exceptions: Optional[List[Type[Exception]]] = None
 
     def __post_init__(self):
-        if not self.exceptions_to_retry or self.exceptions_to_retry == (Exception,):
+        if self.retryable_exceptions and not self.exceptions_to_retry:
+            self.exceptions_to_retry = tuple(self.retryable_exceptions)
+        elif not self.exceptions_to_retry or self.exceptions_to_retry == (Exception,):
             self.exceptions_to_retry = (
                 ConnectionError,
                 TimeoutError,
@@ -246,10 +253,10 @@ class RetryManager:
         if strategy == RetryStrategy.IMMEDIATE:
             return 0.0
 
-        elif strategy == RetryStrategy.FIXED_DELAY:
+        elif strategy in (RetryStrategy.FIXED, RetryStrategy.FIXED_DELAY):
             return base
 
-        elif strategy == RetryStrategy.EXPONENTIAL_BACKOFF:
+        elif strategy in (RetryStrategy.EXPONENTIAL, RetryStrategy.EXPONENTIAL_BACKOFF):
             delay = base * (self.config.exponential_base ** (attempt_number - 1))
             return min(delay, max_delay)
 
@@ -257,7 +264,7 @@ class RetryManager:
             delay = base * attempt_number
             return min(delay, max_delay)
 
-        elif strategy == RetryStrategy.RANDOM_JITTER:
+        elif strategy == RetryStrategy.RANDOM_JITTER or strategy == RetryStrategy.RANDOM:
             delay = base * (self.config.exponential_base ** (attempt_number - 1))
             jitter = random.uniform(*self.config.jitter_range)
             return min(delay + jitter, max_delay)
@@ -271,6 +278,9 @@ class RetryManager:
             delay = base * (self.config.exponential_base ** (attempt_number - 1))
             jitter = random.uniform(0, delay * 0.1)
             return min(delay + jitter, max_delay)
+
+        elif strategy == RetryStrategy.STOP:
+            return 0.0
 
         return base
 
@@ -303,6 +313,64 @@ class RetryManager:
                 )
             self.circuit_breakers[name] = CircuitBreaker(name, config)
         return self.circuit_breakers[name]
+
+    def get_wait_strategy(self, config: Optional[RetryConfig] = None) -> Callable[[int], float]:
+        """Get wait strategy function for backward compatibility.
+
+        Args:
+            config: RetryConfig to use (defaults to self.config)
+
+        Returns:
+            Function that calculates delay for a given attempt number
+        """
+        cfg = config or self.config
+        return lambda attempt: self.calculate_delay(attempt)
+
+    def get_stop_strategy(self, config: Optional[RetryConfig] = None) -> Callable[[int, Exception], bool]:
+        """Get stop strategy function for backward compatibility.
+
+        Args:
+            config: RetryConfig to use (defaults to self.config)
+
+        Returns:
+            Function that returns True if should stop
+        """
+        cfg = config or self.config
+        def stop_strategy(attempt: int, exception: Exception) -> bool:
+            return attempt >= cfg.max_attempts
+        return stop_strategy
+
+    def get_retry_strategy(self, config: Optional[RetryConfig] = None) -> Callable[[Exception], bool]:
+        """Get retry strategy function for backward compatibility.
+
+        Args:
+            config: RetryConfig to use (defaults to self.config)
+
+        Returns:
+            Function that returns True if exception is retryable
+        """
+        cfg = config or self.config
+        return lambda exc: isinstance(exc, cfg.exceptions_to_retry)
+
+    async def call_with_circuit_breaker(
+        self,
+        circuit_name: str,
+        operation: Callable[..., T],
+        *args,
+        **kwargs
+    ) -> T:
+        """Execute operation with circuit breaker for backward compatibility.
+
+        Args:
+            circuit_name: Name for the circuit breaker
+            operation: Function to execute
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+
+        Returns:
+            Result from the operation
+        """
+        return await self.execute_with_circuit_breaker(circuit_name, operation, *args, **kwargs)
 
     async def execute(
         self,
@@ -665,13 +733,38 @@ def retry_with_backoff(
     base_delay: float = 1.0,
     max_delay: float = 60.0
 ):
-    """Decorator for retry with exponential backoff."""
-    return with_retry(
-        max_attempts=max_attempts,
-        base_delay=base_delay,
-        max_delay=max_delay,
-        strategy=RetryStrategy.EXPONENTIAL_JITTER
-    )
+    """Decorator for retry with exponential backoff.
+
+    Returns the result directly (not RetryResult) for backward compatibility.
+    """
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        config = RetryConfig(
+            max_attempts=max_attempts,
+            base_delay=base_delay,
+            max_delay=max_delay,
+            strategy=RetryStrategy.EXPONENTIAL_JITTER
+        )
+        manager = RetryManager(config)
+
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            result = await manager.execute(func, *args, **kwargs)
+            if result.success:
+                return result.result
+            raise result.final_exception
+
+        @wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            result = manager.execute_sync(func, *args, **kwargs)
+            if result.success:
+                return result.result
+            raise result.final_exception
+
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper
+        return sync_wrapper
+
+    return decorator
 
 
 _default_retry_manager: Optional[RetryManager] = None
@@ -683,3 +776,128 @@ def get_retry_manager() -> RetryManager:
     if _default_retry_manager is None:
         _default_retry_manager = RetryManager()
     return _default_retry_manager
+
+
+def create_retry_manager(
+    max_attempts: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 60.0,
+    strategy: RetryStrategy = RetryStrategy.ADAPTIVE
+) -> RetryManager:
+    """Create a retry manager with common settings.
+
+    Args:
+        max_attempts: Maximum retry attempts
+        base_delay: Base delay for backoff
+        max_delay: Maximum delay
+        strategy: Retry strategy
+
+    Returns:
+        Configured RetryManager instance
+    """
+    config = RetryConfig(
+        max_attempts=max_attempts,
+        base_delay=base_delay,
+        max_delay=max_delay,
+        strategy=strategy
+    )
+    return RetryManager(config)
+
+
+class AsyncRetryWithBackoff:
+    """Async retry with exponential backoff.
+
+    This class provides a simple interface for retrying async operations
+    with exponential backoff and optional jitter.
+
+    Attributes:
+        max_attempts: Maximum number of retry attempts
+        base_delay: Base delay in seconds
+        max_delay: Maximum delay in seconds
+        exponential_base: Base for exponential calculation
+        jitter: Whether to add random jitter to delays
+    """
+
+    def __init__(
+        self,
+        max_attempts: int = 3,
+        base_delay: float = 1.0,
+        max_delay: float = 60.0,
+        exponential_base: float = 2.0,
+        jitter: bool = True
+    ):
+        self.max_attempts = max_attempts
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+        self.exponential_base = exponential_base
+        self.jitter = jitter
+        self._attempt_count = 0
+
+    def _calculate_delay(self, attempt: int) -> float:
+        """Calculate delay for a given attempt number.
+
+        Args:
+            attempt: The attempt number (1-based)
+
+        Returns:
+            Delay in seconds
+        """
+        delay = self.base_delay * (self.exponential_base ** (attempt - 1))
+        delay = min(delay, self.max_delay)
+
+        if self.jitter:
+            jitter_range = delay * 0.25
+            delay += random.uniform(-jitter_range, jitter_range)
+            delay = max(0, delay)
+
+        return delay
+
+    async def execute(
+        self,
+        func: Callable,
+        should_retry: Optional[Callable[[Exception], bool]] = None,
+        on_retry: Optional[Callable[[int, Exception, float], None]] = None
+    ) -> Any:
+        """Execute a function with retry logic.
+
+        Args:
+            func: Async function to execute
+            should_retry: Optional function to determine if retry should occur
+            on_retry: Optional callback for retry events
+
+        Returns:
+            Result from the function
+
+        Raises:
+            Exception: If all retries are exhausted
+        """
+        last_exception = None
+
+        for attempt in range(1, self.max_attempts + 1):
+            self._attempt_count = attempt
+
+            try:
+                if asyncio.iscoroutinefunction(func):
+                    result = await func()
+                else:
+                    result = func()
+                return result
+
+            except Exception as e:
+                last_exception = e
+
+                if should_retry and not should_retry(e):
+                    raise
+
+                if attempt < self.max_attempts:
+                    delay = self._calculate_delay(attempt)
+                    if on_retry:
+                        on_retry(attempt, e, delay)
+                    await asyncio.sleep(delay)
+
+        raise last_exception
+
+    @property
+    def attempt_count(self) -> int:
+        """Get current attempt count."""
+        return self._attempt_count

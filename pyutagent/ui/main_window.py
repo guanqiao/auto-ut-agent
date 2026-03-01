@@ -16,6 +16,7 @@ from PyQt6.QtGui import QAction
 from .chat_widget import ChatWidget
 from .dialogs.llm_config_dialog import LLMConfigDialog
 from .dialogs.aider_config_dialog import AiderConfigDialog
+from .batch_generate_dialog import BatchGenerateDialog
 from ..core.config import (
     LLMConfig,
     LLMConfigCollection,
@@ -372,6 +373,11 @@ class MainWindow(QMainWindow):
         generate_action.triggered.connect(self.on_generate_tests)
         tools_menu.addAction(generate_action)
 
+        generate_all_action = QAction("Generate &All Tests", self)
+        generate_all_action.setShortcut("Ctrl+Shift+G")
+        generate_all_action.triggered.connect(self.on_generate_all_tests)
+        tools_menu.addAction(generate_all_action)
+
         help_menu = menubar.addMenu("&Help")
 
         about_action = QAction("&About", self)
@@ -532,6 +538,54 @@ class MainWindow(QMainWindow):
             logger.info(f"Test generation started for: {selected_file}")
         except Exception as e:
             logger.exception("Failed to start test generation")
+
+    def on_generate_all_tests(self):
+        """Handle generate all tests action."""
+        try:
+            if not self.current_project:
+                QMessageBox.information(
+                    self,
+                    "Information",
+                    "Please open a project first"
+                )
+                return
+
+            if not self.llm_client:
+                QMessageBox.warning(
+                    self,
+                    "Warning",
+                    "LLM client not initialized, please configure LLM first"
+                )
+                return
+
+            settings = get_settings()
+            src_dir = Path(self.current_project) / settings.project_paths.src_main_java
+            
+            if not src_dir.exists():
+                QMessageBox.warning(
+                    self,
+                    "Warning",
+                    f"Java source directory not found: {src_dir}"
+                )
+                return
+
+            java_files = [str(f.relative_to(self.current_project)) for f in src_dir.rglob('*.java')]
+            
+            if not java_files:
+                QMessageBox.information(
+                    self,
+                    "Information",
+                    "No Java files found in the project"
+                )
+                return
+
+            dialog = BatchGenerateDialog(self)
+            dialog.set_files(self.current_project, java_files, self.llm_client)
+            dialog.exec()
+            
+            logger.info(f"Batch generate dialog opened with {len(java_files)} files")
+        except Exception as e:
+            logger.exception("Failed to open batch generate dialog")
 
     def on_pause_generation(self):
         """Handle pause generation."""

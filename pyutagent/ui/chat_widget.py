@@ -1,5 +1,6 @@
 """Chat widget for Agent conversation."""
 
+import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLineEdit, QPushButton, QScrollArea, QLabel,
@@ -7,6 +8,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QColor, QFont
+
+logger = logging.getLogger(__name__)
 
 
 class ChatMessageWidget(QFrame):
@@ -144,18 +147,23 @@ class ChatWidget(QWidget):
     
     def add_message(self, role: str, content: str) -> ChatMessageWidget:
         """Add a message to the chat."""
-        msg_widget = ChatMessageWidget(role, content)
-        # Insert before the stretch
-        self.messages_layout.insertWidget(
-            self.messages_layout.count() - 1,
-            msg_widget
-        )
-        self.messages.append(msg_widget)
-        
-        # Scroll to bottom
-        self.scroll_to_bottom()
-        
-        return msg_widget
+        try:
+            msg_widget = ChatMessageWidget(role, content)
+            # Insert before the stretch
+            self.messages_layout.insertWidget(
+                self.messages_layout.count() - 1,
+                msg_widget
+            )
+            self.messages.append(msg_widget)
+
+            # Scroll to bottom
+            self.scroll_to_bottom()
+
+            logger.debug(f"Added {role} message to chat")
+            return msg_widget
+        except Exception as e:
+            logger.exception("Failed to add message to chat")
+            raise
     
     def update_last_message(self, content: str):
         """Update the last message (for streaming)."""
@@ -166,11 +174,15 @@ class ChatWidget(QWidget):
     
     def send_message(self):
         """Send user message."""
-        text = self.input_field.text().strip()
-        if text:
-            self.add_message("user", text)
-            self.input_field.clear()
-            self.message_sent.emit(text)
+        try:
+            text = self.input_field.text().strip()
+            if text:
+                self.add_message("user", text)
+                self.input_field.clear()
+                self.message_sent.emit(text)
+                logger.info(f"User message sent: {text[:50]}...")
+        except Exception as e:
+            logger.exception("Failed to send message")
     
     def scroll_to_bottom(self):
         """Scroll to the bottom of the chat."""
@@ -196,13 +208,23 @@ class ChatWidget(QWidget):
     
     def clear_chat(self):
         """Clear all messages."""
-        for msg in self.messages:
-            msg.deleteLater()
-        self.messages.clear()
+        try:
+            for msg in self.messages:
+                msg.deleteLater()
+            self.messages.clear()
+            logger.info("Chat cleared")
+        except Exception as e:
+            logger.exception("Failed to clear chat")
     
     def add_agent_message(self, content: str) -> ChatMessageWidget:
         """Add an agent message."""
-        return self.add_message("agent", content)
+        try:
+            result = self.add_message("agent", content)
+            logger.debug(f"Agent message added: {content[:50]}...")
+            return result
+        except Exception as e:
+            logger.exception("Failed to add agent message")
+            raise
     
     def set_input_enabled(self, enabled: bool):
         """Enable/disable input."""

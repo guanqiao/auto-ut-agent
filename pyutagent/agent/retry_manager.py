@@ -20,6 +20,8 @@ from ..core.retry_manager import (
     circuit_breaker,
     retry_with_backoff,
     get_retry_manager,
+    create_retry_manager,
+    AsyncRetryWithBackoff,
 )
 
 __all__ = [
@@ -38,4 +40,6 @@ __all__ = [
     "circuit_breaker",
     "retry_with_backoff",
     "get_retry_manager",
+    "create_retry_manager",
+    "AsyncRetryWithBackoff",
 ]

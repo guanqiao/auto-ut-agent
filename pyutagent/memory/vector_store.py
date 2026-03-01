@@ -1,8 +1,9 @@
 """Vector store implementation using sqlite-vec (pure Python)."""
 
+import json
 import sqlite3
 import sqlite_vec
-import numpy as np
+from datetime import datetime
 from typing import List, Tuple, Dict, Optional
 from pathlib import Path
 
@@ -96,9 +97,6 @@ class SQLiteVecStore:
             row_id = cursor.lastrowid
             
             # Insert metadata
-            import json
-            from datetime import datetime
-            
             self._conn.execute(
                 """
                 INSERT INTO item_metadata 
@@ -152,7 +150,6 @@ class SQLiteVecStore:
             (query_bytes, k)
         ).fetchall()
         
-        import json
         return [
             (
                 content or "",

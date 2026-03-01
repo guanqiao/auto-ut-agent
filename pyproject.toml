@@ -43,8 +43,6 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "gitpython>=3.1.40",
     "pathspec>=0.12.1",
-    "tenacity>=8.2.0",
-    "backoff>=2.2.0",
 ]
 
 [project.optional-dependencies]

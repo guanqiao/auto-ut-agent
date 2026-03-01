@@ -1,11 +1,15 @@
 """Maven project tools for running tests and analyzing coverage."""
 
+import asyncio
+import logging
 import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 import os
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,7 +34,10 @@ class FileCoverage:
 
 
 class MavenRunner:
-    """Runs Maven commands for the project."""
+    """Runs Maven commands for the project.
+    
+    Supports both synchronous and asynchronous operations.
+    """
     
     def __init__(self, project_path: str):
         """Initialize Maven runner.
@@ -40,13 +47,14 @@ class MavenRunner:
         """
         self.project_path = Path(project_path)
         self.pom_path = self.project_path / "pom.xml"
+        self._classpath_cache: Optional[str] = None
     
     def is_maven_project(self) -> bool:
         """Check if the project is a Maven project."""
         return self.pom_path.exists()
     
     def run_tests(self, clean: bool = False) -> bool:
-        """Run Maven tests.
+        """Run Maven tests synchronously.
         
         Args:
             clean: Whether to run clean first
@@ -69,14 +77,44 @@ class MavenRunner:
             )
             return result.returncode == 0
         except FileNotFoundError:
-            print("Maven not found. Please ensure mvn is in PATH.")
+            logger.error("Maven not found. Please ensure mvn is in PATH.")
             return False
         except Exception as e:
-            print(f"Error running tests: {e}")
+            logger.exception("Error running tests")
+            return False
+    
+    async def run_tests_async(self, clean: bool = False) -> bool:
+        """Run Maven tests asynchronously.
+        
+        Args:
+            clean: Whether to run clean first
+            
+        Returns:
+            True if tests passed, False otherwise
+        """
+        cmd = ["mvn"]
+        if clean:
+            cmd.append("clean")
+        cmd.extend(["test", "-q"])
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(self.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            return process.returncode == 0
+        except FileNotFoundError:
+            logger.error("Maven not found. Please ensure mvn is in PATH.")
+            return False
+        except Exception as e:
+            logger.exception("Error running tests asynchronously")
             return False
     
     def generate_coverage(self, clean: bool = False) -> bool:
-        """Generate JaCoCo coverage report.
+        """Generate JaCoCo coverage report synchronously.
         
         Args:
             clean: Whether to run clean first
@@ -99,14 +137,44 @@ class MavenRunner:
             )
             return result.returncode == 0
         except FileNotFoundError:
-            print("Maven not found. Please ensure mvn is in PATH.")
+            logger.error("Maven not found. Please ensure mvn is in PATH.")
             return False
         except Exception as e:
-            print(f"Error generating coverage: {e}")
+            logger.exception("Error generating coverage")
+            return False
+    
+    async def generate_coverage_async(self, clean: bool = False) -> bool:
+        """Generate JaCoCo coverage report asynchronously.
+        
+        Args:
+            clean: Whether to run clean first
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        cmd = ["mvn"]
+        if clean:
+            cmd.append("clean")
+        cmd.extend(["test", "jacoco:report", "-q"])
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(self.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            return process.returncode == 0
+        except FileNotFoundError:
+            logger.error("Maven not found. Please ensure mvn is in PATH.")
+            return False
+        except Exception as e:
+            logger.exception("Error generating coverage asynchronously")
             return False
     
     def compile_project(self) -> bool:
-        """Compile the project.
+        """Compile the project synchronously.
         
         Returns:
             True if successful, False otherwise
@@ -121,8 +189,102 @@ class MavenRunner:
             )
             return result.returncode == 0
         except Exception as e:
-            print(f"Error compiling project: {e}")
+            logger.exception("Error compiling project")
             return False
+    
+    async def compile_project_async(self) -> bool:
+        """Compile the project asynchronously.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "mvn", "compile", "-q",
+                cwd=str(self.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            return process.returncode == 0
+        except Exception as e:
+            logger.exception("Error compiling project asynchronously")
+            return False
+    
+    def get_classpath(self, force_refresh: bool = False) -> Optional[str]:
+        """Get Maven classpath (with caching).
+        
+        Args:
+            force_refresh: Force refresh the classpath cache
+            
+        Returns:
+            Classpath string or None if failed
+        """
+        if not force_refresh and self._classpath_cache:
+            return self._classpath_cache
+        
+        try:
+            result = subprocess.run(
+                ["mvn", "dependency:build-classpath", "-Dmdep.outputFile=cp.txt", "-q"],
+                cwd=self.project_path,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            
+            if result.returncode != 0:
+                return None
+            
+            cp_file = self.project_path / "cp.txt"
+            if cp_file.exists():
+                classpath = cp_file.read_text().strip()
+                self._classpath_cache = classpath
+                return classpath
+            
+            return None
+        except Exception as e:
+            logger.exception("Error getting classpath")
+            return None
+    
+    async def get_classpath_async(self, force_refresh: bool = False) -> Optional[str]:
+        """Get Maven classpath asynchronously (with caching).
+        
+        Args:
+            force_refresh: Force refresh the classpath cache
+            
+        Returns:
+            Classpath string or None if failed
+        """
+        if not force_refresh and self._classpath_cache:
+            return self._classpath_cache
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "mvn", "dependency:build-classpath", "-Dmdep.outputFile=cp.txt", "-q",
+                cwd=str(self.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                return None
+            
+            cp_file = self.project_path / "cp.txt"
+            if cp_file.exists():
+                classpath = cp_file.read_text().strip()
+                self._classpath_cache = classpath
+                return classpath
+            
+            return None
+        except Exception as e:
+            logger.exception("Error getting classpath asynchronously")
+            return None
+    
+    def invalidate_cache(self):
+        """Invalidate the classpath cache."""
+        self._classpath_cache = None
+        logger.debug("[MavenRunner] Classpath cache invalidated")
 
 
 class CoverageAnalyzer:
@@ -178,7 +340,7 @@ class CoverageAnalyzer:
                 files=files
             )
         except Exception as e:
-            print(f"Error parsing coverage report: {e}")
+            logger.exception("Error parsing coverage report")
             return None
     
     def _parse_file_coverage(self, root: ET.Element) -> List[FileCoverage]:

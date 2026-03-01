@@ -1,10 +1,13 @@
 """Conversation management for Agent interaction."""
 
+import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Callable, Dict, Any
 from enum import Enum
 from datetime import datetime
 import json
+
+logger = logging.getLogger(__name__)
 
 
 class MessageRole(Enum):

@@ -1,8 +1,11 @@
 """Model router for selecting appropriate LLM based on task."""
 
+import logging
 from enum import Enum
 from typing import Optional, Dict, List
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 class ModelTier(str, Enum):

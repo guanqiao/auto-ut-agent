@@ -557,9 +557,9 @@ class TestRetryConfig:
         """Test default retry configuration."""
         config = RetryConfig()
         
-        assert config.max_attempts == 3
-        assert config.strategy == RetryStrategy.EXPONENTIAL_JITTER
-        assert len(config.retryable_exceptions) > 0
+        assert config.max_attempts == 10
+        assert config.strategy == RetryStrategy.ADAPTIVE
+        assert len(config.exceptions_to_retry) > 0
     
     @display_description("验证自定义重试配置")
     @allure.title("Test custom retry config")

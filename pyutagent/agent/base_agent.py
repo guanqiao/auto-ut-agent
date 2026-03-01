@@ -1,5 +1,6 @@
 """Base agent class for UT generation."""
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -10,6 +11,8 @@ import json
 
 from ..memory.working_memory import WorkingMemory
 from ..llm.client import LLMClient
+
+logger = logging.getLogger(__name__)
 
 
 class AgentState(Enum):
@@ -240,5 +243,5 @@ class BaseAgent(ABC):
             
             return True
         except Exception as e:
-            print(f"Error loading agent state: {e}")
+            logger.exception("Failed to load agent state")
             return False

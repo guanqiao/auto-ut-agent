@@ -6,6 +6,7 @@ from rich.console import Console
 from . import __version__
 from .commands.scan import scan_command
 from .commands.generate import generate_command
+from .commands.generate_all import generate_all_command
 from .commands.config import config_group
 
 console = Console()
@@ -23,6 +24,7 @@ def cli(ctx):
 # Register commands
 cli.add_command(scan_command)
 cli.add_command(generate_command)
+cli.add_command(generate_all_command)
 cli.add_command(config_group, name='config')
 
 

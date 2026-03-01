@@ -13,8 +13,10 @@ from .prompts import PromptBuilder
 from .actions import ActionRegistry
 from ..core.error_recovery import ErrorRecoveryManager, ErrorCategory
 from ..core.retry_manager import InfiniteRetryManager, RetryConfig, RetryStrategy
+from ..core.container import Container, get_container
 from ..tools.java_parser import JavaCodeParser
 from ..tools.maven_tools import MavenRunner, CoverageAnalyzer, ProjectScanner
+from ..tools.aider_integration import AiderCodeFixer, AiderConfig
 from ..memory.working_memory import WorkingMemory
 from ..llm.client import LLMClient
 from ..core.config import get_settings
@@ -28,6 +30,7 @@ class ReActAgent(BaseAgent):
     - AI-powered error recovery for all error types
     - Local + LLM double-layer error analysis
     - Automatic strategy adjustment based on failure history
+    - Dependency injection for better testability
     """
     
     def __init__(
@@ -35,28 +38,74 @@ class ReActAgent(BaseAgent):
         llm_client: LLMClient,
         working_memory: WorkingMemory,
         project_path: str,
-        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        container: Optional[Container] = None
     ):
-        """Initialize ReAct agent."""
+        """Initialize ReAct agent.
+        
+        Args:
+            llm_client: LLM client for generation
+            working_memory: Working memory for context
+            project_path: Path to the project
+            progress_callback: Optional callback for progress updates
+            container: Optional dependency injection container
+        """
         super().__init__(llm_client, working_memory, project_path, progress_callback)
+        
+        self._container = container or get_container()
         
         logger.info(f"[ReActAgent] Initializing agent - Project: {project_path}")
         
-        self.prompt_builder = PromptBuilder()
-        self.action_registry = ActionRegistry()
-        self.java_parser = JavaCodeParser()
-        self.maven_runner = MavenRunner(project_path)
-        self.coverage_analyzer = CoverageAnalyzer(project_path)
-        self.project_scanner = ProjectScanner(project_path)
+        self._init_dependencies(project_path)
         
-        logger.debug("[ReActAgent] Tools initialized")
+        logger.info("[ReActAgent] Initialization complete")
+    
+    def _init_dependencies(self, project_path: str):
+        """Initialize dependencies from container or create defaults.
+        
+        Args:
+            project_path: Path to the project
+        """
+        self.prompt_builder = self._try_resolve(PromptBuilder)
+        if not self.prompt_builder:
+            self.prompt_builder = PromptBuilder()
+            logger.debug("[ReActAgent] Created default PromptBuilder")
+        
+        self.action_registry = self._try_resolve(ActionRegistry)
+        if not self.action_registry:
+            self.action_registry = ActionRegistry()
+            logger.debug("[ReActAgent] Created default ActionRegistry")
+        
+        self.java_parser = self._try_resolve(JavaCodeParser)
+        if not self.java_parser:
+            self.java_parser = JavaCodeParser()
+            logger.debug("[ReActAgent] Created default JavaCodeParser")
+        
+        self.maven_runner = self._try_resolve(MavenRunner)
+        if not self.maven_runner:
+            self.maven_runner = MavenRunner(project_path)
+            logger.debug("[ReActAgent] Created default MavenRunner")
+        
+        self.coverage_analyzer = self._try_resolve(CoverageAnalyzer)
+        if not self.coverage_analyzer:
+            self.coverage_analyzer = CoverageAnalyzer(project_path)
+            logger.debug("[ReActAgent] Created default CoverageAnalyzer")
+        
+        self.project_scanner = self._try_resolve(ProjectScanner)
+        if not self.project_scanner:
+            self.project_scanner = ProjectScanner(project_path)
+            logger.debug("[ReActAgent] Created default ProjectScanner")
+        
+        logger.debug("[ReActAgent] Dependencies initialized from container")
         
         self.error_recovery = ErrorRecoveryManager(
-            llm_client=llm_client,
-            project_path=project_path,
+            llm_client=self.llm_client,
+            project_path=self.project_path,
             prompt_builder=self.prompt_builder,
             progress_callback=self._on_recovery_progress
         )
+        
+        self._init_aider_fixer()
         
         retry_config = RetryConfig(
             strategy=RetryStrategy.ADAPTIVE,
@@ -71,9 +120,49 @@ class ReActAgent(BaseAgent):
         self.current_test_file: Optional[str] = None
         self.target_class_info: Optional[Dict[str, Any]] = None
         self._stop_requested = False
-        
-        logger.info("[ReActAgent] Initialization complete")
-        
+    
+    def _init_aider_fixer(self):
+        """Initialize AiderCodeFixer for enhanced error fixing."""
+        self.aider_fixer = self._try_resolve(AiderCodeFixer)
+        if not self.aider_fixer:
+            try:
+                aider_config = self._try_resolve(AiderConfig)
+                if not aider_config:
+                    aider_config = AiderConfig()
+                self.aider_fixer = AiderCodeFixer(
+                    llm_client=self.llm_client,
+                    config=aider_config
+                )
+                logger.debug("[ReActAgent] Created default AiderCodeFixer")
+            except (ImportError, ModuleNotFoundError) as e:
+                logger.warning(f"[ReActAgent] Aider dependencies not available: {e}")
+                self.aider_fixer = None
+            except ValueError as e:
+                logger.warning(f"[ReActAgent] Invalid Aider configuration: {e}")
+                self.aider_fixer = None
+            except Exception as e:
+                logger.warning(f"[ReActAgent] Failed to create AiderCodeFixer: {e}")
+                self.aider_fixer = None
+        else:
+            logger.debug("[ReActAgent] Resolved AiderCodeFixer from container")
+    
+    def _try_resolve(self, component_type):
+        """Try to resolve a component from the container.
+
+        Args:
+            component_type: The type to resolve
+
+        Returns:
+            The resolved instance or None
+        """
+        try:
+            return self._container.resolve(component_type)
+        except KeyError:
+            return None
+        except Exception as e:
+            logger.debug(f"[ReActAgent] Failed to resolve {component_type}: {e}")
+            return None
+    
     def _on_recovery_progress(self, state: str, message: str):
         """Handle recovery progress updates."""
         logger.info(f"[ReActAgent] Recovery progress - State: {state}, Message: {message}")
@@ -575,6 +664,12 @@ class ReActAgent(BaseAgent):
             test_file_path = Path(self.project_path) / self.current_test_file
             test_file_path.write_text(code, encoding='utf-8')
             logger.info(f"[ReActAgent] Wrote test file - Path: {test_file_path}, Length: {len(code)}")
+        except PermissionError as e:
+            logger.error(f"[ReActAgent] Permission denied writing test file: {e}")
+            self._update_state(AgentState.FAILED, f"Permission denied: {e}")
+        except OSError as e:
+            logger.error(f"[ReActAgent] OS error writing test file: {e}")
+            self._update_state(AgentState.FAILED, f"File system error: {e}")
         except Exception as e:
             logger.exception(f"[ReActAgent] Failed to write test file: {e}")
             self._update_state(AgentState.FAILED, f"Failed to write test file: {e}")
