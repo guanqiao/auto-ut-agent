@@ -10,7 +10,7 @@ from .error_recovery import (
     RecoveryStrategy,
     RecoveryAttempt
 )
-from .retry_manager import (
+from ..core.retry_manager import (
     RetryManager,
     InfiniteRetryManager,
     RetryConfig,

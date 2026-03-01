@@ -11,7 +11,7 @@ import allure
 from unittest.mock import Mock, AsyncMock, patch
 from typing import Any
 
-from pyutagent.tools.retry_manager import (
+from pyutagent.core.retry_manager import (
     RetryManager, CircuitBreaker, CircuitBreakerConfig, CircuitState,
     AsyncRetryWithBackoff, TimeoutManager, RetryConfig, RetryStrategy,
     create_retry_manager, retry_with_backoff, circuit_breaker,

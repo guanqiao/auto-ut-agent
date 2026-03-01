@@ -360,8 +360,8 @@ def configure_container(
     from .retry_manager import RetryManager, RetryConfig
     container.register_singleton(RetryManager, lambda: RetryManager())
 
-    from .error_recovery import RecoveryManager
-    container.register_singleton(RecoveryManager, lambda: RecoveryManager())
+    from .error_recovery import ErrorRecoveryManager
+    container.register_singleton(ErrorRecoveryManager, lambda: ErrorRecoveryManager())
 
     logger.info("[Container] Configured with application components")
     return container
