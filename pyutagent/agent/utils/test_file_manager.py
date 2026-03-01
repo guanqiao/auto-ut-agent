@@ -4,19 +4,23 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from ...core.cache import get_file_cache
+
 logger = logging.getLogger(__name__)
 
 
 class TestFileManager:
     """Manages test file creation and modification."""
-    
-    def __init__(self, project_path: str):
+
+    def __init__(self, project_path: str, use_cache: bool = True):
         """Initialize test file manager.
-        
+
         Args:
             project_path: Path to the project
+            use_cache: Whether to use file caching
         """
         self.project_path = Path(project_path)
+        self._cache = get_file_cache() if use_cache else None
     
     def save_test_file(self, source_file: str, test_code: str) -> str:
         """Save test code to file.
@@ -96,21 +100,31 @@ class TestFileManager:
             return False
     
     def read_test_file(self, test_file_path: str) -> Optional[str]:
-        """Read test file content.
-        
+        """Read test file content with caching.
+
         Args:
             test_file_path: Path to test file
-            
+
         Returns:
             File content or None if failed
         """
         test_path = Path(test_file_path)
-        
+
         if not test_path.exists():
             return None
-        
+
+        # Try cache first
+        if self._cache is not None:
+            cached = self._cache.get(str(test_path))
+            if cached is not None:
+                return cached
+
         try:
-            return test_path.read_text(encoding='utf-8')
+            content = test_path.read_text(encoding='utf-8')
+            # Cache the content
+            if self._cache is not None:
+                self._cache.set(str(test_path), content)
+            return content
         except Exception as e:
             logger.exception(f"Failed to read test file: {e}")
             return None

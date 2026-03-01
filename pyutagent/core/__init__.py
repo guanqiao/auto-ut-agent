@@ -27,6 +27,7 @@ from .error_recovery import (
     StatePreserver,
     is_retryable_error,
 )
+from .cache import FileCache, Memoize
 from .config import (
     Settings,
     LLMConfig,
@@ -89,6 +90,8 @@ __all__ = [
     "ErrorClassifier",
     "StatePreserver",
     "is_retryable_error",
+    "FileCache",
+    "Memoize",
     "Settings",
     "LLMConfig",
     "LLMConfigCollection",
