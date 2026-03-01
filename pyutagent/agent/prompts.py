@@ -54,7 +54,7 @@ Output only the Java code without any markdown formatting or explanations."""
         ])
         
         field_list = "\n".join([
-            f"- {f.get('name')}: {f.get('type')}"
+            f"- {f[1] if isinstance(f, tuple) else f.get('name')}: {f[0] if isinstance(f, tuple) else f.get('type')}"
             for f in fields
         ])
         

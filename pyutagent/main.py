@@ -73,11 +73,17 @@ def main():
         window = MainWindow()
         window.show()
 
+        # Auto-load last project after window is shown
+        window.load_last_project()
+
         with loop:
             loop.run_forever()
     else:
         window = MainWindow()
         window.show()
+
+        # Auto-load last project after window is shown
+        window.load_last_project()
 
         sys.exit(app.exec())
 

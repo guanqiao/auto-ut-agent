@@ -21,10 +21,13 @@ from ..core.config import (
     LLMConfig,
     LLMConfigCollection,
     AiderConfig,
+    AppState,
     load_llm_config,
     save_llm_config,
     load_aider_config,
     save_aider_config,
+    load_app_state,
+    save_app_state,
     get_settings,
 )
 from ..llm.client import LLMClient
@@ -300,8 +303,10 @@ class MainWindow(QMainWindow):
         self.current_project: str = ""
         self.config_collection: LLMConfigCollection = load_llm_config()
         self.aider_config: AiderConfig = load_aider_config()
+        self.app_state: AppState = load_app_state()
         self.llm_client: LLMClient = None
         self.agent_worker: AgentWorker = None
+        self.recent_project_actions: list = []
 
         self.setup_ui()
         self.setup_menu()
@@ -344,6 +349,11 @@ class MainWindow(QMainWindow):
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self.on_open_project)
         file_menu.addAction(open_action)
+
+        # Recent projects submenu
+        self.recent_menu = QMenu("Recent Projects", self)
+        file_menu.addMenu(self.recent_menu)
+        self._update_recent_projects_menu()
 
         file_menu.addSeparator()
 
@@ -415,28 +425,135 @@ class MainWindow(QMainWindow):
             )
 
             if dir_path:
-                pom_path = Path(dir_path) / "pom.xml"
-                if not pom_path.exists():
-                    QMessageBox.warning(
-                        self,
-                        "Warning",
-                        "Selected directory is not a Maven project (pom.xml not found)"
-                    )
-                    logger.warning(f"Selected directory is not a Maven project: {dir_path}")
-                    return
-
-                self.current_project = dir_path
-                self.project_tree.load_project(dir_path)
-                self.project_opened.emit(dir_path)
-                self.status_bar.showMessage(f"Project: {dir_path}")
-                logger.info(f"Project opened: {dir_path}")
-
-                self.chat_widget.add_agent_message(
-                    f"Project opened: {Path(dir_path).name}\n"
-                    "Please select a Java file, then click Generate Tests or send a message."
-                )
+                self._open_project(dir_path)
         except Exception as e:
             logger.exception("Failed to open project")
+
+    def _open_project(self, dir_path: str) -> bool:
+        """Open a project by path.
+
+        Args:
+            dir_path: Path to the project directory
+
+        Returns:
+            True if project was opened successfully
+        """
+        try:
+            pom_path = Path(dir_path) / "pom.xml"
+            if not pom_path.exists():
+                QMessageBox.warning(
+                    self,
+                    "Warning",
+                    "Selected directory is not a Maven project (pom.xml not found)"
+                )
+                logger.warning(f"Selected directory is not a Maven project: {dir_path}")
+                return False
+
+            self.current_project = dir_path
+            self.project_tree.load_project(dir_path)
+            self.project_opened.emit(dir_path)
+            self.status_bar.showMessage(f"Project: {dir_path}")
+            logger.info(f"Project opened: {dir_path}")
+
+            # Save to app state
+            self.app_state.add_project(dir_path)
+            save_app_state(self.app_state)
+            self._update_recent_projects_menu()
+
+            self.chat_widget.add_agent_message(
+                f"Project opened: {Path(dir_path).name}\n"
+                "Please select a Java file, then click Generate Tests or send a message."
+            )
+            return True
+        except Exception as e:
+            logger.exception(f"Failed to open project: {dir_path}")
+            return False
+
+    def _update_recent_projects_menu(self):
+        """Update the recent projects submenu."""
+        # Clear existing actions
+        self.recent_menu.clear()
+        self.recent_project_actions.clear()
+
+        # Get valid recent projects
+        valid_projects = self.app_state.get_recent_project_paths()
+
+        if not valid_projects:
+            no_recent_action = QAction("No recent projects", self)
+            no_recent_action.setEnabled(False)
+            self.recent_menu.addAction(no_recent_action)
+            return
+
+        # Add project actions
+        for i, project_path in enumerate(valid_projects[:10], 1):
+            project_name = Path(project_path).name
+            action = QAction(f"&{i}. {project_name}", self)
+            action.setToolTip(project_path)
+            action.triggered.connect(lambda checked, path=project_path: self._on_recent_project_selected(path))
+            self.recent_menu.addAction(action)
+            self.recent_project_actions.append(action)
+
+        # Add separator and clear action
+        self.recent_menu.addSeparator()
+        clear_action = QAction("Clear History", self)
+        clear_action.triggered.connect(self._clear_recent_projects)
+        self.recent_menu.addAction(clear_action)
+
+    def _on_recent_project_selected(self, project_path: str):
+        """Handle selection of a recent project.
+
+        Args:
+            project_path: Path to the project
+        """
+        if not Path(project_path).exists():
+            QMessageBox.warning(
+                self,
+                "Project Not Found",
+                f"The project no longer exists:\n{project_path}\n\nIt will be removed from recent projects."
+            )
+            self.app_state.remove_project(project_path)
+            save_app_state(self.app_state)
+            self._update_recent_projects_menu()
+            return
+
+        self._open_project(project_path)
+
+    def _clear_recent_projects(self):
+        """Clear all recent projects."""
+        reply = QMessageBox.question(
+            self,
+            "Clear History",
+            "Are you sure you want to clear all recent projects?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self.app_state.recent_projects.clear()
+            self.app_state.last_project_path = None
+            save_app_state(self.app_state)
+            self._update_recent_projects_menu()
+            logger.info("Recent projects history cleared")
+
+    def load_last_project(self) -> bool:
+        """Load the last opened project if available.
+
+        Returns:
+            True if a project was loaded
+        """
+        if not self.app_state.last_project_path:
+            logger.info("No last project to load")
+            return False
+
+        if not Path(self.app_state.last_project_path).exists():
+            logger.warning(f"Last project no longer exists: {self.app_state.last_project_path}")
+            # Remove invalid project from history
+            self.app_state.remove_project(self.app_state.last_project_path)
+            save_app_state(self.app_state)
+            self._update_recent_projects_menu()
+            return False
+
+        logger.info(f"Auto-loading last project: {self.app_state.last_project_path}")
+        return self._open_project(self.app_state.last_project_path)
 
     def on_llm_config(self):
         """Handle LLM config action."""

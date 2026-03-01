@@ -389,6 +389,137 @@ class CoverageSettings:
         return cls(**data)
 
 
+@dataclass
+class ProjectHistory:
+    """Project history entry.
+
+    Attributes:
+        path: Project directory path
+        name: Project name (derived from path)
+        last_opened: Timestamp of last access (ISO format)
+    """
+    path: str
+    name: str = ""
+    last_opened: str = ""
+
+    def __post_init__(self):
+        if not self.name and self.path:
+            self.name = Path(self.path).name
+        if not self.last_opened:
+            from datetime import datetime
+            self.last_opened = datetime.now().isoformat()
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ProjectHistory":
+        """Create from dictionary."""
+        return cls(**data)
+
+
+@dataclass
+class AppState:
+    """Application state for persistent storage.
+
+    Attributes:
+        recent_projects: List of recently opened projects
+        last_project_path: Path of the last opened project
+        max_recent_projects: Maximum number of recent projects to keep
+    """
+    recent_projects: List[ProjectHistory] = field(default_factory=list)
+    last_project_path: Optional[str] = None
+    max_recent_projects: int = 10
+
+    def add_project(self, project_path: str) -> None:
+        """Add or update a project in recent projects list.
+
+        Args:
+            project_path: Path to the project directory
+        """
+        from datetime import datetime
+
+        # Remove if already exists
+        self.recent_projects = [
+            p for p in self.recent_projects
+            if p.path != project_path
+        ]
+
+        # Add new entry at the beginning
+        project = ProjectHistory(
+            path=project_path,
+            name=Path(project_path).name,
+            last_opened=datetime.now().isoformat()
+        )
+        self.recent_projects.insert(0, project)
+
+        # Keep only max_recent_projects
+        self.recent_projects = self.recent_projects[:self.max_recent_projects]
+
+        # Update last project
+        self.last_project_path = project_path
+
+        logger.info(f"[AppState] Added project to history: {project_path}")
+
+    def remove_project(self, project_path: str) -> bool:
+        """Remove a project from recent projects list.
+
+        Args:
+            project_path: Path to the project directory
+
+        Returns:
+            True if project was removed, False if not found
+        """
+        original_len = len(self.recent_projects)
+        self.recent_projects = [
+            p for p in self.recent_projects
+            if p.path != project_path
+        ]
+
+        if len(self.recent_projects) < original_len:
+            if self.last_project_path == project_path:
+                self.last_project_path = (
+                    self.recent_projects[0].path
+                    if self.recent_projects else None
+                )
+            logger.info(f"[AppState] Removed project from history: {project_path}")
+            return True
+        return False
+
+    def get_recent_project_paths(self) -> List[str]:
+        """Get list of recent project paths that still exist.
+
+        Returns:
+            List of valid project paths
+        """
+        valid_paths = []
+        for project in self.recent_projects:
+            if Path(project.path).exists():
+                valid_paths.append(project.path)
+        return valid_paths
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "recent_projects": [p.to_dict() for p in self.recent_projects],
+            "last_project_path": self.last_project_path,
+            "max_recent_projects": self.max_recent_projects
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AppState":
+        """Create from dictionary."""
+        projects_data = data.get("recent_projects", [])
+        projects = [ProjectHistory.from_dict(p) for p in projects_data]
+
+        return cls(
+            recent_projects=projects,
+            last_project_path=data.get("last_project_path"),
+            max_recent_projects=data.get("max_recent_projects", 10)
+        )
+
+
 class Settings(BaseModel):
     """Application settings.
 
@@ -458,6 +589,11 @@ def get_aider_config_path() -> Path:
 def get_app_config_path() -> Path:
     """Get path to application config file."""
     return get_data_dir() / "app_config.json"
+
+
+def get_app_state_path() -> Path:
+    """Get path to application state file."""
+    return get_data_dir() / "app_state.json"
 
 
 def save_llm_config(config_collection: LLMConfigCollection) -> None:
@@ -572,6 +708,44 @@ def load_app_config() -> Settings:
     else:
         logger.info(f"[Config] App config file not found at {config_path}, using default")
         return Settings()
+
+
+def save_app_state(app_state: AppState) -> None:
+    """Save application state to file.
+
+    Args:
+        app_state: AppState instance to save
+    """
+    state_path = get_app_state_path()
+    try:
+        with open(state_path, 'w', encoding='utf-8') as f:
+            json.dump(app_state.to_dict(), f, indent=2, default=str)
+        logger.info(f"[Config] Saved app state to {state_path}")
+    except Exception as e:
+        logger.error(f"[Config] Failed to save app state: {e}")
+        raise
+
+
+def load_app_state() -> AppState:
+    """Load application state from file.
+
+    Returns:
+        AppState: Loaded state, or default state if file doesn't exist
+    """
+    state_path = get_app_state_path()
+    if state_path.exists():
+        try:
+            with open(state_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            app_state = AppState.from_dict(data)
+            logger.info(f"[Config] Loaded app state from {state_path} - {len(app_state.recent_projects)} projects")
+            return app_state
+        except Exception as e:
+            logger.warning(f"[Config] Failed to load app state: {e}, using default")
+            return AppState()
+    else:
+        logger.info(f"[Config] App state file not found at {state_path}, using default")
+        return AppState()
 
 
 PROVIDER_ENDPOINTS = {
