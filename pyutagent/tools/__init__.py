@@ -20,6 +20,40 @@ from .edit_validator import EditValidator
 from .error_analyzer import CompilationErrorAnalyzer, ErrorAnalysis
 from .failure_analyzer import TestFailureAnalyzer, FailureAnalysis
 from .architect_editor import ArchitectMode
+from .tool import (
+    Tool,
+    ToolCategory,
+    ToolDefinition,
+    ToolParameter,
+    ToolResult,
+    ToolExecutor,
+    create_tool_parameter,
+)
+from .tool_registry import (
+    ToolRegistry,
+    RegistryConfig,
+    get_registry,
+    set_registry,
+    register_tool,
+    get_tool,
+    list_tools,
+    ToolNotFoundError,
+)
+from .standard_tools import (
+    ReadTool,
+    WriteTool,
+    EditTool,
+    GlobTool,
+    GrepTool,
+    BashTool,
+)
+from .tool_use import (
+    ToolUseAgent,
+    ToolUseState,
+    ToolCall,
+    ToolUseTurn,
+    create_tool_use_agent,
+)
 
 __all__ = [
     "JavaCodeParser",
@@ -43,4 +77,30 @@ __all__ = [
     "TestFailureAnalyzer",
     "FailureAnalysis",
     "ArchitectMode",
+    "Tool",
+    "ToolCategory",
+    "ToolDefinition",
+    "ToolParameter",
+    "ToolResult",
+    "ToolExecutor",
+    "create_tool_parameter",
+    "ToolRegistry",
+    "RegistryConfig",
+    "get_registry",
+    "set_registry",
+    "register_tool",
+    "get_tool",
+    "list_tools",
+    "ToolNotFoundError",
+    "ReadTool",
+    "WriteTool",
+    "EditTool",
+    "GlobTool",
+    "GrepTool",
+    "BashTool",
+    "ToolUseAgent",
+    "ToolUseState",
+    "ToolCall",
+    "ToolUseTurn",
+    "create_tool_use_agent",
 ]
