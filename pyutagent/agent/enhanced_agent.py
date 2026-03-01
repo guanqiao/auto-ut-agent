@@ -4,7 +4,7 @@ This module provides an enhanced agent that deeply integrates all enhancement la
 - P0: Context management, quality evaluation, partial success handling
 - P1: Prompt optimization, error learning, tool orchestration
 - P2: Multi-agent collaboration
-- P3: Error prediction, strategy optimization
+- P3: Error prediction, strategy optimization, sandbox execution, user interaction, smart analysis
 """
 
 import asyncio
@@ -23,8 +23,13 @@ from .prompt_optimizer import PromptOptimizer, ModelType
 from .context_manager import ContextManager, CompressionStrategy
 from .generation_evaluator import GenerationEvaluator
 from .partial_success_handler import PartialSuccessHandler
+from .user_interaction import UserInteractionHandler, create_repair_suggestion, UserChoice
 from ..core.metrics import MetricsCollector, get_metrics
 from ..core.protocols import AgentState, AgentResult
+from ..core.error_predictor import ErrorPredictor, ErrorType
+from ..core.adaptive_strategy import AdaptiveStrategyManager, ErrorCategory
+from ..core.sandbox_executor import SandboxExecutor, SecurityLevel
+from ..core.smart_analyzer import SmartCodeAnalyzer
 from ..memory.working_memory import WorkingMemory
 from ..llm.client import LLMClient
 from ..core.container import Container, get_container
@@ -53,6 +58,10 @@ class EnhancedAgentConfig:
     # P3 Configuration
     enable_error_prediction: bool = True
     enable_strategy_optimization: bool = True
+    enable_sandbox_execution: bool = True
+    enable_user_interaction: bool = True
+    enable_smart_analysis: bool = True
+    sandbox_security_level: SecurityLevel = SecurityLevel.MODERATE
     
     # Performance
     enable_metrics: bool = True
@@ -106,6 +115,15 @@ class EnhancedAgent(ReActAgent):
         if self.config.enable_multi_agent:
             self._init_multi_agent()
         
+        # Initialize P3 components
+        self.error_predictor: Optional[ErrorPredictor] = None
+        self.strategy_manager: Optional[AdaptiveStrategyManager] = None
+        self.sandbox_executor: Optional[SandboxExecutor] = None
+        self.user_interaction: Optional[UserInteractionHandler] = None
+        self.smart_analyzer: Optional[SmartCodeAnalyzer] = None
+        
+        self._init_p3_components()
+        
         # Call parent init with model name for P1 prompt optimization
         super().__init__(
             llm_client=llm_client,
@@ -136,6 +154,35 @@ class EnhancedAgent(ReActAgent):
         )
         
         logger.info("[EnhancedAgent] Multi-agent components initialized")
+    
+    def _init_p3_components(self):
+        """Initialize P3 advanced capability components."""
+        # Error Predictor
+        if self.config.enable_error_prediction:
+            self.error_predictor = ErrorPredictor()
+            logger.info("[EnhancedAgent] Error predictor initialized")
+        
+        # Adaptive Strategy Manager
+        if self.config.enable_strategy_optimization:
+            self.strategy_manager = AdaptiveStrategyManager()
+            logger.info("[EnhancedAgent] Strategy manager initialized")
+        
+        # Sandbox Executor
+        if self.config.enable_sandbox_execution:
+            self.sandbox_executor = SandboxExecutor(
+                security_level=self.config.sandbox_security_level
+            )
+            logger.info("[EnhancedAgent] Sandbox executor initialized")
+        
+        # User Interaction Handler
+        if self.config.enable_user_interaction:
+            self.user_interaction = UserInteractionHandler()
+            logger.info("[EnhancedAgent] User interaction handler initialized")
+        
+        # Smart Code Analyzer
+        if self.config.enable_smart_analysis:
+            self.smart_analyzer = SmartCodeAnalyzer()
+            logger.info("[EnhancedAgent] Smart code analyzer initialized")
     
     async def start_multi_agent_system(self):
         """Start the multi-agent collaboration system."""
@@ -320,7 +367,7 @@ class EnhancedAgent(ReActAgent):
             return result
     
     async def _try_recover(self, error: Exception, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Try to recover with metrics tracking.
+        """Try to recover with P3 strategy optimization and metrics tracking.
         
         Args:
             error: Error to recover from
@@ -330,6 +377,43 @@ class EnhancedAgent(ReActAgent):
             Recovery result
         """
         with self.metrics.time_operation("error_recovery", context):
+            # P3: Use adaptive strategy selection if available
+            if self.strategy_manager:
+                error_category = self._categorize_error(error)
+                strategies = self._get_available_strategies(error_category)
+                
+                if strategies:
+                    selection = self.strategy_manager.select_strategy(
+                        error_category=error_category,
+                        available_strategies=strategies,
+                        context=context
+                    )
+                    
+                    logger.info(f"[EnhancedAgent] Selected strategy: {selection.strategy.name} "
+                               f"(confidence: {selection.confidence:.2f})")
+                    
+                    # Use the selected strategy
+                    result = await self._execute_strategy(selection.strategy, error, context)
+                    
+                    # Record outcome
+                    success = result.get("should_continue", False)
+                    self.strategy_manager.record_outcome(
+                        strategy_name=selection.strategy.name,
+                        error_category=error_category,
+                        success=success,
+                        execution_time=result.get("execution_time", 0),
+                        context=context
+                    )
+                    
+                    self.metrics.record_error(
+                        category="recovery",
+                        step=context.get("step", "unknown"),
+                        recovered=success
+                    )
+                    
+                    return result
+            
+            # Fallback to parent implementation
             result = await super()._try_recover(error, context)
             
             # Record recovery metrics
@@ -341,6 +425,277 @@ class EnhancedAgent(ReActAgent):
             )
             
             return result
+    
+    def _categorize_error(self, error: Exception) -> ErrorCategory:
+        """Categorize error for strategy selection."""
+        error_msg = str(error).lower()
+        
+        if "syntax" in error_msg or "parse" in error_msg:
+            return ErrorCategory.COMPILATION_ERROR
+        elif "import" in error_msg or "module" in error_msg:
+            return ErrorCategory.DEPENDENCY_ERROR
+        elif "timeout" in error_msg or "deadline" in error_msg:
+            return ErrorCategory.TIMEOUT_ERROR
+        elif "memory" in error_msg or "resource" in error_msg:
+            return ErrorCategory.RESOURCE_ERROR
+        elif "assert" in error_msg or "test" in error_msg:
+            return ErrorCategory.TEST_FAILURE
+        else:
+            return ErrorCategory.UNKNOWN_ERROR
+    
+    def _get_available_strategies(self, error_category: ErrorCategory) -> List[Any]:
+        """Get available recovery strategies for error category."""
+        from ..core.adaptive_strategy import RecoveryStrategy
+        
+        strategies = []
+        
+        if error_category == ErrorCategory.COMPILATION_ERROR:
+            strategies.append(RecoveryStrategy(
+                name="syntax_fix",
+                description="Fix syntax errors",
+                applicable_errors={ErrorCategory.COMPILATION_ERROR},
+                parameters={"max_attempts": 3}
+            ))
+        elif error_category == ErrorCategory.TEST_FAILURE:
+            strategies.append(RecoveryStrategy(
+                name="test_fix",
+                description="Fix test failures",
+                applicable_errors={ErrorCategory.TEST_FAILURE},
+                parameters={"max_attempts": 5}
+            ))
+        elif error_category == ErrorCategory.DEPENDENCY_ERROR:
+            strategies.append(RecoveryStrategy(
+                name="dependency_fix",
+                description="Fix dependency issues",
+                applicable_errors={ErrorCategory.DEPENDENCY_ERROR},
+                parameters={"auto_install": True}
+            ))
+        
+        # Always add generic retry
+        strategies.append(RecoveryStrategy(
+            name="generic_retry",
+            description="Generic retry strategy",
+            applicable_errors=set(ErrorCategory),
+            parameters={"max_attempts": 3}
+        ))
+        
+        return strategies
+    
+    async def _execute_strategy(
+        self,
+        strategy: Any,
+        error: Exception,
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute a recovery strategy."""
+        start_time = asyncio.get_event_loop().time()
+        
+        try:
+            if strategy.name == "syntax_fix":
+                result = await self._fix_syntax_error(error, context)
+            elif strategy.name == "test_fix":
+                result = await self._fix_test_failure(error, context)
+            elif strategy.name == "dependency_fix":
+                result = await self._fix_dependency_error(error, context)
+            else:
+                # Generic retry
+                result = await super()._try_recover(error, context)
+            
+            result["execution_time"] = asyncio.get_event_loop().time() - start_time
+            return result
+            
+        except Exception as e:
+            return {
+                "should_continue": False,
+                "error": str(e),
+                "execution_time": asyncio.get_event_loop().time() - start_time
+            }
+    
+    async def _fix_syntax_error(self, error: Exception, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Fix syntax errors."""
+        # Implementation would use LLM to fix syntax
+        return await super()._try_recover(error, context)
+    
+    async def _fix_test_failure(self, error: Exception, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Fix test failures."""
+        return await super()._try_recover(error, context)
+    
+    async def _fix_dependency_error(self, error: Exception, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Fix dependency errors."""
+        return await super()._try_recover(error, context)
+    
+    async def predict_and_prevent_errors(self, code: str, file_path: str) -> Dict[str, Any]:
+        """P3: Predict potential errors before compilation.
+        
+        Args:
+            code: Code to analyze
+            file_path: File path
+            
+        Returns:
+            Prediction results
+        """
+        if not self.error_predictor:
+            return {"enabled": False}
+        
+        with self.metrics.time_operation("error_prediction"):
+            prediction = self.error_predictor.predict_compilation_errors(code, file_path)
+            
+            if prediction.has_errors:
+                logger.warning(f"[EnhancedAgent] Predicted {len(prediction.predicted_errors)} errors")
+                
+                # Try to auto-fix high-confidence predictions
+                for error in prediction.predicted_errors:
+                    if error.confidence > 0.8:
+                        suggestion = self.error_predictor.suggest_fix(error, code)
+                        if suggestion:
+                            logger.info(f"[EnhancedAgent] Suggested fix for {error.error_type}: {suggestion['description']}")
+            
+            return {
+                "enabled": True,
+                "has_errors": prediction.has_errors,
+                "predicted_errors": [
+                    {
+                        "type": e.error_type.value,
+                        "severity": e.severity.value,
+                        "confidence": e.confidence,
+                        "message": e.message
+                    }
+                    for e in prediction.predicted_errors
+                ],
+                "overall_confidence": prediction.overall_confidence
+            }
+    
+    async def execute_in_sandbox(
+        self,
+        code: str,
+        class_name: str,
+        method_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """P3: Execute code in sandboxed environment.
+        
+        Args:
+            code: Code to execute
+            class_name: Class name
+            method_name: Optional method name
+            
+        Returns:
+            Execution results
+        """
+        if not self.sandbox_executor:
+            return {"enabled": False, "message": "Sandbox not enabled"}
+        
+        with self.metrics.time_operation("sandbox_execution"):
+            result = await self.sandbox_executor.execute_sandboxed(
+                code=code,
+                class_name=class_name,
+                method_name=method_name
+            )
+            
+            return {
+                "enabled": True,
+                "status": result.status.value,
+                "success": result.status.value == "success",
+                "output": result.output,
+                "execution_time": result.execution_time,
+                "security_violations": [
+                    {"type": v.violation_type, "severity": v.severity}
+                    for v in result.security_violations
+                ] if result.security_violations else []
+            }
+    
+    async def request_user_confirmation(
+        self,
+        title: str,
+        description: str,
+        code_before: Optional[str] = None,
+        code_after: Optional[str] = None,
+        confidence: float = 0.5
+    ) -> Dict[str, Any]:
+        """P3: Request user confirmation for changes.
+        
+        Args:
+            title: Suggestion title
+            description: Description
+            code_before: Code before change
+            code_after: Code after change
+            confidence: Confidence score
+            
+        Returns:
+            User choice result
+        """
+        if not self.user_interaction:
+            # Auto-accept if user interaction not enabled
+            return {"choice": "accept", "auto": True}
+        
+        suggestion = create_repair_suggestion(
+            title=title,
+            description=description,
+            code_before=code_before,
+            code_after=code_after,
+            confidence=confidence,
+            estimated_impact="medium" if confidence > 0.7 else "high"
+        )
+        
+        choice, feedback = await self.user_interaction.request_confirmation(
+            suggestion=suggestion,
+            context={"agent": "enhanced", "timestamp": datetime.now().isoformat()},
+            auto_decide=confidence > 0.95  # Auto-decide for very high confidence
+        )
+        
+        return {
+            "choice": choice.value,
+            "feedback": feedback,
+            "auto": confidence > 0.95
+        }
+    
+    async def analyze_code_semantics(self, file_path: str) -> Dict[str, Any]:
+        """P3: Analyze code semantics and dependencies.
+        
+        Args:
+            file_path: File to analyze
+            
+        Returns:
+            Analysis results
+        """
+        if not self.smart_analyzer:
+            return {"enabled": False}
+        
+        with self.metrics.time_operation("semantic_analysis"):
+            # Quick file analysis
+            from ..core.smart_analyzer import quick_analyze_file
+            result = quick_analyze_file(file_path)
+            
+            return {
+                "enabled": True,
+                "file": result["file"],
+                "entities_count": len(result["entities"]),
+                "entities": result["entities"]
+            }
+    
+    async def analyze_change_impact(self, entity_id: str) -> Dict[str, Any]:
+        """P3: Analyze impact of code changes.
+        
+        Args:
+            entity_id: Entity to analyze
+            
+        Returns:
+            Impact analysis results
+        """
+        if not self.smart_analyzer or not self.smart_analyzer.impact_analyzer:
+            return {"enabled": False}
+        
+        with self.metrics.time_operation("impact_analysis"):
+            impact = self.smart_analyzer.analyze_change_impact(entity_id)
+            
+            return {
+                "enabled": True,
+                "changed_entity": impact.changed_entity_id,
+                "directly_affected_count": len(impact.directly_affected),
+                "indirectly_affected_count": len(impact.indirectly_affected),
+                "tests_to_check": len(impact.test_entities_to_check),
+                "risk_score": impact.risk_score,
+                "estimated_effort_minutes": impact.estimated_effort
+            }
     
     async def _metrics_reporting_loop(self):
         """Background loop for periodic metrics reporting."""
@@ -368,6 +723,11 @@ class EnhancedAgent(ReActAgent):
                 "model_name": self.config.model_name,
                 "enable_multi_agent": self.config.enable_multi_agent,
                 "enable_prompt_optimization": self.config.enable_prompt_optimization,
+                "enable_error_prediction": self.config.enable_error_prediction,
+                "enable_strategy_optimization": self.config.enable_strategy_optimization,
+                "enable_sandbox_execution": self.config.enable_sandbox_execution,
+                "enable_user_interaction": self.config.enable_user_interaction,
+                "enable_smart_analysis": self.config.enable_smart_analysis,
             }
         }
         
@@ -382,6 +742,30 @@ class EnhancedAgent(ReActAgent):
         # Add experience replay stats if available
         if self.experience_replay:
             stats["experience_replay"] = self.experience_replay.get_stats()
+        
+        # Add P3 stats
+        stats["p3_capabilities"] = {
+            "error_prediction": {
+                "enabled": self.error_predictor is not None,
+                "predictions_made": self.error_predictor.total_predictions if self.error_predictor else 0,
+                "accuracy": self.error_predictor.get_accuracy() if self.error_predictor else None
+            } if self.error_predictor else {"enabled": False},
+            "strategy_optimization": {
+                "enabled": self.strategy_manager is not None,
+                "strategies_tracked": len(self.strategy_manager.strategy_performances) if self.strategy_manager else 0
+            } if self.strategy_manager else {"enabled": False},
+            "sandbox_execution": {
+                "enabled": self.sandbox_executor is not None,
+                "security_level": self.config.sandbox_security_level.value
+            } if self.sandbox_executor else {"enabled": False},
+            "user_interaction": {
+                "enabled": self.user_interaction is not None,
+                "stats": self.user_interaction.get_interaction_stats() if self.user_interaction else None
+            } if self.user_interaction else {"enabled": False},
+            "smart_analysis": {
+                "enabled": self.smart_analyzer is not None
+            } if self.smart_analyzer else {"enabled": False}
+        }
         
         return stats
     
