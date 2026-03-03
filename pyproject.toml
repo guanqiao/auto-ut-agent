@@ -33,6 +33,7 @@ dependencies = [
     "langchain-openai>=0.2.0",
     "openai>=1.52.0",
     "sqlite-vec>=0.1.0",
+    "torch>=2.8.0,<2.9.0",
     "sentence-transformers>=3.2.0",
     "SQLAlchemy>=2.0.36",
     "pydantic>=2.9.0",

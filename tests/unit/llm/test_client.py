@@ -119,8 +119,11 @@ class TestLLMClient:
 
     @patch('langchain_openai.ChatOpenAI')
     @patch('httpx.Client')
-    def test_get_client_with_ca_cert(self, mock_httpx_client, mock_chat_openai):
+    @patch('httpx.AsyncClient')
+    @patch('pathlib.Path.exists')
+    def test_get_client_with_ca_cert(self, mock_exists, mock_async_client, mock_httpx_client, mock_chat_openai):
         """Test creating client with CA cert."""
+        mock_exists.return_value = True
         client = LLMClient(
             endpoint="https://api.example.com",
             api_key="key",
@@ -130,11 +133,13 @@ class TestLLMClient:
         )
         mock_chat_openai.return_value = Mock()
         mock_httpx_client.return_value = Mock()
+        mock_async_client.return_value = Mock()
 
         client._get_client()
 
         call_kwargs = mock_chat_openai.call_args.kwargs
         assert call_kwargs['http_client'] is not None
+        assert call_kwargs['http_async_client'] is not None
 
     @patch('langchain_openai.ChatOpenAI')
     def test_generate(self, mock_chat_openai, client):

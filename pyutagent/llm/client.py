@@ -83,16 +83,27 @@ class LLMClient:
             try:
                 logger.debug(f"[LLMClient] Creating LangChain client - Model: {self.model}")
                 from langchain_openai import ChatOpenAI
-                
+
                 http_client = None
+                http_async_client = None
                 if self.ca_cert:
                     import httpx
-                    http_client = httpx.Client(
-                        verify=self.ca_cert,
-                        timeout=self.timeout
-                    )
-                    logger.debug(f"[LLMClient] Configuring HTTPS client with CA certificate")
-                
+                    from pathlib import Path
+                    cert_path = Path(self.ca_cert)
+                    if cert_path.exists():
+                        logger.info(f"[LLMClient] CA certificate file exists: {cert_path}")
+                        http_client = httpx.Client(
+                            verify=str(cert_path),
+                            timeout=self.timeout
+                        )
+                        http_async_client = httpx.AsyncClient(
+                            verify=str(cert_path),
+                            timeout=self.timeout
+                        )
+                        logger.info(f"[LLMClient] Configured HTTPS clients with CA certificate: {cert_path}")
+                    else:
+                        logger.warning(f"[LLMClient] CA certificate file not found: {cert_path}")
+
                 self._client = ChatOpenAI(
                     model=self.model,
                     api_key=self.api_key,
@@ -102,12 +113,13 @@ class LLMClient:
                     timeout=self.timeout,
                     max_retries=self.max_retries,
                     http_client=http_client,
+                    http_async_client=http_async_client,
                 )
-                logger.info(f"[LLMClient] LangChain client created successfully")
+                logger.info(f"[LLMClient] LangChain client created successfully - http_client: {http_client is not None}, http_async_client: {http_async_client is not None}")
             except Exception as e:
                 logger.exception(f"[LLMClient] Failed to create LangChain client: {e}")
                 raise
-        
+
         return self._client
     
     @classmethod
