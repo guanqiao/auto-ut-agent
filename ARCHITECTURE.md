@@ -341,14 +341,96 @@ class ContextManager:
 
 ## 高级层 (P3)
 
-高级层提供企业级能力（部分实现）。
+高级层提供企业级能力（全部实现）。
 
-### 规划中的组件
+### 1. Error Predictor
 
-1. **Error Predictor** - 编译前错误预测
-2. **Adaptive Strategy** - 自适应策略调整
-3. **Sandbox Executor** - 沙箱隔离执行
-4. **User Interaction** - 交互式修复
+**文件**: `pyutagent/core/error_predictor.py`
+
+**职责**:
+- 编译前错误预测
+- 12种错误类型分类
+- 4级严重度评估
+- 测试失败预测
+
+**核心类**:
+```python
+class ErrorPredictor:
+    def predict_compilation_errors(self, code: str, file_path: Optional[str] = None) -> PredictionResult
+    def predict_test_failures(self, test_code: str, test_info: Dict[str, Any]) -> PredictionResult
+    def suggest_fix(self, predicted_error: PredictedError, code: str) -> Optional[Dict[str, Any]]
+```
+
+### 2. Adaptive Strategy Manager
+
+**文件**: `pyutagent/core/adaptive_strategy.py`
+
+**职责**:
+- 动态策略选择
+- 上下文感知
+- 探索vs利用（ε-贪婪算法）
+- 策略效果跟踪
+
+**核心类**:
+```python
+class AdaptiveStrategyManager:
+    def select_strategy(self, error_category: ErrorCategory, available_strategies: List[RecoveryStrategy], context: Dict[str, Any]) -> StrategySelection
+    def record_outcome(self, strategy_name: str, error_category: ErrorCategory, success: bool, execution_time: float, context: Dict[str, Any])
+```
+
+### 3. Sandbox Executor
+
+**文件**: `pyutagent/core/sandbox_executor.py`
+
+**职责**:
+- 沙箱代码执行
+- 3级安全控制（严格/中等/宽松）
+- 文件系统隔离
+- 网络限制
+- 资源限制（CPU、内存、磁盘）
+
+**核心类**:
+```python
+class SandboxExecutor:
+    async def execute_sandboxed(self, code: str, class_name: str, method_name: Optional[str] = None, args: List[Any] = None) -> ExecutionResult
+    def _analyze_security(self, code: str) -> SecurityReport
+```
+
+### 4. User Interaction Handler
+
+**文件**: `pyutagent/agent/user_interaction.py`
+
+**职责**:
+- 修复建议展示
+- 交互式确认
+- 策略选择
+- 用户偏好学习
+
+**核心类**:
+```python
+class UserInteractionHandler:
+    def display_suggestion(self, suggestion: RepairSuggestion, config: DisplayConfig = None) -> str
+    async def request_confirmation(self, suggestion: RepairSuggestion, context: Dict[str, Any], auto_decide: bool = False) -> Tuple[UserChoice, Optional[str]]
+```
+
+### 5. Smart Code Analyzer
+
+**文件**: `pyutagent/core/smart_analyzer.py`
+
+**职责**:
+- AST分析
+- 语义分析
+- 依赖关系图
+- 影响分析
+- 智能代码搜索
+
+**核心类**:
+```python
+class SmartCodeAnalyzer:
+    async def analyze_project(self, project_path: str) -> Dict[str, Any]
+    def search_code(self, query: str, top_k: int = 10) -> List[CodeSearchResult]
+    def analyze_change_impact(self, entity_id: str) -> ImpactAnalysisResult
+```
 
 ---
 
@@ -599,7 +681,7 @@ print(f"Health Score: {health['health_score']}")
 | v2.0 | 2026-03-01 | P0 核心能力：流式生成、增量编辑、上下文管理 |
 | v3.0 | 2026-03-01 | P1 增强能力：提示词优化、错误学习、多构建工具 |
 | v4.0 | 2026-03-01 | P2 协作能力：多智能体、消息总线、性能监控 |
-| v5.0 | TBD | P3 高级能力：错误预测、自适应策略 |
+| v5.0 | 2026-03-01 | P3 高级能力：错误预测、自适应策略、沙箱执行、用户交互、智能分析 |
 
 ---
 
