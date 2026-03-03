@@ -1,0 +1,159 @@
+"""Core Agent - Base class and core state management."""
+
+import logging
+from typing import Dict, List, Optional, Any, Callable
+from pathlib import Path
+
+from pyutagent.agent.base_agent import BaseAgent, StepResult
+from pyutagent.core.protocols import AgentState, AgentResult
+from pyutagent.memory.working_memory import WorkingMemory
+from pyutagent.llm.client import LLMClient
+
+logger = logging.getLogger(__name__)
+
+
+class AgentCore(BaseAgent):
+    """Core ReAct Agent functionality - state management and basic lifecycle.
+    
+    This class handles:
+    - Basic agent state and lifecycle
+    - Pause/Resume/Terminate control
+    - Working memory management
+    - Progress callbacks
+    """
+    
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        working_memory: WorkingMemory,
+        project_path: str,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ):
+        """Initialize core agent.
+        
+        Args:
+            llm_client: LLM client for generation
+            working_memory: Working memory for context
+            project_path: Path to the project
+            progress_callback: Optional callback for progress updates
+        """
+        super().__init__(llm_client, working_memory, project_path, progress_callback)
+        
+        self.project_path = project_path
+        self.current_test_file: Optional[str] = None
+        self.target_class_info: Optional[Dict[str, Any]] = None
+        self._stop_requested = False
+        self._terminated = False
+        
+        logger.debug(f"[AgentCore] Initialized - Project: {project_path}")
+    
+    def stop(self):
+        """Stop agent execution gracefully (legacy, use pause instead)."""
+        logger.info("[AgentCore] Stopping agent execution")
+        super().request_stop()
+        self._stop_requested = True
+    
+    def pause(self):
+        """Pause agent execution.
+        
+        The agent will pause at the next checkpoint.
+        """
+        logger.info("[AgentCore] Pausing agent execution")
+        super().pause()
+        self._stop_requested = True
+    
+    def resume(self):
+        """Resume agent execution."""
+        logger.info("[AgentCore] Resuming agent execution")
+        super().resume()
+        self._stop_requested = False
+        self._terminated = False
+    
+    def terminate(self):
+        """Terminate agent execution immediately."""
+        logger.info("[AgentCore] Terminating agent execution")
+        super().terminate()
+        self._terminated = True
+        self._stop_requested = True
+    
+    def reset(self):
+        """Reset agent state."""
+        logger.info("[AgentCore] Resetting agent state")
+        super().reset()
+        self._stop_requested = False
+        self._terminated = False
+    
+    def _update_state(self, state: AgentState, message: str):
+        """Update agent state and notify progress.
+        
+        Args:
+            state: New agent state
+            message: Status message
+        """
+        self.state = state
+        if self.progress_callback:
+            self.progress_callback({
+                "state": state.name,
+                "message": message,
+                "progress": {
+                    "iteration": f"{self.working_memory.current_iteration}/{self.working_memory.max_iterations}",
+                    "coverage": f"{self.working_memory.current_coverage:.1%}",
+                    "target": f"{self.working_memory.target_coverage:.1%}"
+                }
+            })
+    
+    async def _check_pause(self) -> None:
+        """Check if agent should pause and wait."""
+        if self._pause_event.is_set():
+            logger.info("[AgentCore] Waiting for pause event...")
+            await self._pause_event.wait()
+            logger.info("[AgentCore] Pause event cleared, resuming")
+    
+    def _create_terminated_result(self, context: str) -> AgentResult:
+        """Create result when generation is terminated.
+        
+        Args:
+            context: Context for the message
+            
+        Returns:
+            AgentResult with terminated status
+        """
+        return AgentResult(
+            success=False,
+            message=f"Generation terminated by user {context}",
+            state=AgentState.FAILED
+        )
+    
+    def _create_success_result(self, coverage: float) -> AgentResult:
+        """Create success result when target coverage is reached.
+        
+        Args:
+            coverage: Final coverage percentage
+            
+        Returns:
+            AgentResult with success status
+        """
+        logger.info(f"[AgentCore] 🎉 Target coverage reached! {coverage:.1%}")
+        self._update_state(
+            AgentState.COMPLETED,
+            f"🎉 Target coverage reached: {coverage:.1%}"
+        )
+        return AgentResult(
+            success=True,
+            message=f"Successfully generated tests with {coverage:.1%} coverage",
+            test_file=self.current_test_file,
+            coverage=coverage,
+            iterations=self.current_iteration
+        )
+    
+    def _extract_java_code(self, response: str) -> str:
+        """Extract Java code from LLM response.
+        
+        Args:
+            response: LLM response text
+            
+        Returns:
+            Extracted Java code
+        """
+        from pyutagent.agent.utils.code_extractor import CodeExtractor
+        return CodeExtractor.extract_java_code(response)
