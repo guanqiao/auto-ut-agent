@@ -31,6 +31,7 @@ class WorkingMemory:
     
     # Control state
     is_paused: bool = False
+    skip_verification: bool = False  # Skip compilation/verification during batch generation
     
     # Processing tracking
     processed_files: List[str] = field(default_factory=list)

@@ -192,6 +192,11 @@ class ReActAgent(BaseAgent):
         self.current_test_file: Optional[str] = None
         self.target_class_info: Optional[Dict[str, Any]] = None
         self._stop_requested = False
+        
+        settings = get_settings()
+        self.max_compilation_attempts = settings.coverage.max_compilation_attempts
+        self.max_test_attempts = settings.coverage.max_test_attempts
+        logger.info(f"[ReActAgent] Attempt limits set - Compilation: {self.max_compilation_attempts}, Test: {self.max_test_attempts}")
     
     def _init_p0_components(self):
         """Initialize P0 enhancement components."""
@@ -1214,15 +1219,30 @@ class ReActAgent(BaseAgent):
         Returns:
             True if compilation successful
         """
+        # Skip compilation if in batch generation mode with defer_compilation
+        if self.working_memory.skip_verification:
+            logger.info("[ReActAgent] Skipping compilation - defer_compilation mode enabled")
+            self._update_state(AgentState.GENERATING, "⏭️ 跳过编译检查 (批量生成模式)")
+            return True
+        
         attempt = 0
         
-        logger.info("[ReActAgent] 🔨 Starting test compilation (with recovery)")
+        logger.info(f"[ReActAgent] 🔨 Starting test compilation (with recovery) - Max attempts: {self.max_compilation_attempts}")
         
         while not self._stop_requested and not self._terminated:
             attempt += 1
-            self._update_state(AgentState.COMPILING, f"🔨 Attempt {attempt}: Compiling tests...")
             
-            logger.info(f"[ReActAgent] 🔨 Compilation attempt {attempt} - Running Maven compile...")
+            if attempt > self.max_compilation_attempts:
+                logger.error(f"[ReActAgent] ❌ Exceeded maximum compilation attempts ({self.max_compilation_attempts})")
+                self._update_state(
+                    AgentState.FAILED,
+                    f"❌ Exceeded max compilation attempts ({self.max_compilation_attempts}). Manual intervention required."
+                )
+                return False
+            
+            self._update_state(AgentState.COMPILING, f"🔨 Attempt {attempt}/{self.max_compilation_attempts}: Compiling tests...")
+            
+            logger.info(f"[ReActAgent] 🔨 Compilation attempt {attempt}/{self.max_compilation_attempts} - Running Maven compile...")
             
             try:
                 result = await self._compile_tests()
@@ -1302,15 +1322,30 @@ class ReActAgent(BaseAgent):
         Returns:
             True if tests pass
         """
+        # Skip test execution if in batch generation mode with defer_compilation
+        if self.working_memory.skip_verification:
+            logger.info("[ReActAgent] Skipping test execution - defer_compilation mode enabled")
+            self._update_state(AgentState.GENERATING, "⏭️ 跳过测试执行 (批量生成模式)")
+            return True
+        
         attempt = 0
         
-        logger.info("[ReActAgent] 🧪 Starting test execution (with recovery and partial success handling)")
+        logger.info(f"[ReActAgent] 🧪 Starting test execution (with recovery and partial success handling) - Max attempts: {self.max_test_attempts}")
         
         while not self._stop_requested and not self._terminated:
             attempt += 1
-            self._update_state(AgentState.TESTING, f"🧪 Attempt {attempt}: Running tests...")
             
-            logger.info(f"[ReActAgent] 🧪 Test run attempt {attempt} - Running Maven test...")
+            if attempt > self.max_test_attempts:
+                logger.error(f"[ReActAgent] ❌ Exceeded maximum test attempts ({self.max_test_attempts})")
+                self._update_state(
+                    AgentState.FAILED,
+                    f"❌ Exceeded max test attempts ({self.max_test_attempts}). Manual intervention required."
+                )
+                return False
+            
+            self._update_state(AgentState.TESTING, f"🧪 Attempt {attempt}/{self.max_test_attempts}: Running tests...")
+            
+            logger.info(f"[ReActAgent] 🧪 Test run attempt {attempt}/{self.max_test_attempts} - Running Maven test...")
             
             try:
                 result = await self._run_tests()
@@ -1741,13 +1776,26 @@ class ReActAgent(BaseAgent):
                     message="Tests compiled successfully"
                 )
             else:
-                errors = [stderr.decode('utf-8', errors='replace')] if stderr else ["Unknown compilation error"]
-                logger.warning(f"[ReActAgent] Compilation failed - Errors: {len(errors)}")
+                stderr_text = stderr.decode('utf-8', errors='replace') if stderr else ""
+                stdout_text = stdout.decode('utf-8', errors='replace') if stdout else ""
+                
+                errors = []
+                if stderr_text.strip():
+                    errors = [line.strip() for line in stderr_text.split('\n') if line.strip()]
+                elif stdout_text.strip():
+                    errors = [line.strip() for line in stdout_text.split('\n') if line.strip()]
+                else:
+                    errors = ["Unknown compilation error - no output from compiler"]
+                
+                logger.warning(f"[ReActAgent] Compilation failed - Errors: {len(errors)}, Return code: {compile_process.returncode}")
+                logger.warning(f"[ReActAgent] Stderr: {stderr_text[:500] if stderr_text else 'empty'}")
+                logger.warning(f"[ReActAgent] Stdout: {stdout_text[:500] if stdout_text else 'empty'}")
+                
                 return StepResult(
                     success=False,
                     state=AgentState.FIXING,
                     message="Compilation failed",
-                    data={"errors": errors, "stdout": stdout.decode('utf-8', errors='replace') if stdout else ""}
+                    data={"errors": errors, "stdout": stdout_text, "stderr": stderr_text}
                 )
         except Exception as e:
             logger.exception(f"[ReActAgent] Compilation exception: {e}")

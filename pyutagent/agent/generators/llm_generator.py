@@ -56,6 +56,7 @@ class LLMTestGenerator(BaseTestGenerator):
 - Include assertions
 - Mock external dependencies
 - Cover edge cases
+- All comments and descriptions MUST be in English
 
 Return only the test code without explanations."""
         
@@ -124,4 +125,5 @@ Generate comprehensive tests covering:
 3. Null/empty inputs
 4. Exception handling
 
-Use Mockito for mocking and AssertJ for assertions."""
+Use Mockito for mocking and AssertJ for assertions.
+All comments and descriptions MUST be in English."""

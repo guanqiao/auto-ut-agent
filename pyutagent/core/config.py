@@ -374,10 +374,14 @@ class CoverageSettings:
         target_coverage: Target coverage percentage (0.0-1.0)
         min_coverage: Minimum acceptable coverage
         max_iterations: Maximum iterations for coverage improvement
+        max_compilation_attempts: Maximum compilation attempts before giving up
+        max_test_attempts: Maximum test execution attempts before giving up
     """
     target_coverage: float = 0.8
     min_coverage: float = 0.5
     max_iterations: int = 10
+    max_compilation_attempts: int = 3
+    max_test_attempts: int = 3
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

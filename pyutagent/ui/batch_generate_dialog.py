@@ -22,7 +22,7 @@ class BatchGenerateWorker(QThread):
     
     progress_updated = pyqtSignal(str, str, float, int, float, str)
     file_completed = pyqtSignal(str, bool, float, int, str, float)
-    all_completed = pyqtSignal(int, int, float)
+    all_completed = pyqtSignal(int, int, float, object)  # Added compilation_result
     error = pyqtSignal(str)
     
     def __init__(
@@ -34,7 +34,9 @@ class BatchGenerateWorker(QThread):
         timeout: int = 300,
         coverage_target: int = 80,
         max_iterations: int = 10,
-        continue_on_error: bool = True
+        continue_on_error: bool = True,
+        defer_compilation: bool = False,
+        compile_only_at_end: bool = False
     ):
         super().__init__()
         self.llm_client = llm_client
@@ -45,6 +47,8 @@ class BatchGenerateWorker(QThread):
         self.coverage_target = coverage_target
         self.max_iterations = max_iterations
         self.continue_on_error = continue_on_error
+        self.defer_compilation = defer_compilation
+        self.compile_only_at_end = compile_only_at_end
         self._stop_requested = False
     
     def run(self):
@@ -57,7 +61,9 @@ class BatchGenerateWorker(QThread):
                 timeout_per_file=self.timeout,
                 continue_on_error=self.continue_on_error,
                 coverage_target=self.coverage_target,
-                max_iterations=self.max_iterations
+                max_iterations=self.max_iterations,
+                defer_compilation=self.defer_compilation,
+                compile_only_at_end=self.compile_only_at_end
             )
             
             def progress_callback(batch_progress):
@@ -96,7 +102,8 @@ class BatchGenerateWorker(QThread):
             self.all_completed.emit(
                 result.success_count,
                 result.failed_count,
-                result.total_duration
+                result.total_duration,
+                result.compilation_result
             )
             
         except Exception as e:
@@ -131,40 +138,90 @@ class BatchGenerateDialog(QDialog):
         config_group = QGroupBox("Configuration")
         config_layout = QHBoxLayout(config_group)
         
+        # Left column
+        left_col = QVBoxLayout()
+        
         parallel_label = QLabel("Parallel Workers:")
         self.parallel_spin = QSpinBox()
         self.parallel_spin.setRange(0, 20)
         self.parallel_spin.setValue(1)
         self.parallel_spin.setToolTip("Number of parallel workers (0 = unlimited)")
-        config_layout.addWidget(parallel_label)
-        config_layout.addWidget(self.parallel_spin)
-        
-        config_layout.addSpacing(20)
+        parallel_layout = QHBoxLayout()
+        parallel_layout.addWidget(parallel_label)
+        parallel_layout.addWidget(self.parallel_spin)
+        parallel_layout.addStretch()
+        left_col.addLayout(parallel_layout)
         
         timeout_label = QLabel("Timeout (s):")
         self.timeout_spin = QSpinBox()
         self.timeout_spin.setRange(60, 3600)
         self.timeout_spin.setValue(300)
         self.timeout_spin.setSingleStep(60)
-        config_layout.addWidget(timeout_label)
-        config_layout.addWidget(self.timeout_spin)
-        
-        config_layout.addSpacing(20)
+        timeout_layout = QHBoxLayout()
+        timeout_layout.addWidget(timeout_label)
+        timeout_layout.addWidget(self.timeout_spin)
+        timeout_layout.addStretch()
+        left_col.addLayout(timeout_layout)
         
         coverage_label = QLabel("Coverage Target (%):")
         self.coverage_spin = QSpinBox()
         self.coverage_spin.setRange(0, 100)
         self.coverage_spin.setValue(80)
-        config_layout.addWidget(coverage_label)
-        config_layout.addWidget(self.coverage_spin)
+        coverage_layout = QHBoxLayout()
+        coverage_layout.addWidget(coverage_label)
+        coverage_layout.addWidget(self.coverage_spin)
+        coverage_layout.addStretch()
+        left_col.addLayout(coverage_layout)
+        
+        config_layout.addLayout(left_col)
         
         config_layout.addSpacing(20)
         
+        # Right column
+        right_col = QVBoxLayout()
+        
         self.continue_check = QCheckBox("Continue on error")
         self.continue_check.setChecked(True)
-        config_layout.addWidget(self.continue_check)
+        self.continue_check.setToolTip("Continue generating tests for other files if one fails")
+        right_col.addWidget(self.continue_check)
         
-        config_layout.addStretch()
+        # Compilation strategy group
+        compile_strategy_group = QGroupBox("Compilation Strategy")
+        compile_strategy_layout = QVBoxLayout(compile_strategy_group)
+        
+        self.standard_radio = QPushButton("Standard Mode")
+        self.standard_radio.setCheckable(True)
+        self.standard_radio.setChecked(True)
+        self.standard_radio.setToolTip("Generate → Compile → Test → Fix for each file")
+        self.standard_radio.clicked.connect(lambda: self.on_compilation_strategy_changed("standard"))
+        compile_strategy_layout.addWidget(self.standard_radio)
+        
+        self.defer_radio = QPushButton("Defer Compilation")
+        self.defer_radio.setCheckable(True)
+        self.defer_radio.setChecked(False)
+        self.defer_radio.setToolTip("Generate all tests first, then compile all at once")
+        self.defer_radio.clicked.connect(lambda: self.on_compilation_strategy_changed("defer"))
+        compile_strategy_layout.addWidget(self.defer_radio)
+        
+        self.fast_radio = QPushButton("Fast Mode (Compile Only at End)")
+        self.fast_radio.setCheckable(True)
+        self.fast_radio.setChecked(False)
+        self.fast_radio.setToolTip("Generate all without verification, compile once at the end")
+        self.fast_radio.clicked.connect(lambda: self.on_compilation_strategy_changed("fast"))
+        compile_strategy_layout.addWidget(self.fast_radio)
+        
+        # Strategy description label
+        self.strategy_desc_label = QLabel(
+            "Standard: Verify each file immediately (recommended for quality)"
+        )
+        self.strategy_desc_label.setWordWrap(True)
+        self.strategy_desc_label.setStyleSheet("color: #666; font-size: 11px;")
+        compile_strategy_layout.addWidget(self.strategy_desc_label)
+        
+        right_col.addWidget(compile_strategy_group)
+        right_col.addStretch()
+        
+        config_layout.addLayout(right_col)
         layout.addWidget(config_group)
         
         files_group = QGroupBox("Java Files")
@@ -280,6 +337,27 @@ class BatchGenerateDialog(QDialog):
         if item.column() == 0:
             self.update_file_count()
     
+    def on_compilation_strategy_changed(self, strategy: str):
+        """Handle compilation strategy change."""
+        # Update radio button states
+        self.standard_radio.setChecked(strategy == "standard")
+        self.defer_radio.setChecked(strategy == "defer")
+        self.fast_radio.setChecked(strategy == "fast")
+        
+        # Update description
+        if strategy == "standard":
+            self.strategy_desc_label.setText(
+                "Standard: Verify each file immediately (recommended for quality)"
+            )
+        elif strategy == "defer":
+            self.strategy_desc_label.setText(
+                "Defer: Generate all → Compile all (faster, errors shown at end)"
+            )
+        elif strategy == "fast":
+            self.strategy_desc_label.setText(
+                "Fast: Generate all without checks → Compile once (fastest, manual fix may be needed)"
+            )
+    
     def update_file_count(self):
         """Update the file count label."""
         count = sum(
@@ -341,6 +419,18 @@ class BatchGenerateDialog(QDialog):
         
         self._timer_id = self.startTimer(1000)
         
+        # Determine compilation strategy
+        defer_compilation = False
+        compile_only_at_end = False
+        
+        if self.defer_radio.isChecked():
+            defer_compilation = True
+            compile_only_at_end = False
+        elif self.fast_radio.isChecked():
+            defer_compilation = True
+            compile_only_at_end = True
+        # else: standard mode (both False)
+        
         self.worker = BatchGenerateWorker(
             llm_client=self.llm_client,
             project_path=self.project_path,
@@ -349,7 +439,9 @@ class BatchGenerateDialog(QDialog):
             timeout=self.timeout_spin.value(),
             coverage_target=self.coverage_spin.value(),
             max_iterations=10,
-            continue_on_error=self.continue_check.isChecked()
+            continue_on_error=self.continue_check.isChecked(),
+            defer_compilation=defer_compilation,
+            compile_only_at_end=compile_only_at_end
         )
         
         self.worker.progress_updated.connect(self.on_progress_updated)
@@ -423,23 +515,66 @@ class BatchGenerateDialog(QDialog):
                 self.files_table.item(i, 5).setText(f"{duration:.1f}s")
                 break
     
-    def on_all_completed(self, success_count, failed_count, total_duration):
+    def on_all_completed(self, success_count, failed_count, total_duration, compilation_result):
         """Handle all completed."""
         self._is_running = False
         self.on_generation_finished()
         
         total = success_count + failed_count
-        if failed_count == 0:
-            self.status_label.setText(f"Completed: {success_count}/{total} files")
-            self.status_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
-        elif success_count == 0:
-            self.status_label.setText(f"Failed: {failed_count}/{total} files")
-            self.status_label.setStyleSheet("font-weight: bold; color: #f44336;")
-        else:
-            self.status_label.setText(f"Completed: {success_count} success, {failed_count} failed")
-            self.status_label.setStyleSheet("font-weight: bold; color: #FF9800;")
         
+        # Build status message
+        status_parts = []
+        
+        if compilation_result:
+            # Two-phase mode completed
+            if compilation_result.success:
+                status_parts.append(f"Generated: {success_count}/{total}")
+                status_parts.append(f"Compiled: ✓ Success")
+                self.status_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+            else:
+                status_parts.append(f"Generated: {success_count}/{total}")
+                status_parts.append(f"Compiled: ✗ {compilation_result.failed_files} failed")
+                self.status_label.setStyleSheet("font-weight: bold; color: #FF9800;")
+            
+            # Show compilation time
+            status_parts.append(f"Compile time: {compilation_result.duration:.1f}s")
+        else:
+            # Standard mode
+            if failed_count == 0:
+                status_parts.append(f"Completed: {success_count}/{total} files")
+                self.status_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+            elif success_count == 0:
+                status_parts.append(f"Failed: {failed_count}/{total} files")
+                self.status_label.setStyleSheet("font-weight: bold; color: #f44336;")
+            else:
+                status_parts.append(f"Completed: {success_count} success, {failed_count} failed")
+                self.status_label.setStyleSheet("font-weight: bold; color: #FF9800;")
+        
+        self.status_label.setText(" | ".join(status_parts))
         self.progress_bar.setValue(100)
+        
+        # Show compilation details if available
+        if compilation_result and self.isVisible():
+            if compilation_result.success:
+                QMessageBox.information(
+                    self,
+                    "Batch Generation Complete",
+                    f"✓ All tests generated and compiled successfully!\n\n"
+                    f"Generated: {success_count}/{total} files\n"
+                    f"Compilation: Successful\n"
+                    f"Total time: {total_duration:.1f}s"
+                )
+            else:
+                error_details = "\n".join(compilation_result.errors[:5]) if compilation_result.errors else "Unknown errors"
+                QMessageBox.warning(
+                    self,
+                    "Batch Generation Complete with Errors",
+                    f"⚠ Tests generated but compilation failed\n\n"
+                    f"Generated: {success_count}/{total} files\n"
+                    f"Compilation errors: {compilation_result.failed_files}\n"
+                    f"Compile time: {compilation_result.duration:.1f}s\n\n"
+                    f"First errors:\n{error_details}"
+                )
     
     def on_error(self, error_message):
         """Handle error."""

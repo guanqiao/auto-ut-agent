@@ -1,0 +1,110 @@
+{
+  "id": "c8d0dd90",
+  "created_at": "2026-03-03T14:03:48.995374",
+  "step": "initial_generation",
+  "iteration": 0,
+  "state": {
+    "target_file": "D:\\opensource\\github\\java-ut-agent-master\\java-ut-agent-master\\src\\main\\java\\com\\utagent\\util\\ApiKeyResolver.java",
+    "test_file": "src\\test\\java\\com\\utagent\\util\\ApiKeyResolverTest.java",
+    "class_info": {
+      "name": "ApiKeyResolver",
+      "package": "com.utagent.util",
+      "methods": [
+        {
+          "name": "ApiKeyResolver",
+          "return_type": null,
+          "parameters": [],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "resolveFromEnv",
+          "return_type": "String",
+          "parameters": [
+            [
+              "LLMProviderType",
+              "providerType"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "getEnvVarName",
+          "return_type": "String",
+          "parameters": [
+            [
+              "LLMProviderType",
+              "providerType"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "resolve",
+          "return_type": "String",
+          "parameters": [
+            [
+              "String",
+              "providedKey"
+            ],
+            [
+              "LLMProviderType",
+              "providerType"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "resolveByProviderId",
+          "return_type": "String",
+          "parameters": [
+            [
+              "String",
+              "providedKey"
+            ],
+            [
+              "String",
+              "providerId"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "isApiKeyRequired",
+          "return_type": null,
+          "parameters": [
+            [
+              "LLMProviderType",
+              "providerType"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "hasApiKeyInEnv",
+          "return_type": null,
+          "parameters": [
+            [
+              "LLMProviderType",
+              "providerType"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        }
+      ],
+      "fields": [],
+      "imports": [
+        "com.utagent.llm.LLMProviderType"
+      ],
+      "annotations": [],
+      "source": "package com.utagent.util;\n\nimport com.utagent.llm.LLMProviderType;\n\npublic final class ApiKeyResolver {\n\n    private ApiKeyResolver() {\n    }\n\n    public static String resolveFromEnv(LLMProviderType providerType) {\n        String envVarName = getEnvVarName(providerType);\n        if (envVarName == null) {\n            return null;\n        }\n        return System.getenv(envVarName);\n    }\n\n    public static String getEnvVarName(LLMProviderType providerType) {\n        return switch (providerType) {\n            case OPENAI -> \"OPENAI_API_KEY\";\n            case CLAUDE -> \"ANTHROPIC_API_KEY\";\n            case DEEPSEEK -> \"DEEPSEEK_API_KEY\";\n            case OLLAMA -> null;\n        };\n    }\n\n    public static String resolve(String providedKey, LLMProviderType providerType) {\n        if (providedKey != null) {\n            return providedKey;\n        }\n        return resolveFromEnv(providerType);\n    }\n\n    public static String resolveByProviderId(String providedKey, String providerId) {\n        if (providedKey != null) {\n            return providedKey;\n        }\n        if (providerId == null) {\n            return null;\n        }\n        LLMProviderType providerType = LLMProviderType.fromId(providerId.toLowerCase());\n        return resolveFromEnv(providerType);\n    }\n\n    public static boolean isApiKeyRequired(LLMProviderType providerType) {\n        return providerType != LLMProviderType.OLLAMA;\n    }\n\n    public static boolean hasApiKeyInEnv(LLMProviderType providerType) {\n        if (providerType == LLMProviderType.OLLAMA) {\n            return true;\n        }\n        String apiKey = resolveFromEnv(providerType);\n        return apiKey != null && !apiKey.isEmpty();\n    }\n}\n"
+    }
+  },
+  "metadata": {}
+}

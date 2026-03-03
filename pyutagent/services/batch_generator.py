@@ -20,12 +20,16 @@ class BatchConfig:
         continue_on_error: Whether to continue if a file fails
         coverage_target: Target coverage percentage
         max_iterations: Maximum iterations per file
+        defer_compilation: Whether to defer compilation until all files are generated
+        compile_only_at_end: If True, skip compilation/verification during generation
     """
     parallel_workers: int = 1
     timeout_per_file: int = 300
     continue_on_error: bool = True
     coverage_target: int = 80
     max_iterations: int = 10
+    defer_compilation: bool = False
+    compile_only_at_end: bool = False
 
 
 @dataclass
@@ -76,6 +80,16 @@ class BatchProgress:
 
 
 @dataclass
+class BatchCompilationResult:
+    """Result of batch compilation."""
+    success: bool
+    compiled_files: int = 0
+    failed_files: int = 0
+    errors: List[str] = field(default_factory=list)
+    duration: float = 0.0
+
+
+@dataclass
 class BatchResult:
     """Result of batch test generation.
     
@@ -86,6 +100,7 @@ class BatchResult:
         skipped_count: Number of skipped files
         results: List of individual file results
         total_duration: Total time taken in seconds
+        compilation_result: Optional compilation result if defer_compilation is True
     """
     total_files: int = 0
     success_count: int = 0
@@ -93,6 +108,7 @@ class BatchResult:
     skipped_count: int = 0
     results: List[FileResult] = field(default_factory=list)
     total_duration: float = 0.0
+    compilation_result: Optional[BatchCompilationResult] = None
     
     @property
     def success_rate(self) -> float:
@@ -139,8 +155,14 @@ class BatchGenerator:
         logger.info(
             f"[BatchGenerator] Initialized - Project: {project_path}, "
             f"ParallelWorkers: {self.config.parallel_workers}, "
-            f"Timeout: {self.config.timeout_per_file}s"
+            f"Timeout: {self.config.timeout_per_file}s, "
+            f"DeferCompilation: {self.config.defer_compilation}"
         )
+        
+        # Initialize build tool manager for compilation
+        from ..tools.build_tool_manager import BuildToolManager
+        self.build_tool_manager = BuildToolManager(project_path)
+        self.build_runner = self.build_tool_manager.get_runner()
     
     def stop(self):
         """Stop the batch generation."""
@@ -225,6 +247,26 @@ class BatchGenerator:
         failed_count = sum(1 for r in self._results if not r.success)
         
         logger.info(
+            f"[BatchGenerator] Batch generation complete - "
+            f"Success: {success_count}, Failed: {failed_count}, "
+            f"Duration: {total_duration:.1f}s"
+        )
+        
+        # Phase 2: Batch compilation if defer_compilation is enabled
+        compilation_result = None
+        if self.config.defer_compilation and success_count > 0:
+            logger.info("[BatchGenerator] Starting Phase 2: Batch compilation of all generated tests")
+            compilation_result = await self._compile_all_tests()
+            
+            # Update results based on compilation
+            if not compilation_result.success:
+                logger.warning(
+                    f"[BatchGenerator] Batch compilation failed - "
+                    f"Compiled: {compilation_result.compiled_files}, "
+                    f"Failed: {compilation_result.failed_files}"
+                )
+        
+        logger.info(
             f"[BatchGenerator] Batch complete - "
             f"Success: {success_count}, Failed: {failed_count}, "
             f"Duration: {total_duration:.1f}s"
@@ -236,7 +278,8 @@ class BatchGenerator:
             failed_count=failed_count,
             skipped_count=0,
             results=self._results,
-            total_duration=total_duration
+            total_duration=total_duration,
+            compilation_result=compilation_result
         )
     
     def generate_all_sync(self, files: List[str]) -> BatchResult:
@@ -299,6 +342,12 @@ class BatchGenerator:
             
             self._update_progress(file_name, "Generating tests...")
             
+            # In defer_compilation mode, we only generate code without verification
+            if self.config.defer_compilation:
+                logger.info(f"[BatchGenerator] Defer compilation mode - generating code only for {file_name}")
+                # Set a flag in working memory to skip compilation/verification
+                working_memory.skip_verification = True
+            
             try:
                 result = await asyncio.wait_for(
                     agent.generate_tests(file_path),
@@ -355,6 +404,60 @@ class BatchGenerator:
                 duration=duration
             )
     
+    async def _compile_all_tests(self) -> BatchCompilationResult:
+        """Compile all generated test files in batch.
+        
+        Returns:
+            BatchCompilationResult with compilation results
+        """
+        start_time = time.time()
+        logger.info(f"[BatchGenerator] Compiling all generated tests...")
+        
+        try:
+            # Use Maven to compile all test classes at once
+            if self.build_runner:
+                compile_success = await self.build_runner.compile_tests()
+                
+                elapsed = time.time() - start_time
+                
+                if compile_success:
+                    logger.info(f"[BatchGenerator] ✅ Batch compilation successful - Duration: {elapsed:.1f}s")
+                    return BatchCompilationResult(
+                        success=True,
+                        compiled_files=self._progress.completed_files,
+                        failed_files=0,
+                        errors=[],
+                        duration=elapsed
+                    )
+                else:
+                    logger.error(f"[BatchGenerator] ❌ Batch compilation failed - Duration: {elapsed:.1f}s")
+                    return BatchCompilationResult(
+                        success=False,
+                        compiled_files=0,
+                        failed_files=self._progress.completed_files,
+                        errors=["Batch compilation failed"],
+                        duration=elapsed
+                    )
+            else:
+                logger.error("[BatchGenerator] No build runner available")
+                return BatchCompilationResult(
+                    success=False,
+                    compiled_files=0,
+                    failed_files=0,
+                    errors=["No build runner available"],
+                    duration=time.time() - start_time
+                )
+                
+        except Exception as e:
+            logger.exception(f"[BatchGenerator] Batch compilation exception: {e}")
+            return BatchCompilationResult(
+                success=False,
+                compiled_files=0,
+                failed_files=0,
+                errors=[str(e)],
+                duration=time.time() - start_time
+            )
+    
     def _on_agent_progress(self, file_name: str, progress_info: Dict[str, Any]):
         """Handle agent progress updates.
         
@@ -364,6 +467,10 @@ class BatchGenerator:
         """
         state = progress_info.get("state", "")
         message = progress_info.get("message", "")
+        
+        # Skip compilation/verification steps if defer_compilation is enabled
+        if self.config.defer_compilation and state in ["COMPILING", "TESTING", "ANALYZING"]:
+            return
         
         status_map = {
             "PARSING": "Parsing...",
@@ -375,5 +482,5 @@ class BatchGenerator:
             "OPTIMIZING": "Optimizing...",
         }
         
-        status = status_map.get(state, state)
+        status = status_map.get(state, message)
         self._update_progress(file_name, f"{status} {message}")

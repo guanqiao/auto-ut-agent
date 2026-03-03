@@ -27,6 +27,10 @@ class TestPromptBuilder:
         assert "Mockito" in prompt
         assert "@Test" in prompt
         assert "@DisplayName" in prompt
+        # Verify English language requirement for comments
+        assert "English" in prompt
+        assert "in English" in prompt
+        assert "All comments, descriptions, and documentation MUST be in English" in prompt
 
     def test_build_initial_test_prompt(self, builder):
         """Test building initial test prompt."""

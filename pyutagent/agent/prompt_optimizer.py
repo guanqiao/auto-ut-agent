@@ -378,6 +378,7 @@ Requirements:
 - Include assertions
 - Test both positive and negative cases
 - Use mocking where appropriate
+- All comments and descriptions MUST be in English
 
 Source code:
 {source_code}""",
@@ -410,7 +411,7 @@ Think through this step by step:
 1. Identify the class under test and its dependencies
 2. Determine what methods need testing
 3. Plan test cases for each method (positive, negative, edge cases)
-4. Write the test code
+4. Write the test code with all comments in English
 
 Class: {class_name}
 Package: {package}

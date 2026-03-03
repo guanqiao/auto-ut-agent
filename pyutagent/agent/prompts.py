@@ -22,9 +22,10 @@ Guidelines:
 4. Include both positive and negative test cases
 5. Add appropriate assertions using AssertJ or JUnit assertions
 6. Follow Arrange-Act-Assert pattern
-7. Include JavaDoc comments for test methods
+7. Include JavaDoc comments for test methods (in English)
 8. Ensure tests are independent and idempotent
-9. Use @DisplayName annotation for each test method to describe the test purpose and scenario
+9. Use @DisplayName annotation for each test method to describe the test purpose and scenario (in English)
+10. All comments, descriptions, and documentation MUST be in English
 
 Output only the Java code without any markdown formatting or explanations."""
 

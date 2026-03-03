@@ -24,6 +24,8 @@ console = Console()
 @click.option('--timeout', type=int, default=300, help='Timeout per file in seconds')
 @click.option('--continue-on-error', is_flag=True, default=True, help='Continue on errors')
 @click.option('--stop-on-error', is_flag=True, help='Stop on first error')
+@click.option('--defer-compilation', is_flag=True, default=False, help='Defer compilation until all files are generated')
+@click.option('--compile-only-at-end', is_flag=True, default=False, help='Only compile once after all files are generated (implies --defer-compilation)')
 def generate_all_command(
     project_path: str,
     llm: str,
@@ -33,7 +35,9 @@ def generate_all_command(
     parallel: int,
     timeout: int,
     continue_on_error: bool,
-    stop_on_error: bool
+    stop_on_error: bool,
+    defer_compilation: bool,
+    compile_only_at_end: bool
 ):
     """Generate unit tests for all Java files in a Maven project.
     
@@ -68,6 +72,10 @@ def generate_all_command(
     if stop_on_error:
         continue_on_error = False
     
+    # compile_only_at_end implies defer_compilation
+    if compile_only_at_end:
+        defer_compilation = True
+    
     console.print(Panel(
         f"[bold blue]Batch Test Generation[/bold blue]\n\n"
         f"Project: {project_path.name}\n"
@@ -75,7 +83,9 @@ def generate_all_command(
         f"Parallel workers: {parallel if parallel > 0 else 'unlimited'}\n"
         f"Coverage target: {coverage_target}%\n"
         f"Timeout per file: {timeout}s\n"
-        f"Continue on error: {continue_on_error}",
+        f"Continue on error: {continue_on_error}\n"
+        f"Defer compilation: {defer_compilation}" + 
+        (f"\n[green]✓ Two-phase mode enabled (generate all → compile all)[/green]" if defer_compilation else ""),
         title="Configuration"
     ))
     
@@ -105,7 +115,9 @@ def generate_all_command(
             timeout_per_file=timeout,
             continue_on_error=continue_on_error,
             coverage_target=coverage_target,
-            max_iterations=max_iterations
+            max_iterations=max_iterations,
+            defer_compilation=defer_compilation,
+            compile_only_at_end=compile_only_at_end
         )
         
         file_paths = [str(f.relative_to(project_path)) for f in java_files]
@@ -172,6 +184,22 @@ def generate_all_command(
         summary_style = "green" if result.success_count == result.total_files else ("yellow" if result.success_count > 0 else "red")
         
         console.print()
+        
+        # Show compilation results if defer_compilation was enabled
+        if result.compilation_result:
+            compile_style = "green" if result.compilation_result.success else "red"
+            console.print(Panel(
+                f"[bold]Batch Compilation Results[/bold]\n\n"
+                f"Status: [{compile_style}]{'✓ Success' if result.compilation_result.success else '✗ Failed'}[/{compile_style}]\n"
+                f"Compiled files: {result.compilation_result.compiled_files}\n"
+                f"Failed files: {result.compilation_result.failed_files}\n"
+                f"Compilation time: {result.compilation_result.duration:.1f}s" +
+                (f"\n\n[red]Errors:[/red]\n" + "\n".join(result.compilation_result.errors[:5]) if result.compilation_result.errors else ""),
+                title="Phase 2: Compilation",
+                border_style=compile_style
+            ))
+            console.print()
+        
         console.print(Panel(
             f"[bold]Summary[/bold]\n\n"
             f"Total files: {result.total_files}\n"
@@ -190,6 +218,12 @@ def generate_all_command(
                     console.print(f"  [red]✗[/red] {file_result.file_path}")
                     if file_result.error:
                         console.print(f"    Error: {file_result.error}")
+        
+        # Show compilation errors if defer_compilation was enabled
+        if result.compilation_result and not result.compilation_result.success:
+            console.print("\n[red]Compilation errors:[/red]")
+            for error in result.compilation_result.errors[:10]:
+                console.print(f"  [red]✗[/red] {error}")
         
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")

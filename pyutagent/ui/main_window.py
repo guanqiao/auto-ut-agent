@@ -16,6 +16,7 @@ from PyQt6.QtGui import QAction
 from .chat_widget import ChatWidget
 from .dialogs.llm_config_dialog import LLMConfigDialog
 from .dialogs.aider_config_dialog import AiderConfigDialog
+from .dialogs.coverage_config_dialog import CoverageConfigDialog
 from .batch_generate_dialog import BatchGenerateDialog
 from ..core.config import (
     LLMConfig,
@@ -487,6 +488,10 @@ class MainWindow(QMainWindow):
         llm_config_action.triggered.connect(self.on_llm_config)
         settings_menu.addAction(llm_config_action)
 
+        coverage_config_action = QAction("&Test Generation Configuration...", self)
+        coverage_config_action.triggered.connect(self.on_coverage_config)
+        settings_menu.addAction(coverage_config_action)
+
         aider_config_action = QAction("&Aider Advanced Configuration...", self)
         aider_config_action.triggered.connect(self.on_aider_config)
         settings_menu.addAction(aider_config_action)
@@ -731,6 +736,26 @@ class MainWindow(QMainWindow):
                     logger.info("Aider config updated")
         except Exception as e:
             logger.exception("Failed to open Aider config dialog")
+
+    def on_coverage_config(self):
+        """Handle coverage config action."""
+        try:
+            dialog = CoverageConfigDialog(self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                settings = get_settings()
+                coverage = settings.coverage
+                self.status_bar.showMessage(
+                    f"测试生成配置已更新 - "
+                    f"编译尝试：{coverage.max_compilation_attempts}次，"
+                    f"测试尝试：{coverage.max_test_attempts}次"
+                )
+                logger.info(
+                    f"Coverage config updated - "
+                    f"max_compilation_attempts: {coverage.max_compilation_attempts}, "
+                    f"max_test_attempts: {coverage.max_test_attempts}"
+                )
+        except Exception as e:
+            logger.exception("Failed to open coverage config dialog")
 
     def on_scan_project(self):
         """Handle scan project action."""

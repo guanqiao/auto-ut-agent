@@ -634,7 +634,8 @@ Return only the test code without explanations."""
 Class: {java_class.name}
 Uncovered lines: {uncovered_lines}
 
-Focus on covering these specific lines. Return only the test methods."""
+Focus on covering these specific lines. Return only the test methods.
+All comments and descriptions MUST be in English."""
         
         client = self._get_llm_client()
         
@@ -673,7 +674,8 @@ Generate comprehensive tests covering:
 3. Null/empty inputs
 4. Exception handling
 
-Use Mockito for mocking and AssertJ for assertions."""
+Use Mockito for mocking and AssertJ for assertions.
+All comments and descriptions MUST be in English."""
     
     def _generate_basic_test_template(self, java_class) -> str:
         """Generate basic test template as fallback.
