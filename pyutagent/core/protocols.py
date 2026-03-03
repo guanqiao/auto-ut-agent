@@ -341,6 +341,16 @@ class AgentState(Enum):
     PAUSED = auto()
 
 
+class ComponentStatus(Enum):
+    """Status of a managed component in the integration system."""
+    UNINITIALIZED = auto()
+    INITIALIZING = auto()
+    READY = auto()
+    RUNNING = auto()
+    ERROR = auto()
+    STOPPED = auto()
+
+
 @dataclass
 class AgentResult(Generic[T]):
     """Result from agent execution."""

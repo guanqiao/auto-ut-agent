@@ -10,9 +10,19 @@ This module provides sandbox isolation for tool execution:
 import asyncio
 import logging
 import os
-import resource
-import signal
 import tempfile
+import platform
+
+# Unix-only modules
+try:
+    import resource
+except ImportError:
+    resource = None
+
+try:
+    import signal
+except ImportError:
+    signal = None
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path

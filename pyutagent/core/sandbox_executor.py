@@ -12,17 +12,26 @@ import asyncio
 import logging
 import os
 import re
-import resource
-import signal
 import subprocess
 import tempfile
 import threading
 import time
+
+# Unix-only modules
+try:
+    import resource
+except ImportError:
+    resource = None
+
+try:
+    import signal
+except ImportError:
+    signal = None
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Set, Callable
+from typing import Dict, List, Optional, Any, Set, Callable, Tuple
 
 from .code_interpreter import CodeInterpreter, ExecutionResult, ExecutionStatus, InterpreterConfig
 
