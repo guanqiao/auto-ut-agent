@@ -543,7 +543,7 @@ class UserInteractionHandler:
                 user_feedback,
                 record.timestamp.isoformat(),
                 record.session_id,
-                json.dumps(record.metadata)
+                json.dumps(record.metadata, default=str)
             )
         )
 

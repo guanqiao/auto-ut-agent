@@ -150,7 +150,7 @@ class PatternStorage:
                         "strategy": r.strategy.name,
                         "success": r.success,
                         "timestamp": r.timestamp,
-                        "context": r.context,
+                        "context": self._serialize_context(r.context),
                         "time_to_recover": r.time_to_recover,
                         "attempts_needed": r.attempts_needed
                     }
@@ -159,20 +159,67 @@ class PatternStorage:
                 for pid, records in self._strategy_history.items()
             }
         }
-        
+
         temp_path = self.persist_path.with_suffix('.tmp')
         try:
             with open(temp_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-            
+
             temp_path.replace(self.persist_path)
             logger.debug(f"[PatternStorage] Saved {len(self._patterns)} patterns")
-            
+
         except Exception as e:
             logger.exception(f"[PatternStorage] Failed to save: {e}")
             if temp_path.exists():
                 temp_path.unlink()
             raise
+
+    def _serialize_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Serialize context to JSON-compatible format.
+
+        Args:
+            context: The context dictionary to serialize
+
+        Returns:
+            JSON-serializable dictionary
+        """
+        serialized = {}
+        for key, value in context.items():
+            serialized[key] = self._serialize_value(value)
+        return serialized
+
+    def _serialize_value(self, value: Any) -> Any:
+        """Serialize a single value to JSON-compatible format.
+
+        Args:
+            value: The value to serialize
+
+        Returns:
+            JSON-serializable value
+        """
+        if value is None:
+            return None
+        elif isinstance(value, (str, int, float, bool)):
+            return value
+        elif isinstance(value, (list, tuple)):
+            return [self._serialize_value(item) for item in value]
+        elif isinstance(value, dict):
+            return {k: self._serialize_value(v) for k, v in value.items()}
+        elif hasattr(value, 'to_dict') and callable(getattr(value, 'to_dict')):
+            # Handle objects with to_dict method
+            return self._serialize_value(value.to_dict())
+        elif hasattr(value, '__dict__'):
+            # Handle dataclasses and regular objects
+            return self._serialize_value(value.__dict__)
+        elif hasattr(value, 'name') and hasattr(value, 'value'):
+            # Handle enum-like objects
+            return value.name
+        elif hasattr(value, 'name'):
+            # Handle objects with name attribute (like AgentState)
+            return value.name
+        else:
+            # Fallback: convert to string
+            return str(value)
     
     def _backup_corrupted(self):
         """Backup corrupted storage file."""

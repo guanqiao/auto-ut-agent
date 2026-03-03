@@ -109,8 +109,8 @@ class SQLiteVecStore:
                     meta.get("source", ""),
                     meta.get("method", ""),
                     datetime.now().isoformat(),
-                    json.dumps({k: v for k, v in meta.items() 
-                               if k not in ["source", "method"]})
+                    json.dumps({k: v for k, v in meta.items()
+                               if k not in ["source", "method"]}, default=str)
                 )
             )
         

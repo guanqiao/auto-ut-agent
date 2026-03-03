@@ -560,13 +560,13 @@ class ExperienceReplay:
                 ''')
             
             cursor.execute('''
-                INSERT INTO experiences 
+                INSERT INTO experiences
                 (experience_id, task_type, context, action, outcome, reward, agent_id, episode_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 experience_id,
                 task_type,
-                json.dumps(context),
+                json.dumps(context, default=str),
                 action,
                 outcome,
                 reward,

@@ -32,7 +32,7 @@ from .streaming import StreamingCodeGenerator, StreamingTestGenerator, Streaming
 from ..tools.smart_editor import SmartCodeEditor, EditType, EditResult
 
 # Import P1 PromptOptimizer
-from .prompt_optimizer import PromptOptimizer, ModelType, optimize_prompt
+from .prompt_optimizer import PromptOptimizer, ModelType, ModelCharacteristics, optimize_prompt
 
 # Import new enhancement modules - P1
 from ..core.error_learner import ErrorPatternLearner, create_error_learner
@@ -222,7 +222,8 @@ class ReActAgent(BaseAgent):
         # Record model type for optimization
         self.model_type = ModelType.UNKNOWN
         try:
-            self.model_type = self.prompt_optimizer.model_characteristics.detect_model_type(self.model_name)
+            model_characteristics = ModelCharacteristics()
+            self.model_type = model_characteristics.detect_model_type(self.model_name)
             logger.info(f"[ReActAgent] Detected model type: {self.model_type.value}")
         except Exception as e:
             logger.warning(f"[ReActAgent] Failed to detect model type: {e}")

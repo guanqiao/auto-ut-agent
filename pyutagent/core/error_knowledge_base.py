@@ -552,7 +552,7 @@ class ErrorKnowledgeBase:
                 error_context.category.value,
                 solution_id,
                 success,
-                json.dumps(context) if context else None
+                json.dumps(context, default=str) if context else None
             ))
             
             # Update solution stats

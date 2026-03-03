@@ -84,7 +84,7 @@ class ShortTermMemory:
                 role,
                 content,
                 datetime.now().isoformat(),
-                json.dumps(metadata) if metadata else None
+                json.dumps(metadata, default=str) if metadata else None
             )
         )
         self._conn.commit()
