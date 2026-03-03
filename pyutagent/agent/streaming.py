@@ -155,22 +155,43 @@ class StreamingCodeGenerator:
         self.reset()
         self._state = StreamingState.STREAMING
         self._start_time = time.time()
+        last_progress_time = self._start_time
         
         chunk_callback = on_chunk or self.config.chunk_callback
         completion_callback = on_complete or self.config.completion_callback
         progress_callback = on_progress or self.config.progress_callback
         
-        logger.info(f"[StreamingGenerator] Starting streaming generation - PromptLength: {len(prompt)}")
+        logger.info(f"[StreamingGenerator] 🚀 Starting streaming generation - PromptLength: {len(prompt)}")
+        logger.info("[StreamingGenerator] ⏳ 等待 LLM 流式响应中... (通常需要 10-60 秒)")
+        
+        # Report initial progress
+        if progress_callback:
+            try:
+                progress_callback(0.0)
+            except Exception as e:
+                logger.warning(f"[StreamingGenerator] Progress callback error: {e}")
         
         try:
-            async for chunk in self.llm_client.astream(prompt, system_prompt):
+            chunk_count = 0
+            first_chunk_time = None
+            
+            # Create a timeout wrapper for the stream
+            stream = self.llm_client.astream(prompt, system_prompt, timeout=self.config.timeout)
+            
+            async for chunk in stream:
                 if not self._interrupt_event.is_set():
-                    logger.info("[StreamingGenerator] Generation interrupted by user")
+                    logger.info("[StreamingGenerator] ⚠️ Generation interrupted by user")
                     self._state = StreamingState.INTERRUPTED
                     break
                 
+                # Track first chunk time for timeout detection
+                if first_chunk_time is None:
+                    first_chunk_time = time.time()
+                    logger.info("[StreamingGenerator] 📥 接收到第一个数据块")
+                
                 self._accumulated_code.append(chunk)
                 self._total_tokens += len(chunk.split())
+                chunk_count += 1
                 
                 if chunk_callback:
                     try:
@@ -184,6 +205,18 @@ class StreamingCodeGenerator:
                         progress_callback(progress)
                     except Exception as e:
                         logger.warning(f"[StreamingGenerator] Progress callback error: {e}")
+                
+                # Report progress every 5 seconds
+                current_time = time.time()
+                elapsed = current_time - self._start_time
+                if current_time - last_progress_time >= 5:
+                    logger.info(f"[StreamingGenerator] ⏳ 正在接收流式响应... 已接收 {chunk_count} 个数据块，耗时 {elapsed:.0f} 秒")
+                    last_progress_time = current_time
+            
+            # Check if we received any chunks
+            if chunk_count == 0:
+                elapsed = time.time() - self._start_time
+                logger.warning(f"[StreamingGenerator] ⚠️ No chunks received after {elapsed:.1f}s. LLM may have failed silently.")
             
             complete_code = ''.join(self._accumulated_code)
             elapsed = time.time() - self._start_time
@@ -213,12 +246,20 @@ class StreamingCodeGenerator:
                     except Exception as e:
                         logger.warning(f"[StreamingGenerator] Completion callback error: {e}")
             
-            logger.info(
-                f"[StreamingGenerator] Generation complete - "
-                f"State: {self._state.name}, "
-                f"Tokens: {self._total_tokens}, "
-                f"Time: {elapsed:.2f}s"
-            )
+            if self._state == StreamingState.COMPLETED:
+                logger.info(
+                    f"[StreamingGenerator] ✅ 流式生成完成 - "
+                    f"数据块: {chunk_count}, "
+                    f"Token数: {self._total_tokens}, "
+                    f"耗时: {elapsed:.2f}s"
+                )
+            else:
+                logger.info(
+                    f"[StreamingGenerator] Generation complete - "
+                    f"State: {self._state.name}, "
+                    f"Tokens: {self._total_tokens}, "
+                    f"Time: {elapsed:.2f}s"
+                )
             
             return self._result
             
@@ -271,7 +312,7 @@ class StreamingCodeGenerator:
         logger.info(f"[StreamingGenerator] Starting preview generation - PromptLength: {len(prompt)}")
         
         try:
-            async for chunk in self.llm_client.astream(prompt, system_prompt):
+            async for chunk in self.llm_client.astream(prompt, system_prompt, timeout=self.config.timeout):
                 if not self._interrupt_event.is_set():
                     self._state = StreamingState.INTERRUPTED
                     break

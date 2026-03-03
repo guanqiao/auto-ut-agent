@@ -1,6 +1,7 @@
 """ReAct Agent for UT generation with self-feedback loop and infinite retry."""
 
 import logging
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 import asyncio
@@ -515,6 +516,10 @@ class ReActAgent(BaseAgent):
         logger.info("[ReActAgent] Stopping agent execution")
         super().request_stop()
         self.retry_manager.stop()
+        # Cancel any ongoing LLM operation
+        if hasattr(self.llm_client, 'cancel'):
+            self.llm_client.cancel()
+            logger.info("[ReActAgent] LLM operation cancelled")
     
     def pause(self):
         """Pause agent execution.
@@ -524,6 +529,10 @@ class ReActAgent(BaseAgent):
         logger.info("[ReActAgent] Pausing agent execution")
         super().pause()
         self.retry_manager.stop()
+        # Cancel any ongoing LLM operation
+        if hasattr(self.llm_client, 'cancel'):
+            self.llm_client.cancel()
+            logger.info("[ReActAgent] LLM operation cancelled during pause")
     
     def resume(self):
         """Resume agent execution."""
@@ -1478,9 +1487,32 @@ class ReActAgent(BaseAgent):
                 message=f"Error parsing file: {str(e)}"
             )
     
+    def _llm_progress_callback(self, message: str):
+        """Callback for LLM progress updates."""
+        logger.info(f"[ReActAgent] {message}")
+        if self.progress_callback:
+            # Use the same format as other progress updates
+            self.progress_callback({
+                "state": AgentState.GENERATING.name,
+                "message": message,
+                "progress": {
+                    "iteration": f"{self.working_memory.current_iteration}/{self.working_memory.max_iterations}",
+                    "coverage": f"{self.working_memory.current_coverage:.1%}",
+                    "target": f"{self.working_memory.target_coverage:.1%}"
+                }
+            })
+    
     async def _generate_initial_tests(self, use_streaming: bool = True) -> StepResult:
         """Generate initial test cases with context management, streaming and quality evaluation."""
         logger.info("[ReActAgent] Generating initial tests with P0-P3 enhancements")
+        
+        # Direct UI update
+        self._update_state(AgentState.GENERATING, "🚀 正在准备生成测试代码...")
+        
+        # Set up progress callback for LLM
+        if hasattr(self.llm_client, 'set_progress_callback'):
+            self.llm_client.set_progress_callback(self._llm_progress_callback)
+            self.llm_client.reset_cancel()
         
         try:
             source_code = self.target_class_info.get("source", "")
@@ -1513,30 +1545,58 @@ class ReActAgent(BaseAgent):
             
             if use_streaming:
                 logger.info("[ReActAgent] Using streaming generation")
+                self._update_state(AgentState.GENERATING, "🚀 正在使用流式生成测试代码...")
+                
+                chunk_count = 0
+                total_chars = 0
+                last_update_time = time.time()
+                streaming_start_time = time.time()
                 
                 def on_chunk(chunk: str):
+                    nonlocal chunk_count, total_chars, last_update_time
+                    chunk_count += 1
+                    total_chars += len(chunk)
+                    
                     if self.progress_callback:
                         self.progress_callback({
                             "type": "streaming_chunk",
                             "chunk": chunk[:100] + "..." if len(chunk) > 100 else chunk
                         })
+                    
+                    current_time = time.time()
+                    if current_time - last_update_time >= 3:
+                        logger.info(f"[ReActAgent] 📥 已接收 {chunk_count} 个数据块，累计 {total_chars} 字符")
+                        last_update_time = current_time
                 
-                streaming_result = await self.streaming_generator.generate_with_streaming(
-                    prompt=prompt,
-                    on_chunk=on_chunk,
-                    on_progress=lambda p: logger.debug(f"[ReActAgent] Streaming progress: {p:.1%}")
-                )
+                try:
+                    # Add timeout for streaming (5 minutes)
+                    streaming_result = await asyncio.wait_for(
+                        self.streaming_generator.generate_with_streaming(
+                            prompt=prompt,
+                            on_chunk=on_chunk,
+                            on_progress=lambda p: logger.debug(f"[ReActAgent] Streaming progress: {p:.1%}")
+                        ),
+                        timeout=300.0  # 5 minutes
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("[ReActAgent] ⏰ Streaming generation timeout (5 minutes), falling back to normal generation")
+                    self._update_state(AgentState.GENERATING, "⏰ 流式生成超时，切换到普通模式...")
+                    streaming_result = None
                 
-                if streaming_result.success:
+                if streaming_result and streaming_result.success:
                     test_code = self._extract_java_code(streaming_result.complete_code)
+                    self._update_state(AgentState.GENERATING, f"✅ 流式生成完成 - {len(test_code)} 字符")
                     logger.info(f"[ReActAgent] Streaming generation complete - "
                                f"Tokens: {streaming_result.total_tokens}, "
                                f"Time: {streaming_result.total_time:.2f}s")
                 else:
-                    logger.warning(f"[ReActAgent] Streaming generation failed: {streaming_result.state}")
+                    if streaming_result:
+                        logger.warning(f"[ReActAgent] Streaming generation failed: {streaming_result.state}")
+                    self._update_state(AgentState.GENERATING, "⚠️ 切换到普通生成模式...")
                     response = await self.llm_client.agenerate(prompt)
                     test_code = self._extract_java_code(response)
             else:
+                self._update_state(AgentState.GENERATING, "🚀 正在调用 LLM 生成测试代码...")
                 response = await self.llm_client.agenerate(prompt)
                 test_code = self._extract_java_code(response)
             
@@ -1603,6 +1663,13 @@ class ReActAgent(BaseAgent):
                 message=f"Generated initial tests: {self.current_test_file}",
                 data={"test_file": self.current_test_file, "test_code": test_code}
             )
+        except asyncio.CancelledError:
+            logger.warning("[ReActAgent] ⚠️ Test generation was cancelled by user")
+            return StepResult(
+                success=False,
+                state=AgentState.PAUSED,
+                message="⏹️ 测试生成已被用户取消"
+            )
         except Exception as e:
             logger.exception(f"[ReActAgent] Failed to generate initial tests: {e}")
             return StepResult(
@@ -1610,6 +1677,10 @@ class ReActAgent(BaseAgent):
                 state=AgentState.FAILED,
                 message=f"Error generating tests: {str(e)}"
             )
+        finally:
+            # Clear progress callback
+            if hasattr(self.llm_client, 'set_progress_callback'):
+                self.llm_client.set_progress_callback(None)
     
     async def _compile_tests(self) -> StepResult:
         """Compile the generated tests asynchronously with validation."""

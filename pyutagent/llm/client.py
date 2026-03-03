@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import time
-from typing import AsyncIterator, Iterator, Optional
+from typing import AsyncIterator, Iterator, Optional, Callable
 
 from ..core.config import LLMConfig, LLMProvider
 
@@ -71,6 +71,11 @@ class LLMClient:
             "stream": [],
             "astream": [],
         }
+        
+        # Cancellation support
+        self._cancel_event = asyncio.Event()
+        self._cancel_event.set()  # Not cancelled by default
+        self._progress_callback: Optional[Callable[[str], None]] = None
         
         logger.info(f"[LLMClient] Initializing - Model: {model}, Provider: {provider}, Endpoint: {endpoint}")
         logger.debug(f"[LLMClient] Configuration - Timeout: {timeout}s, MaxRetries: {max_retries}, Temperature: {temperature}")
@@ -200,8 +205,14 @@ class LLMClient:
             
         Returns:
             Generated text
+            
+        Raises:
+            asyncio.CancelledError: If operation was cancelled
         """
         from langchain_core.messages import HumanMessage, SystemMessage
+        
+        # Check if cancelled before starting
+        await self._check_cancelled()
         
         client = self._get_client()
         
@@ -211,22 +222,52 @@ class LLMClient:
         messages.append(HumanMessage(content=prompt))
         
         prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
+        self._report_progress(f"🚀 正在调用 LLM - Model: {self.model}, Prompt长度: {len(prompt)} 字符")
+        self._report_progress("⏳ 等待 LLM 响应中... (通常需要 10-60 秒，请耐心等待)")
         logger.info(f"[LLM] 🚀 Starting async generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)} chars")
-        logger.info(f"[LLM] ⏳ Waiting for LLM response... (this may take 10-60 seconds)")
         logger.debug(f"[LLM] Prompt preview: {prompt_preview}")
         
         start_time = time.time()
+        last_progress_time = start_time
+        
         try:
-            response = await client.ainvoke(messages)
+            # Create a task for the LLM call
+            llm_task = asyncio.create_task(client.ainvoke(messages))
+            
+            # Wait for completion with periodic progress updates
+            while not llm_task.done():
+                # Check for cancellation
+                await self._check_cancelled()
+                
+                # Report progress every 5 seconds
+                current_time = time.time()
+                elapsed = current_time - start_time
+                if current_time - last_progress_time >= 5:
+                    self._report_progress(f"⏳ 仍在等待 LLM 响应... 已等待 {elapsed:.0f} 秒")
+                    last_progress_time = current_time
+                
+                # Short sleep to allow cancellation checking
+                try:
+                    await asyncio.wait_for(asyncio.shield(llm_task), timeout=0.5)
+                except asyncio.TimeoutError:
+                    continue
+            
+            # Get the result
+            response = llm_task.result()
             self._total_calls += 1
             self._total_tokens += len(prompt.split()) + len(response.content.split())
             elapsed = time.time() - start_time
             self._call_stats["agenerate"].append(elapsed)
+            self._report_progress(f"✅ LLM 响应完成 - 生成 {len(response.content)} 字符，耗时 {elapsed:.1f} 秒")
             logger.info(f"[LLM] ✅ Async generation complete - Model: {self.model}, Endpoint: {self.endpoint}, ResponseLength: {len(response.content)} chars, Elapsed: {elapsed:.2f}s")
             return response.content
+        except asyncio.CancelledError:
+            logger.warning("[LLM] ⚠️ Operation was cancelled")
+            raise
         except Exception as e:
             elapsed = time.time() - start_time
             self._call_stats["agenerate"].append(elapsed)
+            self._report_progress(f"❌ LLM 调用失败: {str(e)}")
             logger.exception(f"[LLM] ❌ Async generation failed - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
@@ -324,13 +365,15 @@ class LLMClient:
     async def astream(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        timeout: Optional[float] = None
     ) -> AsyncIterator[str]:
         """Stream text generation asynchronously.
         
         Args:
             prompt: User prompt
             system_prompt: Optional system prompt
+            timeout: Optional timeout in seconds (default: 10 minutes)
             
         Yields:
             Text chunks
@@ -344,19 +387,43 @@ class LLMClient:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
         
-        logger.info(f"[LLM] Starting async stream generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)}")
+        timeout = timeout or 600.0  # Default 10 minutes
+        logger.info(f"[LLM] Starting async stream generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)}, Timeout: {timeout}s")
         
         start_time = time.time()
+        last_progress_time = start_time
+        chunk_count = 0
+        
         try:
-            chunk_count = 0
-            async for chunk in client.astream(messages):
-                if chunk.content:
-                    chunk_count += 1
-                    yield chunk.content
+            # Wrap the stream with timeout
+            async with asyncio.timeout(timeout):
+                async for chunk in client.astream(messages):
+                    if chunk.content:
+                        chunk_count += 1
+                        yield chunk.content
+                    
+                    # Check for cancellation
+                    await self._check_cancelled()
+                    
+                    # Report progress every 5 seconds
+                    current_time = time.time()
+                    if current_time - last_progress_time >= 5:
+                        self._report_progress(f"⏳ LLM 流式响应中... 已接收 {chunk_count} 个数据块，已等待 {current_time - start_time:.0f} 秒")
+                        last_progress_time = current_time
+            
             self._total_calls += 1
             elapsed = time.time() - start_time
             self._call_stats["astream"].append(elapsed)
             logger.info(f"[LLM] Async stream generation complete - Model: {self.model}, Endpoint: {self.endpoint}, TotalChunks: {chunk_count}, Elapsed: {elapsed:.2f}s")
+        except asyncio.TimeoutError:
+            elapsed = time.time() - start_time
+            logger.error(f"[LLM] Async stream generation timed out after {elapsed:.1f}s - Model: {self.model}, Endpoint: {self.endpoint}")
+            self._report_progress(f"❌ LLM 流式生成超时 (已等待 {elapsed:.0f}秒)")
+            raise
+        except asyncio.CancelledError:
+            elapsed = time.time() - start_time
+            logger.warning(f"[LLM] Async stream generation cancelled by user - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s")
+            raise
         except Exception as e:
             elapsed = time.time() - start_time
             self._call_stats["astream"].append(elapsed)
@@ -474,3 +541,40 @@ class LLMClient:
         self._total_tokens = 0
         for op_name in self._call_stats:
             self._call_stats[op_name] = []
+    
+    def set_progress_callback(self, callback: Optional[Callable[[str], None]]):
+        """Set progress callback for long-running operations.
+        
+        Args:
+            callback: Function to call with progress messages
+        """
+        self._progress_callback = callback
+        logger.debug(f"[LLM] Progress callback {'set' if callback else 'cleared'}")
+    
+    def _report_progress(self, message: str):
+        """Report progress via callback."""
+        logger.info(f"[LLM] {message}")
+        if self._progress_callback:
+            try:
+                self._progress_callback(message)
+            except Exception as e:
+                logger.debug(f"[LLM] Progress callback error: {e}")
+    
+    def cancel(self):
+        """Cancel current operation."""
+        logger.warning("[LLM] Cancellation requested")
+        self._cancel_event.clear()
+    
+    def reset_cancel(self):
+        """Reset cancellation state."""
+        logger.debug("[LLM] Cancellation state reset")
+        self._cancel_event.set()
+    
+    def is_cancelled(self) -> bool:
+        """Check if operation has been cancelled."""
+        return not self._cancel_event.is_set()
+    
+    async def _check_cancelled(self):
+        """Check if cancelled and raise exception if so."""
+        if not self._cancel_event.is_set():
+            raise asyncio.CancelledError("LLM operation was cancelled by user")
