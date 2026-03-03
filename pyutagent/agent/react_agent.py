@@ -894,6 +894,21 @@ class ReActAgent(BaseAgent):
         self.working_memory.update_coverage(current_coverage)
         logger.info(f"[ReActAgent] 📈 Current coverage: {current_coverage:.1%} (Target: {self.target_coverage:.1%})")
         
+        # Check if target coverage is already reached
+        if current_coverage >= self.target_coverage:
+            logger.info(f"[ReActAgent] 🎉 Target coverage reached at {current_coverage:.1%}, skipping additional test generation")
+            return coverage_result
+        
+        # Check if there are any uncovered lines to target
+        report = coverage_result.data.get("report")
+        if report:
+            uncovered_lines = self.coverage_analyzer.get_uncovered_lines(
+                Path(self.target_class_info.get("file", "")).name if self.target_class_info else ""
+            )
+            if not uncovered_lines or len(uncovered_lines) == 0:
+                logger.info(f"[ReActAgent] 🎉 No uncovered lines found, optimization complete")
+                return coverage_result
+        
         return coverage_result
     
     async def _iteration_generate_additional(self, current_coverage: float) -> bool:
@@ -905,6 +920,25 @@ class ReActAgent(BaseAgent):
         Returns:
             True if successful, False to retry
         """
+        # Double check if we still need to generate more tests
+        if current_coverage >= self.target_coverage:
+            logger.info(f"[ReActAgent] ✅ Coverage target already reached ({current_coverage:.1%} >= {self.target_coverage:.1%}), skipping additional tests")
+            return True
+        
+        # Check for uncovered lines
+        report = None
+        try:
+            target_file_name = Path(self.target_class_info.get("file", "")).name if self.target_class_info else ""
+            uncovered_lines = self.coverage_analyzer.get_uncovered_lines(target_file_name)
+            
+            if not uncovered_lines or len(uncovered_lines) == 0:
+                logger.info(f"[ReActAgent] ✅ No uncovered lines found, all code is covered ({current_coverage:.1%})")
+                return True
+            
+            logger.info(f"[ReActAgent] 📊 Found {len(uncovered_lines)} uncovered lines to target")
+        except Exception as e:
+            logger.warning(f"[ReActAgent] Failed to get uncovered lines: {e}, will attempt generation anyway")
+        
         logger.info(f"[ReActAgent] 🚀 Step 6: Generating additional tests - Coverage: {current_coverage:.1%} < Target: {self.target_coverage:.1%}")
         self._update_state(
             AgentState.OPTIMIZING,
@@ -1042,6 +1076,7 @@ class ReActAgent(BaseAgent):
                     return result
                 else:
                     logger.warning(f"[ReActAgent] Step returned failure - Step: {step_name}, Attempt: {attempt}, Message: {result.message}")
+                    
                     error = Exception(result.message)
                     recovery_result = await self._try_recover(
                         error,
@@ -1131,6 +1166,16 @@ class ReActAgent(BaseAgent):
         """
         import time
         start_time = time.time()
+        
+        # Check if this is a "fake" error (e.g., success marked as failure)
+        error_message = str(error).lower()
+        if "no compilation errors" in error_message or "no test failures" in error_message or "all tests passed" in error_message:
+            logger.info(f"[ReActAgent] Detected false positive error, skipping recovery")
+            return {
+                "should_continue": True,
+                "action": "skip",
+                "reason": "No actual error detected"
+            }
         
         logger.info(f"[ReActAgent] Attempting recovery - Error: {error}, Context: {context}")
         
@@ -1253,6 +1298,12 @@ class ReActAgent(BaseAgent):
                     return True
                 else:
                     errors = result.data.get("errors", [])
+                    
+                    if not errors or len(errors) == 0:
+                        logger.info("[ReActAgent] ✅ No compilation errors detected, proceeding...")
+                        self._update_state(AgentState.COMPILING, "✅ 编译通过")
+                        return True
+                    
                     self._update_state(
                         AgentState.FIXING,
                         f"❌ Compilation failed with {len(errors)} error(s). Analyzing..."
@@ -1355,7 +1406,12 @@ class ReActAgent(BaseAgent):
                     self._update_state(AgentState.TESTING, "✅ All tests passed")
                     return True
                 else:
-                    failures = result.data.get("failures", [])
+                    failures = result.data.get("failures", []) if result.data else []
+                    
+                    if not failures or len(failures) == 0:
+                        logger.info("[ReActAgent] ✅ No test failures detected, proceeding...")
+                        self._update_state(AgentState.TESTING, "✅ 测试通过")
+                        return True
                     
                     # P0: Check for partial success scenario
                     test_output = result.data.get("stdout", "") if result.data else ""

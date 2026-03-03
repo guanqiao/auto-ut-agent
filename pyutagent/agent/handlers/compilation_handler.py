@@ -53,7 +53,7 @@ class CompilationHandler:
         test_file: str,
         attempt: int = 1
     ) -> StepResult:
-        """Compile the generated tests.
+        """Compile the generated tests using Maven (preferred) or javac as fallback.
         
         Args:
             test_file: Path to the test file relative to project
@@ -69,29 +69,45 @@ class CompilationHandler:
                 message="Compilation stopped by user"
             )
         
-        self._update_state(AgentState.COMPILING, f"Attempt {attempt}: Compiling tests...")
-        logger.info(f"[CompilationHandler] Starting compilation - Attempt: {attempt}, File: {test_file}")
+        self._update_state(AgentState.COMPILING, f"Attempt {attempt}: Compiling with Maven...")
+        logger.info(f"[CompilationHandler] Starting Maven compilation - Attempt: {attempt}, File: {test_file}")
         
         try:
-            classpath = await self._build_classpath()
-            result = await self._run_javac(test_file, classpath)
+            # Step 1: Try Maven to compile both production and test code
+            maven_success, maven_output = await self._compile_with_maven()
             
-            if result.returncode == 0:
-                logger.info("[CompilationHandler] Compilation successful")
+            if maven_success:
+                logger.info("[CompilationHandler] Maven compilation successful")
                 self._update_state(AgentState.COMPILING, "Compilation successful")
                 return StepResult(
                     success=True,
                     state=AgentState.COMPILING,
-                    message="Tests compiled successfully"
+                    message="Tests compiled successfully via Maven"
+                )
+            
+            # Step 2: If Maven fails, try javac as fallback
+            logger.warning(f"[CompilationHandler] Maven compilation failed, falling back to javac")
+            self._update_state(AgentState.COMPILING, "Maven failed, trying javac...")
+            
+            classpath = await self._build_classpath()
+            result = await self._run_javac(test_file, classpath)
+            
+            if result.returncode == 0:
+                logger.info("[CompilationHandler] Javac compilation successful")
+                self._update_state(AgentState.COMPILING, "Compilation successful (javac)")
+                return StepResult(
+                    success=True,
+                    state=AgentState.COMPILING,
+                    message="Tests compiled successfully via javac"
                 )
             else:
                 errors = self._extract_errors(result)
-                logger.warning(f"[CompilationHandler] Compilation failed - Errors: {len(errors)}")
+                logger.warning(f"[CompilationHandler] Javac compilation failed - Errors: {len(errors)}")
                 return StepResult(
                     success=False,
                     state=AgentState.FIXING,
                     message="Compilation failed",
-                    data={"errors": errors, "stdout": result.stdout}
+                    data={"errors": errors, "stdout": result.stdout, "maven_output": maven_output}
                 )
         except Exception as e:
             logger.exception(f"[CompilationHandler] Compilation exception: {e}")
@@ -100,6 +116,55 @@ class CompilationHandler:
                 state=AgentState.FAILED,
                 message=f"Error compiling tests: {str(e)}"
             )
+    
+    async def _compile_with_maven(self) -> tuple[bool, str]:
+        """Compile production and test code using Maven.
+        
+        Returns:
+            Tuple of (success, output)
+        """
+        logger.info("[CompilationHandler] Running Maven compile and test-compile")
+        
+        try:
+            # First compile production code, then test code
+            compile_success = await self._maven_runner.compile_project_async()
+            
+            if not compile_success:
+                logger.error("[CompilationHandler] Maven production code compilation failed")
+                return False, "Failed to compile production code"
+            
+            # Run test-compile to compile test classes
+            test_compile_success = await self._compile_test_classes_async()
+            
+            if test_compile_success:
+                logger.info("[CompilationHandler] Maven test compilation successful")
+                return True, "Compilation successful"
+            else:
+                logger.error("[CompilationHandler] Maven test compilation failed")
+                return False, "Failed to compile test code"
+                
+        except Exception as e:
+            logger.exception(f"[CompilationHandler] Maven compilation error: {e}")
+            return False, str(e)
+    
+    async def _compile_test_classes_async(self) -> bool:
+        """Run Maven test-compile goal to compile test classes.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "mvn", "test-compile", "-q",
+                cwd=str(self.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            return process.returncode == 0
+        except Exception as e:
+            logger.exception(f"[CompilationHandler] Error running test-compile: {e}")
+            return False
     
     async def _build_classpath(self) -> str:
         """Build the classpath for compilation.
