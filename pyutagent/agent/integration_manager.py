@@ -10,27 +10,21 @@ This module provides a centralized integration layer that:
 import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Type, Callable
+from typing import Dict, List, Optional, Any, Type, Callable, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum, auto
 
-from .enhanced_agent import EnhancedAgent, EnhancedAgentConfig
-from .multi_agent import AgentCoordinator, MessageBus, SharedKnowledgeBase, ExperienceReplay
+from ..core.protocols import ComponentStatus
 from ..core.metrics import MetricsCollector, get_metrics
 from ..core.container import Container, get_container
 
+from .enhanced_agent import EnhancedAgentConfig
+
+if TYPE_CHECKING:
+    from .enhanced_agent import EnhancedAgent
+    from .multi_agent import AgentCoordinator, MessageBus, SharedKnowledgeBase, ExperienceReplay
+
 logger = logging.getLogger(__name__)
-
-
-class ComponentStatus(Enum):
-    """Status of a managed component."""
-    UNINITIALIZED = auto()
-    INITIALIZING = auto()
-    READY = auto()
-    RUNNING = auto()
-    ERROR = auto()
-    STOPPED = auto()
 
 
 @dataclass
@@ -60,7 +54,7 @@ class IntegrationManager:
     def __init__(
         self,
         project_path: str,
-        config: Optional[EnhancedAgentConfig] = None,
+        config: Optional["EnhancedAgentConfig"] = None,
         container: Optional[Container] = None
     ):
         """Initialize integration manager.
@@ -136,18 +130,23 @@ class IntegrationManager:
             self._update_component_status(name, ComponentStatus.INITIALIZING)
             
             if name == "message_bus":
+                from .multi_agent import MessageBus
                 instance = MessageBus()
                 
             elif name == "shared_knowledge":
+                from .multi_agent import SharedKnowledgeBase
                 instance = SharedKnowledgeBase()
                 
             elif name == "experience_replay":
+                from .multi_agent import ExperienceReplay
                 instance = ExperienceReplay()
                 
             elif name == "metrics_collector":
                 instance = self.metrics
                 
             elif name == "agent_coordinator":
+                from .multi_agent import AgentCoordinator
+                
                 if not self.config.enable_multi_agent:
                     logger.info("[IntegrationManager] Multi-agent disabled, skipping coordinator")
                     return True
@@ -381,7 +380,7 @@ class IntegrationManager:
         llm_client: Any,
         working_memory: Any,
         progress_callback: Optional[Callable] = None
-    ) -> EnhancedAgent:
+    ) -> "EnhancedAgent":
         """Create an enhanced agent with all dependencies.
         
         Args:
@@ -392,6 +391,8 @@ class IntegrationManager:
         Returns:
             EnhancedAgent instance
         """
+        from .enhanced_agent import EnhancedAgent
+        
         agent = EnhancedAgent(
             llm_client=llm_client,
             working_memory=working_memory,
@@ -414,7 +415,7 @@ _integration_manager: Optional[IntegrationManager] = None
 
 def get_integration_manager(
     project_path: Optional[str] = None,
-    config: Optional[EnhancedAgentConfig] = None
+    config: Optional["EnhancedAgentConfig"] = None
 ) -> IntegrationManager:
     """Get or create the global integration manager.
     

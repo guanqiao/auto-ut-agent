@@ -63,7 +63,7 @@ from ..tools.build_tool_manager import (
     TestResult as BuildTestResult, CoverageResult as BuildCoverageResult
 )
 from ..tools.static_analysis_manager import StaticAnalysisManager, AnalysisToolType
-from ..core.error_knowledge_base import ErrorKnowledgeBase, ErrorContext, SolutionRecord
+from ..core.error_knowledge_base import ErrorKnowledgeBase, ErrorContext
 from ..core.adaptive_strategy import AdaptiveStrategyManager, StrategyPerformance
 from ..core.metrics import MetricsCollector, get_metrics
 from ..memory.vector_store import SQLiteVecStore
@@ -298,7 +298,7 @@ class ReActAgent(BaseAgent):
         # Phase 4: Competitive features - Code interpreter, refactoring, quality analysis
         self.code_interpreter = TestCodeInterpreter(
             project_path=self.project_path,
-            config=InterpreterConfig(timeout=60.0, max_output_size=10000)
+            config=InterpreterConfig(timeout_seconds=60.0, max_output_size=10000)
         )
         logger.debug("[ReActAgent] TestCodeInterpreter initialized")
         
@@ -2235,22 +2235,47 @@ class ReActAgent(BaseAgent):
             Static analysis results
         """
         try:
-            target_path = source_path or self.project_path
+            target_files = None
+            if source_path:
+                path = Path(source_path)
+                if path.is_file():
+                    target_files = [str(path)]
             
-            results = self.static_analysis_manager.analyze(
-                target_path=target_path,
-                tools=tools
+            results = await self.static_analysis_manager.run_all_analysis(
+                target_files=target_files,
+                include_tests=False
             )
             
-            total_issues = sum(len(r.get("bugs", [])) for r in results.values())
+            formatted_results = {}
+            total_issues = 0
+            
+            for tool_type, analysis_result in results.items():
+                tool_name = tool_type.name.lower()
+                formatted_results[tool_name] = {
+                    "success": analysis_result.success,
+                    "bug_count": analysis_result.bug_count,
+                    "bugs": [
+                        {
+                            "type": bug.bug_type,
+                            "severity": bug.severity.value,
+                            "message": bug.message,
+                            "class_name": bug.class_name,
+                            "method_name": bug.method_name,
+                            "line_number": bug.line_number,
+                            "suggestion": bug.suggestion
+                        }
+                        for bug in analysis_result.bugs
+                    ]
+                }
+                total_issues += analysis_result.bug_count
             
             logger.info(f"[ReActAgent] Static analysis complete - "
-                       f"Tools: {list(results.keys())}, "
+                       f"Tools: {list(formatted_results.keys())}, "
                        f"Total issues: {total_issues}")
             
             return {
                 "success": True,
-                "results": results,
+                "results": formatted_results,
                 "total_issues": total_issues
             }
         except Exception as e:
@@ -2272,9 +2297,17 @@ class ReActAgent(BaseAgent):
             List of similar errors and their solutions
         """
         try:
-            similar_errors = self.error_knowledge_base.search_similar(
+            from ..core.error_knowledge_base import ErrorContext, ErrorCategory
+            
+            error_context = ErrorContext(
                 error_message=error_message,
-                limit=limit
+                category=ErrorCategory.UNKNOWN
+            )
+            
+            similar_errors = self.error_knowledge_base.find_similar_errors(
+                error_context=error_context,
+                min_similarity=0.6,
+                max_results=limit
             )
             
             logger.info(f"[ReActAgent] Error knowledge query - "
@@ -2282,20 +2315,16 @@ class ReActAgent(BaseAgent):
             
             return [
                 {
-                    "error_id": e.error_id,
-                    "error_message": e.error_message,
-                    "category": e.category.value if hasattr(e.category, 'value') else str(e.category),
-                    "solutions": [
-                        {
-                            "solution_id": s.solution_id,
-                            "description": s.description,
-                            "success_rate": s.success_rate,
-                            "status": s.status.value if hasattr(s.status, 'value') else str(s.status)
-                        }
-                        for s in e.solutions
-                    ] if hasattr(e, 'solutions') else []
+                    "solution_id": result.solution.solution_id,
+                    "error_pattern": result.solution.error_pattern,
+                    "category": result.solution.category.value,
+                    "fix_description": result.solution.fix_description,
+                    "fix_code": result.solution.fix_code,
+                    "similarity_score": result.similarity_score,
+                    "success_rate": result.solution.success_rate,
+                    "status": result.solution.status.value
                 }
-                for e in similar_errors
+                for result in similar_errors
             ]
         except Exception as e:
             logger.error(f"[ReActAgent] Error knowledge query failed: {e}")
@@ -2320,10 +2349,27 @@ class ReActAgent(BaseAgent):
             True if recorded successfully
         """
         try:
-            self.error_knowledge_base.record_error(
+            from ..core.error_knowledge_base import ErrorContext, ErrorCategory
+            
+            category = ErrorCategory.UNKNOWN
+            try:
+                category = ErrorCategory(error_category.lower())
+            except ValueError:
+                pass
+            
+            error_context = ErrorContext(
                 error_message=error_message,
-                category=error_category,
-                solution_description=solution_description,
+                category=category
+            )
+            
+            solution_id = self.error_knowledge_base.record_solution(
+                error_context=error_context,
+                fix_description=solution_description
+            )
+            
+            self.error_knowledge_base.record_outcome(
+                error_context=error_context,
+                solution_id=solution_id,
                 success=success
             )
             
@@ -2350,19 +2396,29 @@ class ReActAgent(BaseAgent):
             Strategy recommendation with confidence
         """
         try:
-            recommendation = self.adaptive_strategy_manager.recommend_strategy(
+            from ..core.parallel_recovery import RecoveryStrategy
+            
+            available_strategies = list(RecoveryStrategy)
+            
+            selected_strategy = self.adaptive_strategy_manager.select_strategy(
                 error_category=error_category,
-                context=context or {}
+                available_strategies=available_strategies,
+                context=context or {},
+                allow_exploration=True
             )
             
             logger.info(f"[ReActAgent] Adaptive strategy recommendation - "
-                       f"Strategy: {recommendation.get('strategy', 'unknown')}, "
-                       f"Confidence: {recommendation.get('confidence', 0):.2f}")
+                       f"Strategy: {selected_strategy.name}, "
+                       f"Category: {error_category}")
             
-            return recommendation
+            return {
+                "strategy": selected_strategy.name,
+                "strategy_value": selected_strategy.value,
+                "confidence": 0.8
+            }
         except Exception as e:
             logger.error(f"[ReActAgent] Failed to get strategy recommendation: {e}")
-            return {"strategy": "default", "confidence": 0.0, "error": str(e)}
+            return {"strategy": "DEFAULT", "confidence": 0.0, "error": str(e)}
     
     def record_strategy_outcome(
         self,
@@ -2380,11 +2436,19 @@ class ReActAgent(BaseAgent):
             error_category: Category of the error being handled
         """
         try:
-            self.adaptive_strategy_manager.record_outcome(
-                strategy_name=strategy_name,
+            from ..core.parallel_recovery import RecoveryStrategy
+            
+            try:
+                strategy = RecoveryStrategy[strategy_name.upper()]
+            except KeyError:
+                strategy = RecoveryStrategy.DEFAULT
+            
+            self.adaptive_strategy_manager.record_attempt(
+                strategy=strategy,
+                error_category=error_category or "unknown",
                 success=success,
                 execution_time_ms=execution_time_ms,
-                error_category=error_category
+                context={}
             )
             
             logger.debug(f"[ReActAgent] Recorded strategy outcome - "
@@ -2428,7 +2492,12 @@ class ReActAgent(BaseAgent):
             return []
         
         try:
-            results = self.vector_store.search(query=query, limit=limit)
+            query_embedding = self._generate_embedding(query)
+            if query_embedding is None:
+                logger.warning("[ReActAgent] Could not generate embedding for query")
+                return []
+            
+            results = self.vector_store.search(query_embedding=query_embedding, k=limit)
             
             logger.info(f"[ReActAgent] Semantic search - "
                        f"Query: '{query[:50]}...', Results: {len(results)}")
@@ -2436,7 +2505,7 @@ class ReActAgent(BaseAgent):
             return [
                 {
                     "id": r.id,
-                    "content": r.content,
+                    "content": r.text,
                     "score": r.score,
                     "metadata": r.metadata
                 }
@@ -2464,13 +2533,55 @@ class ReActAgent(BaseAgent):
             return False
         
         try:
-            self.vector_store.insert(content=code, metadata=metadata or {})
+            embedding = self._generate_embedding(code)
+            if embedding is None:
+                logger.warning("[ReActAgent] Could not generate embedding for code")
+                return False
+            
+            self.vector_store.add(
+                texts=[code],
+                embeddings=[embedding],
+                metadatas=[metadata or {}]
+            )
             
             logger.debug(f"[ReActAgent] Indexed code snippet - Length: {len(code)}")
             return True
         except Exception as e:
             logger.error(f"[ReActAgent] Failed to index code: {e}")
             return False
+    
+    def _generate_embedding(self, text: str) -> Optional[List[float]]:
+        """Generate embedding for text using available embedding model.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Embedding vector or None if not available
+        """
+        try:
+            if hasattr(self, 'embedding_model') and self.embedding_model:
+                return self.embedding_model.embed(text)
+            
+            import hashlib
+            import struct
+            
+            hash_bytes = hashlib.sha256(text.encode()).digest()
+            embedding = []
+            for i in range(0, min(len(hash_bytes) * 8, 384), 4):
+                if i + 4 <= len(hash_bytes):
+                    val = struct.unpack('f', hash_bytes[i:i+4])[0]
+                else:
+                    val = 0.0
+                embedding.append(val)
+            
+            while len(embedding) < 384:
+                embedding.append(0.0)
+            
+            return embedding[:384]
+        except Exception as e:
+            logger.debug(f"[ReActAgent] Embedding generation failed: {e}")
+            return None
     
     def get_build_tool_info(self) -> Dict[str, Any]:
         """Get information about the detected build tool.

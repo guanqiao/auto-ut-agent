@@ -3,6 +3,7 @@
 from .base_agent import BaseAgent, StepResult
 from .react_agent import ReActAgent
 from .enhanced_agent import EnhancedAgent, EnhancedAgentConfig
+from .test_generator import TestGeneratorAgent
 from .integration_manager import (
     IntegrationManager,
     get_integration_manager,
@@ -52,18 +53,16 @@ from .services import (
 # P0 Components
 from .context_manager import (
     ContextManager,
-    CompressionStrategy,
-    SnippetExtractor
+    CompressionStrategy
 )
 from .generation_evaluator import (
     GenerationEvaluator,
     EvaluationResult,
-    EvaluationDimension
+    QualityDimension
 )
 from .partial_success_handler import (
     PartialSuccessHandler,
-    PartialTestResult,
-    TestFragment
+    PartialTestResult
 )
 
 # P1 Components
@@ -86,15 +85,11 @@ from .multi_agent import (
     AgentCapability,
     AgentRole,
     SpecializedAgent,
-    AgentTask,
-    TaskResult,
     MessageBus,
     AgentMessage,
     MessageType,
     SharedKnowledgeBase,
-    KnowledgeItem,
-    ExperienceReplay,
-    Experience
+    ExperienceReplay
 )
 
 __all__ = [
@@ -106,6 +101,7 @@ __all__ = [
     "ReActAgent",
     "EnhancedAgent",
     "EnhancedAgentConfig",
+    "TestGeneratorAgent",
     "IntegrationManager",
     "get_integration_manager",
     "reset_integration_manager",
@@ -147,13 +143,11 @@ __all__ = [
     # P0 Components
     "ContextManager",
     "CompressionStrategy",
-    "SnippetExtractor",
     "GenerationEvaluator",
     "EvaluationResult",
-    "EvaluationDimension",
+    "QualityDimension",
     "PartialSuccessHandler",
     "PartialTestResult",
-    "TestFragment",
     
     # P1 Components
     "PromptOptimizer",
@@ -172,13 +166,9 @@ __all__ = [
     "AgentCapability",
     "AgentRole",
     "SpecializedAgent",
-    "AgentTask",
-    "TaskResult",
     "MessageBus",
     "AgentMessage",
     "MessageType",
     "SharedKnowledgeBase",
-    "KnowledgeItem",
     "ExperienceReplay",
-    "Experience",
 ]

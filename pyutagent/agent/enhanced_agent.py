@@ -16,14 +16,13 @@ from datetime import datetime
 
 from .react_agent import ReActAgent
 from .multi_agent import (
-    AgentCoordinator, AgentCapability, AgentRole,
-    MessageBus, SharedKnowledgeBase, ExperienceReplay
+    AgentCoordinator, MessageBus, SharedKnowledgeBase, ExperienceReplay
 )
 from .prompt_optimizer import PromptOptimizer, ModelType
 from .context_manager import ContextManager, CompressionStrategy
 from .generation_evaluator import GenerationEvaluator
 from .partial_success_handler import PartialSuccessHandler
-from .user_interaction import UserInteractionHandler, create_repair_suggestion, UserChoice
+from .user_interaction import UserInteractionHandler, create_repair_suggestion
 from ..core.metrics import MetricsCollector, get_metrics
 from ..core.protocols import AgentState, AgentResult
 from ..core.error_predictor import ErrorPredictor, ErrorType
@@ -32,7 +31,7 @@ from ..core.sandbox_executor import SandboxExecutor, SecurityLevel
 from ..core.smart_analyzer import SmartCodeAnalyzer
 from ..memory.working_memory import WorkingMemory
 from ..llm.client import LLMClient
-from ..core.container import Container, get_container
+from ..core.container import Container
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +137,9 @@ class EnhancedAgent(ReActAgent):
         # Start metrics reporting
         if self.config.enable_metrics:
             asyncio.create_task(self._metrics_reporting_loop())
+        
+        # Initialize stop flag
+        self._stop_requested = False
         
         logger.info(f"[EnhancedAgent] Initialized with config: {self.config}")
     

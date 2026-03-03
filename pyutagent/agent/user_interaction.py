@@ -696,6 +696,38 @@ class UserInteractionHandler:
         return self._generate_id()
 
 
+class InteractiveFixer:
+    """交互式修复器"""
+
+    def __init__(self, user_interaction: UserInteractionHandler):
+        self.user_interaction = user_interaction
+
+    async def request_fix_confirmation(
+        self,
+        suggestion: RepairSuggestion,
+        context: Dict[str, Any]
+    ) -> Tuple[UserChoice, Optional[str]]:
+        """请求修复确认"""
+        return await self.user_interaction.request_repair_confirmation(
+            suggestion, context
+        )
+
+    async def request_strategy_selection(
+        self,
+        strategies: List[Dict[str, Any]],
+        context: Dict[str, Any]
+    ) -> Tuple[int, Optional[str]]:
+        """请求策略选择"""
+        return await self.user_interaction.request_strategy_selection(
+            strategies, context
+        )
+
+
+def create_user_interaction_handler(timeout: int = 300) -> UserInteractionHandler:
+    """创建用户交互处理器"""
+    return UserInteractionHandler()
+
+
 # 便捷函数
 def create_repair_suggestion(
     title: str,
