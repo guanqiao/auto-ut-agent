@@ -297,7 +297,6 @@ class ReActAgent(BaseAgent):
         
         # Phase 4: Competitive features - Code interpreter, refactoring, quality analysis
         self.code_interpreter = TestCodeInterpreter(
-            project_path=self.project_path,
             config=InterpreterConfig(timeout_seconds=60.0, max_output_size=10000)
         )
         logger.debug("[ReActAgent] TestCodeInterpreter initialized")
@@ -308,30 +307,160 @@ class ReActAgent(BaseAgent):
         self.test_quality_analyzer = TestQualityAnalyzer()
         logger.debug("[ReActAgent] TestQualityAnalyzer initialized")
         
-        # Additional enhancement modules - Static analysis, Error knowledge base, Adaptive strategy
-        self.static_analysis_manager = StaticAnalysisManager(project_path)
-        logger.debug("[ReActAgent] StaticAnalysisManager initialized")
+        # Lazy-initialized modules (initialized on first use)
+        self._static_analysis_manager: Optional[StaticAnalysisManager] = None
+        self._error_knowledge_base: Optional[ErrorKnowledgeBase] = None
+        self._adaptive_strategy_manager: Optional[AdaptiveStrategyManager] = None
+        self._vector_store: Optional[SQLiteVecStore] = None
         
-        self.error_knowledge_base = ErrorKnowledgeBase(db_path=str(Path(project_path) / ".utagent" / "error_knowledge.db"))
-        logger.debug("[ReActAgent] ErrorKnowledgeBase initialized")
-        
-        self.adaptive_strategy_manager = AdaptiveStrategyManager(db_path=str(Path(project_path) / ".utagent" / "adaptive_strategy.db"))
-        logger.debug("[ReActAgent] AdaptiveStrategyManager initialized")
-        
-        # Metrics collection
+        # Metrics collection (lightweight, initialize immediately)
         self.metrics_collector = get_metrics()
         logger.debug("[ReActAgent] MetricsCollector initialized")
         
-        # Vector store for RAG (optional, requires sqlite-vec)
-        try:
-            self.vector_store = SQLiteVecStore(
-                db_path=str(Path(project_path) / ".utagent" / "vectors.db"),
-                dimension=384
-            )
-            logger.debug("[ReActAgent] VectorStore initialized")
-        except Exception as e:
-            logger.warning(f"[ReActAgent] VectorStore initialization failed: {e}")
-            self.vector_store = None
+        # Cache for build tool info
+        self._build_tool_info_cache: Optional[Dict[str, Any]] = None
+        
+        # Cache for embeddings
+        self._embedding_cache: Dict[str, List[float]] = {}
+    
+    @property
+    def static_analysis_manager(self) -> StaticAnalysisManager:
+        """Lazy-initialized static analysis manager with graceful degradation."""
+        if self._static_analysis_manager is None:
+            try:
+                self._static_analysis_manager = StaticAnalysisManager(self.project_path)
+                logger.debug("[ReActAgent] StaticAnalysisManager lazy-initialized")
+            except Exception as e:
+                logger.warning(f"[ReActAgent] StaticAnalysisManager initialization failed: {e}, using no-op fallback")
+                self._static_analysis_manager = self._create_noop_static_analysis_manager()
+        return self._static_analysis_manager
+    
+    def _create_noop_static_analysis_manager(self) -> Any:
+        """Create a no-op static analysis manager as fallback."""
+        class NoOpStaticAnalysisManager:
+            async def run_all_analysis(self, target_files=None, include_tests=False):
+                from dataclasses import dataclass, field
+                from typing import List
+                from enum import Enum
+                
+                class AnalysisToolType(Enum):
+                    SPOTBUGS = "spotbugs"
+                    PMD = "pmd"
+                    CHECKSTYLE = "checkstyle"
+                
+                @dataclass
+                class BugInfo:
+                    bug_type: str = ""
+                    severity: str = "LOW"
+                    message: str = ""
+                    class_name: str = ""
+                    method_name: str = ""
+                    line_number: int = 0
+                    suggestion: str = ""
+                
+                @dataclass
+                class AnalysisResult:
+                    tool_type: AnalysisToolType = AnalysisToolType.SPOTBUGS
+                    success: bool = False
+                    bug_count: int = 0
+                    bugs: List[BugInfo] = field(default_factory=list)
+                
+                return {AnalysisToolType.SPOTBUGS: AnalysisResult()}
+        return NoOpStaticAnalysisManager()
+    
+    @property
+    def error_knowledge_base(self) -> ErrorKnowledgeBase:
+        """Lazy-initialized error knowledge base with graceful degradation."""
+        if self._error_knowledge_base is None:
+            try:
+                db_path = str(Path(self.project_path) / ".utagent" / "error_knowledge.db")
+                self._error_knowledge_base = ErrorKnowledgeBase(db_path=db_path)
+                logger.debug("[ReActAgent] ErrorKnowledgeBase lazy-initialized")
+            except Exception as e:
+                logger.warning(f"[ReActAgent] ErrorKnowledgeBase initialization failed: {e}, using in-memory fallback")
+                self._error_knowledge_base = self._create_in_memory_error_knowledge_base()
+        return self._error_knowledge_base
+    
+    def _create_in_memory_error_knowledge_base(self) -> Any:
+        """Create an in-memory error knowledge base as fallback."""
+        from dataclasses import dataclass, field
+        from typing import List, Optional
+        from enum import Enum
+        
+        class ErrorCategory(Enum):
+            COMPILATION = "compilation"
+            RUNTIME = "runtime"
+            ASSERTION = "assertion"
+            TIMEOUT = "timeout"
+            UNKNOWN = "unknown"
+        
+        @dataclass
+        class ErrorContext:
+            error_message: str
+            category: ErrorCategory = ErrorCategory.UNKNOWN
+            stack_trace: Optional[str] = None
+            test_class: Optional[str] = None
+            test_method: Optional[str] = None
+        
+        @dataclass
+        class SearchResult:
+            solution: Any
+            similarity_score: float = 0.0
+        
+        class InMemoryErrorKnowledgeBase:
+            def __init__(self):
+                self._solutions: List[Any] = []
+            
+            def find_similar_errors(self, error_context: ErrorContext, min_similarity: float = 0.6, max_results: int = 5) -> List[SearchResult]:
+                return []
+            
+            def record_solution(self, error_context: ErrorContext, fix_description: str, fix_code: Optional[str] = None, metadata: Optional[dict] = None) -> str:
+                return "in-memory-solution-id"
+            
+            def record_outcome(self, error_context: ErrorContext, solution_id: str, success: bool, metadata: Optional[dict] = None) -> None:
+                pass
+        
+        return InMemoryErrorKnowledgeBase()
+    
+    @property
+    def adaptive_strategy_manager(self) -> AdaptiveStrategyManager:
+        """Lazy-initialized adaptive strategy manager with graceful degradation."""
+        if self._adaptive_strategy_manager is None:
+            try:
+                db_path = str(Path(self.project_path) / ".utagent" / "adaptive_strategy.db")
+                self._adaptive_strategy_manager = AdaptiveStrategyManager(db_path=db_path)
+                logger.debug("[ReActAgent] AdaptiveStrategyManager lazy-initialized")
+            except Exception as e:
+                logger.warning(f"[ReActAgent] AdaptiveStrategyManager initialization failed: {e}, using default fallback")
+                self._adaptive_strategy_manager = self._create_default_adaptive_strategy_manager()
+        return self._adaptive_strategy_manager
+    
+    def _create_default_adaptive_strategy_manager(self) -> Any:
+        """Create a default adaptive strategy manager as fallback."""
+        class DefaultAdaptiveStrategyManager:
+            def select_strategy(self, error_category: str, available_strategies: List, context: dict, allow_exploration: bool = True):
+                if available_strategies:
+                    return available_strategies[0]
+                from ..core.parallel_recovery import RecoveryStrategy
+                return RecoveryStrategy.DEFAULT
+            
+            def record_attempt(self, strategy, error_category: str, success: bool, execution_time_ms: float, context: dict):
+                pass
+        
+        return DefaultAdaptiveStrategyManager()
+    
+    @property
+    def vector_store(self) -> Optional[SQLiteVecStore]:
+        """Lazy-initialized vector store (optional, may return None if unavailable)."""
+        if self._vector_store is None:
+            try:
+                db_path = str(Path(self.project_path) / ".utagent" / "vectors.db")
+                self._vector_store = SQLiteVecStore(db_path=db_path, dimension=384)
+                logger.debug("[ReActAgent] VectorStore lazy-initialized")
+            except Exception as e:
+                logger.warning(f"[ReActAgent] VectorStore initialization failed: {e}")
+                self._vector_store = None
+        return self._vector_store
     
     def _init_aider_fixer(self):
         """Initialize AiderCodeFixer for enhanced error fixing."""
@@ -2553,17 +2682,26 @@ class ReActAgent(BaseAgent):
     def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """Generate embedding for text using available embedding model.
         
+        Uses caching to avoid recomputing embeddings for the same text.
+        
         Args:
             text: Text to embed
             
         Returns:
             Embedding vector or None if not available
         """
+        import hashlib
+        
+        cache_key = hashlib.md5(text.encode()).hexdigest()
+        if cache_key in self._embedding_cache:
+            return self._embedding_cache[cache_key]
+        
         try:
             if hasattr(self, 'embedding_model') and self.embedding_model:
-                return self.embedding_model.embed(text)
+                embedding = self.embedding_model.embed(text)
+                self._embedding_cache[cache_key] = embedding
+                return embedding
             
-            import hashlib
             import struct
             
             hash_bytes = hashlib.sha256(text.encode()).digest()
@@ -2578,7 +2716,9 @@ class ReActAgent(BaseAgent):
             while len(embedding) < 384:
                 embedding.append(0.0)
             
-            return embedding[:384]
+            embedding = embedding[:384]
+            self._embedding_cache[cache_key] = embedding
+            return embedding
         except Exception as e:
             logger.debug(f"[ReActAgent] Embedding generation failed: {e}")
             return None
@@ -2586,16 +2726,22 @@ class ReActAgent(BaseAgent):
     def get_build_tool_info(self) -> Dict[str, Any]:
         """Get information about the detected build tool.
         
+        Results are cached for performance.
+        
         Returns:
             Build tool information
         """
-        return {
+        if self._build_tool_info_cache is not None:
+            return self._build_tool_info_cache
+        
+        self._build_tool_info_cache = {
             "tool_type": self.build_tool_info.tool_type.name,
             "version": self.build_tool_info.version,
             "config_file": str(self.build_tool_info.config_file) if self.build_tool_info.config_file else None,
             "wrapper_available": self.build_tool_info.wrapper_available,
             "executable_path": self.build_tool_info.executable_path
         }
+        return self._build_tool_info_cache
     
     async def run_tests_with_build_tool(
         self,
