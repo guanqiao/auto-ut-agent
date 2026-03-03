@@ -233,6 +233,14 @@ class ModelCharacteristics:
             "few_shot_optimal": True,
             "chain_of_thought_optimal": False,
         },
+        ModelType.UNKNOWN: {
+            "max_tokens": 4096,
+            "optimal_temperature": 0.5,
+            "supports_structured_output": False,
+            "prefers_detailed_instructions": False,
+            "few_shot_optimal": False,
+            "chain_of_thought_optimal": False,
+        },
     }
     
     @classmethod
@@ -245,11 +253,7 @@ class ModelCharacteristics:
         """Detect model type from model name."""
         model_lower = model_name.lower()
         
-        for model_type in ModelType:
-            if model_type.value in model_lower:
-                return model_type
-        
-        # Special cases
+        # Special cases - check these first for exact matches
         if "claude-3-opus" in model_lower:
             return ModelType.CLAUDE_3_OPUS
         if "claude-3-sonnet" in model_lower:
@@ -258,6 +262,19 @@ class ModelCharacteristics:
             return ModelType.CLAUDE_3_HAIKU
         if "deepseek" in model_lower:
             return ModelType.DEEPSEEK
+        if "ollama" in model_lower:
+            return ModelType.OLLAMA
+        
+        # Check for exact or most specific matches first
+        # Order matters: check longer/more specific patterns before shorter ones
+        if "gpt-4o-mini" in model_lower:
+            return ModelType.GPT_4O_MINI
+        if "gpt-4o" in model_lower:
+            return ModelType.GPT_4O
+        if "gpt-4" in model_lower:
+            return ModelType.GPT_4
+        if "gpt-3.5-turbo" in model_lower:
+            return ModelType.GPT_35_TURBO
         
         return ModelType.UNKNOWN
 

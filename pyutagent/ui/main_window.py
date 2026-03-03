@@ -81,7 +81,8 @@ class AgentWorker(QThread):
                 llm_client=self.llm_client,
                 working_memory=working_memory,
                 project_path=self.project_path,
-                progress_callback=self._on_progress
+                progress_callback=self._on_progress,
+                model_name=self.llm_client.model
             )
 
             try:

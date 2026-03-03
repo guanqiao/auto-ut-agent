@@ -1620,10 +1620,10 @@ class ReActAgent(BaseAgent):
                            f"Line: {eval_result.coverage_estimate.line_coverage_potential:.1%}, "
                            f"Method: {eval_result.coverage_estimate.method_coverage_potential:.1%}")
             
-            prediction_result = self.error_predictor.analyze(test_code, code_type="test")
-            if prediction_result.predictions:
+            prediction_result = self.error_predictor.predict_compilation_errors(test_code)
+            if prediction_result.predicted_errors:
                 logger.info(f"[ReActAgent] Error prediction - "
-                           f"Predictions: {len(prediction_result.predictions)}, "
+                           f"Predictions: {len(prediction_result.predicted_errors)}, "
                            f"Risk: {prediction_result.overall_risk_score:.2f}")
                 
                 if prediction_result.overall_risk_score > 0.7:

@@ -1,5 +1,6 @@
 """Test generation service for UT generation."""
 
+import asyncio
 import re
 import logging
 from pathlib import Path
@@ -50,10 +51,17 @@ class TestGenerationService:
     def stop(self):
         """Stop generation."""
         self._stop_requested = True
+        # Also cancel any ongoing LLM operation
+        if hasattr(self.llm_client, 'cancel'):
+            self.llm_client.cancel()
+            logger.info("[TestGenerationService] Stop requested - LLM operation cancelled")
     
     def reset(self):
         """Reset service state."""
         self._stop_requested = False
+        # Reset cancellation state
+        if hasattr(self.llm_client, 'reset_cancel'):
+            self.llm_client.reset_cancel()
     
     def _update_state(self, state: AgentState, message: str):
         """Update state via callback."""
@@ -132,6 +140,10 @@ class TestGenerationService:
                 message=f"❌ Error parsing file: {str(e)}"
             )
     
+    def _llm_progress_callback(self, message: str):
+        """Callback for LLM progress updates."""
+        self._update_state(AgentState.GENERATING, message)
+    
     async def generate_initial_tests(
         self,
         class_info: Dict[str, Any]
@@ -154,8 +166,7 @@ class TestGenerationService:
         class_name = class_info.get('name', 'Unknown')
         method_count = len(class_info.get('methods', []))
         logger.info(f"[TestGenerationService] ✨ Generating initial tests for {class_name} ({method_count} methods)")
-        logger.info(f"[TestGenerationService] 🤖 Calling LLM to generate tests...")
-        self._update_state(AgentState.GENERATING, f"✨ Generating initial tests for {class_name}...")
+        self._update_state(AgentState.GENERATING, f"✨ 正在为 {class_name} 生成初始测试代码...")
         
         try:
             prompt = self.prompt_builder.build_initial_test_prompt(
@@ -165,7 +176,18 @@ class TestGenerationService:
             
             logger.debug(f"[TestGenerationService] Initial test prompt - Length: {len(prompt)}")
             
-            response = await self.llm_client.generate(prompt)
+            # Set up progress callback for LLM
+            if hasattr(self.llm_client, 'set_progress_callback'):
+                self.llm_client.set_progress_callback(self._llm_progress_callback)
+                self.llm_client.reset_cancel()
+            
+            try:
+                response = await self.llm_client.generate(prompt)
+            finally:
+                # Clear progress callback
+                if hasattr(self.llm_client, 'set_progress_callback'):
+                    self.llm_client.set_progress_callback(None)
+            
             test_code = self._extract_java_code(response)
             
             logger.debug(f"[TestGenerationService] Extracted test code - Length: {len(test_code)}")
@@ -193,6 +215,13 @@ class TestGenerationService:
                 state=AgentState.GENERATING,
                 message=f"✅ Generated initial tests: {relative_path}",
                 data={"test_file": relative_path, "test_code": test_code}
+            )
+        except asyncio.CancelledError:
+            logger.warning("[TestGenerationService] ⚠️ Generation was cancelled by user")
+            return StepResult(
+                success=False,
+                state=AgentState.PAUSED,
+                message="⏹️ 测试生成已被用户取消"
             )
         except Exception as e:
             logger.exception(f"[TestGenerationService] ❌ Failed to generate initial tests: {e}")

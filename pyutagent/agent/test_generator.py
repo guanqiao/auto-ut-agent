@@ -568,6 +568,10 @@ class TestGeneratorAgent:
                 "error": str(e),
             }
     
+    def _llm_progress_callback(self, message: str):
+        """Callback for LLM progress updates."""
+        self._log(message)
+    
     async def _generate_test_code(self, java_class) -> str:
         """Generate test code for a Java class.
         
@@ -583,6 +587,11 @@ class TestGeneratorAgent:
         # Generate using LLM
         client = self._get_llm_client()
         
+        # Set up progress callback
+        if hasattr(client, 'set_progress_callback'):
+            client.set_progress_callback(self._llm_progress_callback)
+            client.reset_cancel()
+        
         system_prompt = """You are a Java unit test expert. Generate JUnit 5 tests following best practices:
 - Use @Test annotation
 - Use meaningful test method names
@@ -595,10 +604,17 @@ Return only the test code without explanations."""
         try:
             response = await client.agenerate(prompt, system_prompt)
             return response
+        except asyncio.CancelledError:
+            self._log("⏹️ 测试生成已被取消")
+            raise
         except Exception as e:
             self._log(f"LLM generation failed: {e}")
             # Return basic test template as fallback
             return self._generate_basic_test_template(java_class)
+        finally:
+            # Clear progress callback
+            if hasattr(client, 'set_progress_callback'):
+                client.set_progress_callback(None)
     
     async def _generate_additional_tests(
         self,
