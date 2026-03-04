@@ -50,6 +50,10 @@ class AgentCore:
         self._pause_event = asyncio.Event()
         self._pause_event.set()
         
+        # Delegate these properties to working_memory
+        self.max_iterations = working_memory.max_iterations
+        self.target_coverage = working_memory.target_coverage
+        
         self.current_test_file: Optional[str] = None
         self.target_class_info: Optional[Dict[str, Any]] = None
         self._stop_requested = False
