@@ -22,7 +22,7 @@ class WorkingMemory:
     
     # Iteration tracking
     iteration_count: int = 0
-    max_iterations: int = 10
+    max_iterations: int = 3
     target_coverage: float = 0.8
     
     # Coverage tracking

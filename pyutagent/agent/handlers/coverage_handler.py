@@ -7,19 +7,28 @@ from typing import Dict, List, Optional, Callable, Any, Set
 from ...core.protocols import AgentState
 from ..base_agent import StepResult
 from ...tools.maven_tools import MavenRunner, CoverageAnalyzer as MavenCoverageAnalyzer
+from ..llm_coverage_evaluator import LLMCoverageEvaluator, LLMCoverageReport, CoverageSource
 
 logger = logging.getLogger(__name__)
 
 
 class CoverageHandler:
-    """Handles test coverage analysis and reporting."""
+    """Handles test coverage analysis and reporting.
+    
+    Supports both JaCoCo (precise) and LLM-based (estimated) coverage analysis.
+    Falls back to LLM estimation when JaCoCo is not available.
+    """
     
     def __init__(
         self,
         project_path: str,
         maven_runner: Optional[MavenRunner] = None,
         coverage_analyzer: Optional[MavenCoverageAnalyzer] = None,
-        progress_callback: Optional[Callable[[AgentState, str], None]] = None
+        progress_callback: Optional[Callable[[AgentState, str], None]] = None,
+        llm_client: Optional[Any] = None,
+        source_code: Optional[str] = None,
+        test_code: Optional[str] = None,
+        class_info: Optional[Dict[str, Any]] = None
     ):
         """Initialize coverage handler.
         
@@ -28,12 +37,25 @@ class CoverageHandler:
             maven_runner: Optional MavenRunner instance
             coverage_analyzer: Optional CoverageAnalyzer instance
             progress_callback: Optional callback for progress updates
+            llm_client: Optional LLM client for fallback coverage estimation
+            source_code: Optional source code for LLM estimation
+            test_code: Optional test code for LLM estimation
+            class_info: Optional class info for LLM estimation
         """
         self.project_path = Path(project_path)
         self.maven_runner = maven_runner or MavenRunner(project_path)
         self.coverage_analyzer = coverage_analyzer or MavenCoverageAnalyzer(project_path)
         self.progress_callback = progress_callback
         self._stop_requested = False
+        
+        self.llm_client = llm_client
+        self.source_code = source_code
+        self.test_code = test_code
+        self.class_info = class_info
+        
+        self._llm_evaluator: Optional[LLMCoverageEvaluator] = None
+        if llm_client:
+            self._llm_evaluator = LLMCoverageEvaluator(llm_client)
     
     def stop(self):
         """Stop coverage analysis."""
@@ -51,6 +73,9 @@ class CoverageHandler:
     async def analyze_coverage(self) -> StepResult:
         """Analyze test coverage.
         
+        First attempts to use JaCoCo for precise coverage.
+        Falls back to LLM estimation if JaCoCo is not available.
+        
         Returns:
             StepResult with coverage analysis outcome
         """
@@ -64,14 +89,14 @@ class CoverageHandler:
         logger.info("[CoverageHandler] Starting coverage analysis")
         
         try:
-            logger.debug("[CoverageHandler] Generating coverage report")
+            logger.debug("[CoverageHandler] Attempting JaCoCo coverage report")
             self.maven_runner.generate_coverage()
             
             report = self.coverage_analyzer.parse_report()
             
             if report:
                 logger.info(
-                    f"[CoverageHandler] Coverage analysis complete - "
+                    f"[CoverageHandler] JaCoCo coverage analysis complete - "
                     f"Line: {report.line_coverage:.1%}, "
                     f"Branch: {report.branch_coverage:.1%}, "
                     f"Method: {report.method_coverage:.1%}"
@@ -84,23 +109,131 @@ class CoverageHandler:
                         "line_coverage": report.line_coverage,
                         "branch_coverage": report.branch_coverage,
                         "method_coverage": report.method_coverage,
-                        "report": report
+                        "report": report,
+                        "source": CoverageSource.JACOCO.value
                     }
                 )
             else:
-                logger.warning("[CoverageHandler] Failed to parse coverage report")
-                return StepResult(
-                    success=False,
-                    state=AgentState.FAILED,
-                    message="Failed to parse coverage report"
-                )
+                logger.warning("[CoverageHandler] JaCoCo report not available, trying LLM estimation")
+                return await self._fallback_to_llm_estimation()
+                
         except Exception as e:
-            logger.exception(f"[CoverageHandler] Coverage analysis exception: {e}")
+            logger.warning(f"[CoverageHandler] JaCoCo analysis failed: {e}, trying LLM estimation")
+            return await self._fallback_to_llm_estimation()
+    
+    async def _fallback_to_llm_estimation(self) -> StepResult:
+        """Fall back to LLM-based coverage estimation.
+        
+        Returns:
+            StepResult with estimated coverage
+        """
+        if not self._llm_evaluator:
+            if self.llm_client:
+                self._llm_evaluator = LLMCoverageEvaluator(self.llm_client)
+        
+        if not self._llm_evaluator or not self.source_code or not self.test_code:
+            logger.warning("[CoverageHandler] LLM estimation not available, using quick heuristic")
+            return self._quick_estimate_fallback()
+        
+        try:
+            logger.info("[CoverageHandler] Using LLM for coverage estimation")
+            self._update_state(AgentState.ANALYZING, "📊 使用 LLM 估算覆盖率...")
+            
+            llm_report = await self._llm_evaluator.evaluate_coverage(
+                self.source_code,
+                self.test_code,
+                self.class_info
+            )
+            
+            logger.info(
+                f"[CoverageHandler] LLM coverage estimation complete - "
+                f"Line: {llm_report.line_coverage:.1%}, "
+                f"Branch: {llm_report.branch_coverage:.1%}, "
+                f"Method: {llm_report.method_coverage:.1%}, "
+                f"Confidence: {llm_report.confidence:.1%}"
+            )
+            
+            return StepResult(
+                success=True,
+                state=AgentState.ANALYZING,
+                message=f"Coverage (LLM estimated): {llm_report.line_coverage:.1%}",
+                data={
+                    "line_coverage": llm_report.line_coverage,
+                    "branch_coverage": llm_report.branch_coverage,
+                    "method_coverage": llm_report.method_coverage,
+                    "report": llm_report,
+                    "source": CoverageSource.LLM_ESTIMATED.value,
+                    "confidence": llm_report.confidence,
+                    "uncovered_methods": llm_report.uncovered_methods,
+                    "recommendations": llm_report.recommendations
+                }
+            )
+        except Exception as e:
+            logger.exception(f"[CoverageHandler] LLM estimation failed: {e}")
+            return self._quick_estimate_fallback()
+    
+    def _quick_estimate_fallback(self) -> StepResult:
+        """Quick heuristic-based fallback when LLM is not available.
+        
+        Returns:
+            StepResult with heuristic coverage estimate
+        """
+        logger.info("[CoverageHandler] Using quick heuristic for coverage estimation")
+        
+        if not self.source_code or not self.test_code:
             return StepResult(
                 success=False,
                 state=AgentState.FAILED,
-                message=f"Error analyzing coverage: {str(e)}"
+                message="Coverage analysis failed: No JaCoCo report and insufficient data for estimation"
             )
+        
+        if self._llm_evaluator:
+            llm_report = self._llm_evaluator.quick_estimate(
+                self.source_code,
+                self.test_code,
+                self.class_info
+            )
+        else:
+            evaluator = LLMCoverageEvaluator(None)
+            llm_report = evaluator.quick_estimate(
+                self.source_code,
+                self.test_code,
+                self.class_info
+            )
+        
+        return StepResult(
+            success=True,
+            state=AgentState.ANALYZING,
+            message=f"Coverage (estimated): {llm_report.line_coverage:.1%}",
+            data={
+                "line_coverage": llm_report.line_coverage,
+                "branch_coverage": llm_report.branch_coverage,
+                "method_coverage": llm_report.method_coverage,
+                "report": llm_report,
+                "source": CoverageSource.LLM_ESTIMATED.value,
+                "confidence": llm_report.confidence
+            }
+        )
+    
+    def set_context(
+        self,
+        source_code: Optional[str] = None,
+        test_code: Optional[str] = None,
+        class_info: Optional[Dict[str, Any]] = None
+    ):
+        """Set context for LLM-based coverage estimation.
+        
+        Args:
+            source_code: Source code being tested
+            test_code: Test code
+            class_info: Class information from parsing
+        """
+        if source_code:
+            self.source_code = source_code
+        if test_code:
+            self.test_code = test_code
+        if class_info:
+            self.class_info = class_info
     
     def get_uncovered_info(self, report: Any) -> Dict[str, Any]:
         """Get information about uncovered code.

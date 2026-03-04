@@ -16,7 +16,7 @@ class TestWorkingMemory:
         assert mem.current_file is None
         assert mem.current_method is None
         assert mem.iteration_count == 0
-        assert mem.max_iterations == 10
+        assert mem.max_iterations == 3
         assert mem.target_coverage == 0.8
         assert mem.current_coverage == 0.0
         assert mem.is_paused is False
