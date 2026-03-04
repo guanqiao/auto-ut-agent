@@ -181,5 +181,5 @@ class AgentCore:
         Returns:
             Extracted Java code
         """
-        from pyutagent.agent.utils.code_extractor import CodeExtractor
+        from pyutagent.utils.code_extractor import CodeExtractor
         return CodeExtractor.extract_java_code(response)
