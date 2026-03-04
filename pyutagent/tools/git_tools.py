@@ -159,15 +159,18 @@ class GitStatusTool(Tool):
                     x, y = line[0], line[1]
                     filename = line[3:]
                     
-                    if x in "MADRC" or y in "MADRC":
-                        if x != " " and x != "?":
+                    # Untracked files: ??
+                    if x == "?" and y == "?":
+                        status_info["untracked"].append(filename)
+                    else:
+                        # Staged changes (index status in X)
+                        if x in "MADRC":
                             status_info["staged"].append(filename)
+                        # Working tree changes (working tree status in Y)
                         if y == "M":
                             status_info["modified"].append(filename)
                         elif y == "D":
                             status_info["deleted"].append(filename)
-                        elif y == "?":
-                            status_info["untracked"].append(filename)
             else:
                 # Porcelain format: XY filename
                 if len(line) >= 3:
@@ -836,3 +839,21 @@ class GitLogTool(Tool):
                 commits.append({"raw": line})
 
         return commits
+
+
+def get_all_git_tools(base_path: Optional[str] = None) -> List[Tool]:
+    """Get all Git tools.
+    
+    Args:
+        base_path: Base path for git repository
+        
+    Returns:
+        List of Git tool instances
+    """
+    return [
+        GitStatusTool(base_path),
+        GitDiffTool(base_path),
+        GitCommitTool(base_path),
+        GitBranchTool(base_path),
+        GitLogTool(base_path)
+    ]
