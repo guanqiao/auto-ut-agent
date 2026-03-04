@@ -1,692 +1,342 @@
-# PyUT Agent 架构文档
+# PyUTAgent 核心架构文档
 
-本文档详细描述 PyUT Agent 的系统架构，包括核心组件、数据流、模块关系和扩展点。
+## 概述
 
-## 目录
+PyUTAgent 是一个智能单元测试生成代理系统，采用模块化、组件化架构设计。
 
-- [架构概览](#架构概览)
-- [核心层 (P0)](#核心层-p0)
-- [增强层 (P1)](#增强层-p1)
-- [协作层 (P2)](#协作层-p2)
-- [高级层 (P3)](#高级层-p3)
-- [数据流](#数据流)
-- [扩展指南](#扩展指南)
-
----
-
-## 架构概览
-
-PyUT Agent 采用分层架构设计，从核心到高级分为四个层次：
+## 架构层次
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        应用层 (UI)                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ MainWindow  │  │ChatWidget   │  │ StreamingMessageWidget  │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      协作层 (P2)                                 │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │              IntegrationManager                          │    │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │    │
-│  │  │ AgentCoordinator │ │ MessageBus  │  │ SharedKnowledge │  │    │
-│  │  └─────────────┘  └─────────────┘  └─────────────────┘  │    │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │    │
-│  │  │SpecializedAgent│ │ExperienceReplay│ │ MetricsCollector │  │    │
-│  │  └─────────────┘  └─────────────┘  └─────────────────┘  │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      增强层 (P1)                                 │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │PromptOptimizer│ │ErrorKnowledge │ │   BuildToolManager      │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │StaticAnalysis │ │ContextCompressor│ │   ProjectAnalyzer    │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │MCPIntegration│ │               │  │                        │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      核心层 (P0)                                 │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                    EnhancedAgent                         │    │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │    │
-│  │  │  ReActAgent  │  │ContextManager │ │GenerationEvaluator│ │    │
-│  │  └─────────────┘  └─────────────┘  └─────────────────┘  │    │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │    │
-│  │  │PartialSuccess │ │StreamingTest │ │  SmartCodeEditor │  │    │
-│  │  │   Handler    │  │  Generator   │  │                 │  │    │
-│  │  └─────────────┘  └─────────────┘  └─────────────────┘  │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      基础设施层                                  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────┐  │
-│  │ LLMClient   │  │ WorkingMemory│ │ VectorStore │  │ Container│  │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └────────┘  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────┐  │
-│  │JavaParser   │  │ MavenTools   │  │  ErrorRecovery │ │ RetryManager│  │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│         UI Layer (Optional)         │
+│      main_window.py, dialogs/       │
+└─────────────────────────────────────┘
+                  ↓
+┌─────────────────────────────────────┐
+│         Agent Layer                 │
+│  react_agent.py, incremental_fixer  │
+└─────────────────────────────────────┘
+                  ↓
+┌─────────────────────────────────────┐
+│         Core Layer                  │
+│  event_bus, state_store, metrics    │
+└─────────────────────────────────────┘
+                  ↓
+┌─────────────────────────────────────┐
+│         LLM Layer                   │
+│  client.py, prompt_cache.py         │
+└─────────────────────────────────────┘
 ```
 
----
+## 核心模块
 
-## 核心层 (P0)
+### 1. 事件总线 (Event Bus)
 
-核心层提供 Agent 的基础能力，对标 Cursor/Devin 的核心功能。
+**文件**: `pyutagent/core/event_bus.py`
 
-### 1. ReAct Agent
+**功能**:
+- 发布/订阅模式
+- 同步和异步事件处理
+- 组件解耦
 
-**文件**: `pyutagent/agent/react_agent.py`
-
-**职责**:
-- 实现 ReAct (Reasoning + Acting) 循环
-- 管理 Agent 状态机
-- 协调工具调用
-- 处理错误恢复
-
-**关键方法**:
+**使用示例**:
 ```python
-async def generate_tests(self, target_file: str) -> AgentResult
-async def _generate_initial_tests(self, use_streaming: bool = True) -> StepResult
-async def _compile_with_recovery(self) -> bool
-async def _run_tests_with_recovery(self) -> bool
-async def _try_recover(self, error: Exception, context: Dict) -> Dict
+bus = EventBus()
+bus.subscribe('event', handler)
+bus.publish('event', data)
 ```
 
-### 2. Context Manager
+### 2. 状态存储 (State Store)
 
-**文件**: `pyutagent/agent/context_manager.py`
+**文件**: `pyutagent/core/state_store.py`
 
-**职责**:
-- 处理大文件的上下文压缩
-- 提取关键代码片段
-- 生成分层摘要
+**功能**:
+- Redux 风格的状态管理
+- Action 模式更新状态
+- 状态历史追踪
 
-**核心类**:
+**核心概念**:
+- `AgentState`: 状态数据
+- `Action`: 状态变更
+- `LifecycleState`: 生命周期状态
+
+### 3. 消息总线 (Message Bus)
+
+**文件**: `pyutagent/core/message_bus.py`
+
+**功能**:
+- 消息队列
+- 优先级处理
+- 发布/订阅
+
+### 4. 组件注册表 (Component Registry)
+
+**文件**: `pyutagent/core/component_registry.py`
+
+**功能**:
+- 组件注册和发现
+- 依赖管理
+- 生命周期管理
+
+**使用示例**:
 ```python
-class ContextManager:
-    def compress_context(self, context: str) -> str
-    def extract_key_snippets(self, code: str, query: str) -> List[CodeSnippet]
-    def generate_summary(self, code: str, level: int = 1) -> str
+@component('my_component')
+class MyComponent(SimpleComponent):
+    pass
+
+registry.register('my_component', MyComponent)
 ```
 
-### 3. Generation Evaluator
-
-**文件**: `pyutagent/agent/generation_evaluator.py`
-
-**职责**:
-- 预编译代码质量评估
-- 6维度评分系统
-- 提供改进建议
-
-**评估维度**:
-1. 语法正确性 (Syntax Correctness)
-2. 语义完整性 (Semantic Completeness)
-3. 测试覆盖率 (Test Coverage)
-4. 代码风格 (Code Style)
-5. 最佳实践 (Best Practices)
-6. 可维护性 (Maintainability)
-
-### 4. Partial Success Handler
-
-**文件**: `pyutagent/agent/partial_success_handler.py`
-
-**职责**:
-- 处理部分成功的测试
-- 增量修复失败的测试方法
-- 管理测试片段
-
-### 5. Streaming Test Generator
-
-**文件**: `pyutagent/agent/streaming.py`
-
-**职责**:
-- 流式代码生成
-- 实时预览
-- 支持用户中断
-
-### 6. Smart Code Editor
-
-**文件**: `pyutagent/tools/smart_editor.py`
-
-**职责**:
-- Search/Replace 精确编辑
-- Unified diff 格式支持
-- 模糊匹配和增量修复
-
----
-
-## 增强层 (P1)
-
-增强层提供对标顶级 Agent 的高级功能。
-
-### 1. Prompt Optimizer
-
-**文件**: `pyutagent/agent/prompt_optimizer.py`
-
-**职责**:
-- 模型特定的提示词优化
-- A/B 测试框架
-- Few-shot 示例选择
-
-**支持的模型**:
-- GPT-4 / GPT-4o
-- Claude 3 (Opus/Sonnet/Haiku)
-- DeepSeek
-- Ollama 本地模型
-
-### 2. Error Knowledge Base
-
-**文件**: `pyutagent/core/error_knowledge_base.py`
-
-**职责**:
-- 错误模式持久化存储 (SQLite)
-- 相似度匹配
-- 解决方案推荐
-
-### 3. Build Tool Manager
-
-**文件**: `pyutagent/tools/build_tool_manager.py`
-
-**职责**:
-- 自动检测构建工具
-- 支持 Maven / Gradle / Bazel
-- 统一命令接口
-
-### 4. Static Analysis Manager
-
-**文件**: `pyutagent/tools/static_analysis_manager.py`
-
-**职责**:
-- SpotBugs 集成
-- PMD 集成
-- 静态分析报告解析
-
-### 5. MCP Integration
-
-**文件**: `pyutagent/tools/mcp_integration.py`
-
-**职责**:
-- Model Context Protocol 客户端
-- 工具适配器
-- 外部工具扩展
-
-### 6. Context Compressor
-
-**文件**: `pyutagent/memory/context_compressor.py`
-
-**职责**:
-- 相关性评分
-- 智能上下文压缩
-- 大项目支持
-
-### 7. Project Analyzer
-
-**文件**: `pyutagent/tools/project_analyzer.py`
-
-**职责**:
-- 项目结构分析
-- 依赖关系分析
-- 多文件协调
-
----
-
-## 协作层 (P2)
-
-协作层实现多智能体协作系统。
-
-### 1. Integration Manager
-
-**文件**: `pyutagent/agent/integration_manager.py`
-
-**职责**:
-- 组件生命周期管理
-- 依赖解析
-- 健康监控
-- 事件路由
-
-**初始化顺序**:
-1. MessageBus
-2. SharedKnowledgeBase
-3. ExperienceReplay
-4. MetricsCollector
-5. AgentCoordinator
-6. EnhancedAgent
-
-### 2. Agent Coordinator
-
-**文件**: `pyutagent/agent/multi_agent/agent_coordinator.py`
-
-**职责**:
-- 智能体注册和管理
-- 任务分配策略
-- 任务调度
-- 结果聚合
-
-**任务分配策略**:
-- Round Robin (轮询)
-- Capability Match (能力匹配)
-- Load Balanced (负载均衡)
-- Priority Based (优先级)
-
-### 3. Specialized Agent
-
-**文件**: `pyutagent/agent/multi_agent/specialized_agent.py`
-
-**职责**:
-- 专业化智能体基类
-- 能力系统
-- 任务执行框架
-- 心跳机制
-
-**智能体类型**:
-- TestDesignerAgent (测试设计)
-- TestImplementerAgent (测试实现)
-- TestReviewerAgent (测试审查)
-- ErrorFixerAgent (错误修复)
-
-### 4. Message Bus
-
-**文件**: `pyutagent/agent/multi_agent/message_bus.py`
-
-**职责**:
-- 异步消息总线
-- 点对点通信
-- 广播消息
-- 消息订阅
-
-### 5. Shared Knowledge Base
-
-**文件**: `pyutagent/agent/multi_agent/shared_knowledge.py`
-
-**职责**:
-- 知识持久化
-- 标签系统
-- 相似度搜索
-- 使用统计
-
-### 6. Experience Replay
-
-**文件**: `pyutagent/agent/multi_agent/shared_knowledge.py`
-
-**职责**:
-- 经验存储
-- 采样学习
-- 成功/失败记录
-
-### 7. Metrics Collector
+### 5. 指标收集 (Metrics)
 
 **文件**: `pyutagent/core/metrics.py`
 
-**职责**:
-- 操作计时
-- LLM 调用统计
-- 错误追踪
-- 报告生成
+**功能**:
+- 计数器、仪表盘、直方图
+- 性能追踪
+- 全局指标收集
 
----
+**指标类型**:
+- `COUNTER`: 累加值
+- `GAUGE`: 瞬时值
+- `HISTOGRAM`: 分布统计
 
-## 高级层 (P3)
+### 6. 错误处理 (Error Handling)
 
-高级层提供企业级能力（全部实现）。
+**文件**: `pyutagent/core/error_handling.py`
 
-### 1. Error Predictor
+**功能**:
+- 统一错误类型
+- 错误传播链
+- 恢复策略
 
-**文件**: `pyutagent/core/error_predictor.py`
+**错误分类**:
+- `TEST_FAILURE`: 测试失败
+- `COMPILE_ERROR`: 编译错误
+- `TIMEOUT`: 超时
+- `LLM_ERROR`: LLM 错误
 
-**职责**:
-- 编译前错误预测
-- 12种错误类型分类
-- 4级严重度评估
-- 测试失败预测
+### 7. Action 系统 (Actions)
 
-**核心类**:
-```python
-class ErrorPredictor:
-    def predict_compilation_errors(self, code: str, file_path: Optional[str] = None) -> PredictionResult
-    def predict_test_failures(self, test_code: str, test_info: Dict[str, Any]) -> PredictionResult
-    def suggest_fix(self, predicted_error: PredictedError, code: str) -> Optional[Dict[str, Any]]
-```
+**文件**: `pyutagent/core/actions.py`
 
-### 2. Adaptive Strategy Manager
+**功能**:
+- `BatchAction`: 批量操作
+- `TransactionalAction`: 事务操作
+- `ConditionalAction`: 条件操作
+- `ActionSequence`: 操作序列
 
-**文件**: `pyutagent/core/adaptive_strategy.py`
+## LLM 模块
 
-**职责**:
-- 动态策略选择
-- 上下文感知
-- 探索vs利用（ε-贪婪算法）
-- 策略效果跟踪
+### 1. LLM 客户端
 
-**核心类**:
-```python
-class AdaptiveStrategyManager:
-    def select_strategy(self, error_category: ErrorCategory, available_strategies: List[RecoveryStrategy], context: Dict[str, Any]) -> StrategySelection
-    def record_outcome(self, strategy_name: str, error_category: ErrorCategory, success: bool, execution_time: float, context: Dict[str, Any])
-```
+**文件**: `pyutagent/llm/client.py`
 
-### 3. Sandbox Executor
+**功能**:
+- 统一的 LLM 接口
+- 异步调用
+- 错误处理
 
-**文件**: `pyutagent/core/sandbox_executor.py`
+### 2. Prompt 缓存
 
-**职责**:
-- 沙箱代码执行
-- 3级安全控制（严格/中等/宽松）
-- 文件系统隔离
-- 网络限制
-- 资源限制（CPU、内存、磁盘）
+**文件**: `pyutagent/llm/prompt_cache.py`
 
-**核心类**:
-```python
-class SandboxExecutor:
-    async def execute_sandboxed(self, code: str, class_name: str, method_name: Optional[str] = None, args: List[Any] = None) -> ExecutionResult
-    def _analyze_security(self, code: str) -> SecurityReport
-```
+**功能**:
+- LRU 缓存
+- TTL 过期
+- 缓存统计
 
-### 4. User Interaction Handler
+### 3. 多级缓存
 
-**文件**: `pyutagent/agent/user_interaction.py`
+**文件**: `pyutagent/llm/multi_level_cache.py`
 
-**职责**:
-- 修复建议展示
-- 交互式确认
-- 策略选择
-- 用户偏好学习
+**功能**:
+- L1 内存缓存
+- L2 磁盘缓存
+- 压缩支持
+- 缓存预热
 
-**核心类**:
-```python
-class UserInteractionHandler:
-    def display_suggestion(self, suggestion: RepairSuggestion, config: DisplayConfig = None) -> str
-    async def request_confirmation(self, suggestion: RepairSuggestion, context: Dict[str, Any], auto_decide: bool = False) -> Tuple[UserChoice, Optional[str]]
-```
+**性能提升**: 5-10 倍
 
-### 5. Smart Code Analyzer
+## Agent 模块
 
-**文件**: `pyutagent/core/smart_analyzer.py`
+### 1. 增量修复器 (Incremental Fixer)
 
-**职责**:
-- AST分析
-- 语义分析
-- 依赖关系图
-- 影响分析
-- 智能代码搜索
+**文件**: `pyutagent/agent/incremental_fixer.py`
 
-**核心类**:
-```python
-class SmartCodeAnalyzer:
-    async def analyze_project(self, project_path: str) -> Dict[str, Any]
-    def search_code(self, query: str, top_k: int = 10) -> List[CodeSearchResult]
-    def analyze_change_impact(self, entity_id: str) -> ImpactAnalysisResult
-```
+**功能**:
+- 测试失败聚类
+- 批量修复
+- 减少 LLM 调用
 
----
+**优化效果**: 减少 60-80% LLM 调用
+
+### 2. 智能聚类 (Smart Clusterer)
+
+**文件**: `pyutagent/agent/smart_clusterer.py`
+
+**功能**:
+- 词向量语义分析
+- 余弦相似度计算
+- 自动根因提取
+
+**算法**:
+1. 失败文本分词
+2. 词向量嵌入
+3. 余弦相似度计算
+4. 基于阈值聚类
 
 ## 数据流
 
-### 测试生成流程
+### 典型工作流程
 
 ```
-用户输入
-    │
-    ▼
-┌─────────────────┐
-│  EnhancedAgent  │
-│  (集成入口)      │
-└────────┬────────┘
-         │
-    ┌────┴────┐
-    │         │
-    ▼         ▼
-┌───────┐ ┌─────────────┐
-│Multi- │ │  Single     │
-│Agent  │ │  Agent      │
-└───┬───┘ └──────┬──────┘
-    │            │
-    ▼            ▼
-┌─────────────────────────┐
-│   AgentCoordinator      │
-│   (任务分配)             │
-└────────┬────────────────┘
-         │
-    ┌────┴────┬────────┐
-    ▼         ▼        ▼
-┌───────┐ ┌───────┐ ┌───────┐
-│Designer│ │Implementer│ │Reviewer│
-└───┬───┘ └───┬───┘ └───┬───┘
-    │         │         │
-    └─────────┼─────────┘
-              ▼
-    ┌─────────────────┐
-    │   ReActAgent    │
-    │   (核心执行)     │
-    └────────┬────────┘
-             │
-    ┌────────┼────────┐
-    ▼        ▼        ▼
-┌───────┐ ┌───────┐ ┌───────┐
-│Context │ │Prompt │ │Stream │
-│Manager │ │Optimizer│ │Generator│
-└───┬───┘ └───┬───┘ └───┬───┘
-    │         │         │
-    └─────────┼─────────┘
-              ▼
-    ┌─────────────────┐
-    │   LLM Client    │
-    └────────┬────────┘
-             │
-             ▼
-    ┌─────────────────┐
-    │   生成结果       │
-    └─────────────────┘
+1. 用户输入代码
+   ↓
+2. 分析代码结构
+   ↓
+3. 生成测试用例 (LLM)
+   ↓
+4. 运行测试
+   ↓
+5. 如果有失败:
+   - 聚类失败
+   - 批量修复
+   - 回到步骤 4
+6. 输出测试代码
 ```
 
-### 错误恢复流程
+## 扩展点
 
-```
-错误发生
-    │
-    ▼
-┌─────────────────┐
-│ ErrorRecovery   │
-│ Manager         │
-└────────┬────────┘
-         │
-    ┌────┴────┐
-    ▼         ▼
-┌─────────┐ ┌─────────────┐
-│Error    │ │ Strategy    │
-│Knowledge│ │ Optimizer   │
-│Base     │ │             │
-└───┬─────┘ └──────┬──────┘
-    │              │
-    └──────┬───────┘
-           ▼
-    ┌─────────────────┐
-    │ ParallelRecovery │
-    │ (并行尝试)       │
-    └────────┬────────┘
-             │
-    ┌────────┼────────┐
-    ▼        ▼        ▼
-┌───────┐ ┌───────┐ ┌───────┐
-│Strategy│ │Strategy│ │Strategy│
-│   A    │ │   B    │ │   C    │
-└───┬───┘ └───┬───┘ └───┬───┘
-    │         │         │
-    └─────────┼─────────┘
-              ▼
-    ┌─────────────────┐
-    │  恢复结果        │
-    │  (记录到经验回放) │
-    └─────────────────┘
-```
-
----
-
-## 扩展指南
-
-### 添加新的 Specialized Agent
+### 1. 自定义组件
 
 ```python
-from pyutagent.agent.multi_agent import SpecializedAgent, AgentCapability, AgentTask
+from pyutagent.core.component_registry import SimpleComponent, component
 
-class MyCustomAgent(SpecializedAgent):
-    def __init__(self, agent_id: str, message_bus, knowledge_base):
-        super().__init__(
-            agent_id=agent_id,
-            capabilities={AgentCapability.TEST_DESIGN, AgentCapability.MOCK_GENERATION},
-            message_bus=message_bus,
-            knowledge_base=knowledge_base
-        )
-    
-    async def execute_task(self, task: AgentTask) -> Dict[str, Any]:
-        # 实现任务逻辑
-        return {"success": True, "output": "..."}
+@component('custom_component')
+class CustomComponent(SimpleComponent):
+    def initialize(self):
+        # 初始化逻辑
+        return True
 ```
 
-### 添加新的工具
+### 2. 自定义 Action
 
 ```python
-from pyutagent.agent.actions import Action
+from pyutagent.core.state_store import Action, AgentState
 
-class MyCustomTool(Action):
-    name = "my_custom_tool"
-    description = "My custom tool description"
-    
-    async def execute(self, **kwargs) -> Dict[str, Any]:
-        # 实现工具逻辑
-        return {"success": True, "result": "..."}
+class CustomAction(Action):
+    def reduce(self, state: AgentState) -> AgentState:
+        # 状态变更逻辑
+        return new_state
 ```
 
-### 添加新的提示词优化策略
+### 3. 自定义错误恢复
 
 ```python
-from pyutagent.agent.prompt_optimizer import PromptOptimizer, ModelType
+from pyutagent.core.error_handling import RecoveryStrategy
 
-class MyPromptOptimizer(PromptOptimizer):
-    def optimize_for_my_model(self, base_prompt: str) -> str:
-        # 实现优化逻辑
-        return optimized_prompt
-```
-
----
-
-## 配置参考
-
-### EnhancedAgentConfig
-
-```python
-from pyutagent.agent import EnhancedAgentConfig, CompressionStrategy
-
-config = EnhancedAgentConfig(
-    # P0 Configuration
-    context_max_tokens=8000,
-    context_target_tokens=6000,
-    context_strategy=CompressionStrategy.HYBRID,
-    
-    # P1 Configuration
-    enable_prompt_optimization=True,
-    enable_ab_testing=False,
-    ab_test_id=None,
-    
-    # P2 Configuration
-    enable_multi_agent=True,
-    multi_agent_workers=3,
-    task_allocation_strategy="capability_match",
-    
-    # Performance
-    enable_metrics=True,
-    metrics_report_interval=300,
-    
-    # Model
-    model_name="gpt-4"
+strategy = RecoveryStrategy(
+    category=ErrorCategory.CUSTOM,
+    action=RecoveryAction.RETRY,
+    max_retries=3
 )
 ```
 
----
+## 性能优化建议
 
-## 性能考虑
-
-### 内存管理
-
-- ContextManager 自动压缩大文件上下文
-- VectorStore 使用 sqlite-vec，支持大规模数据
-- ExperienceReplay 有容量限制，自动淘汰旧数据
-
-### 并发处理
-
-- MessageBus 支持异步消息处理
-- ParallelRecovery 并行尝试多种恢复策略
-- Multi-agent 支持并发任务执行
-
-### 缓存策略
-
-- ErrorKnowledgeBase 缓存常见错误模式
-- SharedKnowledgeBase 缓存知识项
-- MetricsCollector 缓存性能数据
-
----
+1. **使用缓存**: 对 LLM 调用结果进行缓存
+2. **批量操作**: 减少 LLM 调用次数
+3. **异步处理**: 提高并发性能
+4. **智能聚类**: 相似失败批量修复
 
 ## 监控和调试
 
-### 日志级别
-
-- `DEBUG`: 详细执行信息
-- `INFO`: 关键操作记录
-- `WARNING`: 潜在问题
-- `ERROR`: 错误和异常
-
-### 性能报告
+### 1. 启用日志
 
 ```python
-from pyutagent.agent import get_integration_manager
-
-manager = get_integration_manager("/path/to/project")
-agent = manager.create_enhanced_agent(llm_client, working_memory)
-
-# 获取性能统计
-stats = agent.get_enhanced_stats()
-print(stats)
+import logging
+logging.basicConfig(level=logging.DEBUG)
 ```
 
-### 健康检查
+### 2. 查看指标
 
 ```python
-# 获取系统健康状态
-health = manager.get_system_health()
-print(f"Overall Health: {health['overall_health']}")
-print(f"Health Score: {health['health_score']}")
+from pyutagent.core.metrics import get_metrics
+metrics = get_metrics()
+print(metrics)
 ```
 
----
+### 3. 性能分析
 
-## 版本历史
+```python
+from pyutagent.core.metrics import PerformanceTracker
 
-| 版本 | 日期 | 更新内容 |
-|------|------|----------|
-| v1.0 | 2026-03-01 | 初始架构，基础 ReAct Agent |
-| v2.0 | 2026-03-01 | P0 核心能力：流式生成、增量编辑、上下文管理 |
-| v3.0 | 2026-03-01 | P1 增强能力：提示词优化、错误学习、多构建工具 |
-| v4.0 | 2026-03-01 | P2 协作能力：多智能体、消息总线、性能监控 |
-| v5.0 | 2026-03-01 | P3 高级能力：错误预测、自适应策略、沙箱执行、用户交互、智能分析 |
+tracker = PerformanceTracker()
+tracker.start_timer('operation')
+# ... 操作 ...
+elapsed = tracker.stop_timer('operation')
+```
 
----
+## 测试策略
 
-## 参考文档
+### 单元测试
 
-- [README.md](README.md) - 项目概览和使用指南
-- [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md) - 改进计划详情
-- [API Documentation](docs/api/) - API 详细文档
+```bash
+pytest tests/unit/ -v
+```
+
+### 集成测试
+
+```bash
+pytest tests/integration/ -v
+```
+
+### 性能测试
+
+```bash
+pytest tests/benchmarks/ -v
+```
+
+## 依赖关系
+
+```
+pyutagent/
+├── core/           # 核心模块
+│   ├── event_bus.py
+│   ├── state_store.py
+│   ├── message_bus.py
+│   ├── component_registry.py
+│   ├── metrics.py
+│   ├── error_handling.py
+│   └── actions.py
+├── llm/            # LLM 模块
+│   ├── client.py
+│   ├── prompt_cache.py
+│   └── multi_level_cache.py
+├── agent/          # Agent 模块
+│   ├── incremental_fixer.py
+│   └── smart_clusterer.py
+└── ui/             # UI 模块 (可选)
+    ├── main_window.py
+    └── dialogs/
+```
+
+## 版本信息
+
+- **当前版本**: 0.1.0
+- **Python 版本**: 3.12+
+- **主要依赖**: pytest, asyncio
+
+## 贡献指南
+
+1. Fork 项目
+2. 创建特性分支
+3. 编写测试
+4. 实现功能 (TDD)
+5. 运行测试
+6. 提交 PR
+
+## 许可证
+
+MIT License

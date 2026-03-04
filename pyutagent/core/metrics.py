@@ -1,478 +1,308 @@
-"""Performance metrics collection and monitoring.
-
-This module provides performance monitoring capabilities:
-- Execution time tracking
-- Memory usage monitoring
-- LLM call statistics
-- Error rate tracking
-- Performance reports
-"""
-
-import asyncio
-import logging
-import statistics
+"""性能监控和指标收集"""
 import time
+import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
-from functools import wraps
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
+from enum import Enum
+from typing import Any, Callable, Dict, List, Optional
+import logging
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+
+class MetricType(Enum):
+    """指标类型"""
+    COUNTER = "counter"  # 计数器
+    GAUGE = "gauge"  # 仪表盘
+    HISTOGRAM = "histogram"  # 直方图
 
 
 @dataclass
-class MetricRecord:
-    """A single metric record."""
+class Metric:
+    """指标"""
     name: str
-    value: float
-    timestamp: datetime
-    tags: Dict[str, str] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class TimingRecord:
-    """A timing record for an operation."""
-    operation: str
-    start_time: float
-    end_time: Optional[float] = None
-    duration: Optional[float] = None
-    success: bool = True
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class LLMCallStats:
-    """Statistics for LLM calls."""
-    total_calls: int = 0
-    total_tokens: int = 0
-    total_time: float = 0.0
-    success_count: int = 0
-    failure_count: int = 0
-    avg_time: float = 0.0
-    avg_tokens: float = 0.0
-    
-    def record_call(self, tokens: int, time_taken: float, success: bool):
-        self.total_calls += 1
-        self.total_tokens += tokens
-        self.total_time += time_taken
-        if success:
-            self.success_count += 1
-        else:
-            self.failure_count += 1
-        self.avg_time = self.total_time / self.total_calls
-        self.avg_tokens = self.total_tokens / self.total_calls
-
-
-@dataclass
-class ErrorStats:
-    """Statistics for errors."""
-    total_errors: int = 0
-    by_category: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
-    by_step: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
-    recovery_success: int = 0
-    recovery_failure: int = 0
-    
-    def record_error(self, category: str, step: str, recovered: bool):
-        self.total_errors += 1
-        self.by_category[category] += 1
-        self.by_step[step] += 1
-        if recovered:
-            self.recovery_success += 1
-        else:
-            self.recovery_failure += 1
+    value: Any
+    metric_type: MetricType
+    timestamp: datetime = field(default_factory=datetime.now)
+    labels: Dict[str, str] = field(default_factory=dict)
 
 
 class MetricsCollector:
-    """Collects and aggregates performance metrics.
+    """指标收集器"""
     
-    Features:
-    - Operation timing
-    - Memory tracking
-    - LLM call statistics
-    - Error tracking
-    - Report generation
-    """
-    
-    def __init__(self, enabled: bool = True):
-        self.enabled = enabled
-        
-        self._metrics: List[MetricRecord] = []
-        self._timings: List[TimingRecord] = []
-        self._llm_stats = LLMCallStats()
-        self._error_stats = ErrorStats()
-        
-        self._active_timings: Dict[str, TimingRecord] = {}
-        self._counters: Dict[str, int] = defaultdict(int)
+    def __init__(self):
+        self._metrics: Dict[str, Metric] = {}
+        self._counters: Dict[str, float] = defaultdict(float)
         self._gauges: Dict[str, float] = {}
-        
-        self._session_start = time.time()
-        self._session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._histograms: Dict[str, List[float]] = defaultdict(list)
     
-    def record_metric(
+    def record_counter(
         self,
         name: str,
         value: float,
-        tags: Optional[Dict[str, str]] = None,
-        metadata: Optional[Dict[str, Any]] = None
-    ):
-        """Record a metric value."""
-        if not self.enabled:
-            return
+        labels: Optional[Dict[str, str]] = None
+    ) -> None:
+        """记录计数器"""
+        key = self._make_key(name, labels)
+        self._counters[key] += value
         
-        record = MetricRecord(
+        self._metrics[key] = Metric(
+            name=name,
+            value=self._counters[key],
+            metric_type=MetricType.COUNTER,
+            labels=labels or {}
+        )
+        
+        logger.debug(f"Recorded counter {name}: {value}")
+    
+    def record_gauge(
+        self,
+        name: str,
+        value: float,
+        labels: Optional[Dict[str, str]] = None
+    ) -> None:
+        """记录仪表盘"""
+        key = self._make_key(name, labels)
+        self._gauges[key] = value
+        
+        self._metrics[key] = Metric(
             name=name,
             value=value,
-            timestamp=datetime.now(),
-            tags=tags or {},
-            metadata=metadata or {}
-        )
-        self._metrics.append(record)
-        logger.debug(f"[Metrics] Recorded {name}={value}")
-    
-    def increment_counter(self, name: str, delta: int = 1):
-        """Increment a counter."""
-        self._counters[name] += delta
-    
-    def set_gauge(self, name: str, value: float):
-        """Set a gauge value."""
-        self._gauges[name] = value
-    
-    def start_timer(self, operation: str, metadata: Optional[Dict[str, Any]] = None) -> str:
-        """Start timing an operation.
-        
-        Args:
-            operation: Name of the operation
-            metadata: Optional metadata
-            
-        Returns:
-            Timer ID for stopping
-        """
-        if not self.enabled:
-            return operation
-        
-        timer_id = f"{operation}_{time.time_ns()}"
-        
-        record = TimingRecord(
-            operation=operation,
-            start_time=time.time(),
-            metadata=metadata or {}
+            metric_type=MetricType.GAUGE,
+            labels=labels or {}
         )
         
-        self._active_timings[timer_id] = record
-        logger.debug(f"[Metrics] Started timer: {operation}")
-        
-        return timer_id
+        logger.debug(f"Recorded gauge {name}: {value}")
     
-    def stop_timer(
+    def record_histogram(
         self,
-        timer_id: str,
-        success: bool = True,
-        error: Optional[str] = None
-    ) -> Optional[float]:
-        """Stop a timer and record the duration.
+        name: str,
+        value: float,
+        labels: Optional[Dict[str, str]] = None
+    ) -> None:
+        """记录直方图"""
+        key = self._make_key(name, labels)
+        self._histograms[key].append(value)
         
-        Args:
-            timer_id: Timer ID from start_timer
-            success: Whether operation succeeded
-            error: Optional error message
-            
-        Returns:
-            Duration in seconds, or None if timer not found
-        """
-        if not self.enabled:
-            return None
-        
-        record = self._active_timings.pop(timer_id, None)
-        
-        if not record:
-            logger.warning(f"[Metrics] Timer not found: {timer_id}")
-            return None
-        
-        record.end_time = time.time()
-        record.duration = record.end_time - record.start_time
-        record.success = success
-        record.error = error
-        
-        self._timings.append(record)
-        
-        logger.debug(
-            f"[Metrics] Stopped timer: {record.operation} - "
-            f"Duration: {record.duration:.3f}s, Success: {success}"
-        )
-        
-        return record.duration
-    
-    def record_llm_call(
-        self,
-        tokens: int,
-        time_taken: float,
-        success: bool = True
-    ):
-        """Record an LLM API call."""
-        self._llm_stats.record_call(tokens, time_taken, success)
-        logger.debug(
-            f"[Metrics] LLM call recorded - Tokens: {tokens}, "
-            f"Time: {time_taken:.2f}s, Success: {success}"
-        )
-    
-    def record_error(
-        self,
-        category: str,
-        step: str,
-        recovered: bool = False
-    ):
-        """Record an error occurrence."""
-        self._error_stats.record_error(category, step, recovered)
-        logger.debug(
-            f"[Metrics] Error recorded - Category: {category}, "
-            f"Step: {step}, Recovered: {recovered}"
-        )
-    
-    def time_operation(
-        self,
-        operation: str,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> 'OperationTimer':
-        """Context manager for timing an operation.
-        
-        Args:
-            operation: Name of the operation
-            metadata: Optional metadata
-            
-        Returns:
-            OperationTimer context manager
-        """
-        return OperationTimer(self, operation, metadata)
-    
-    def timed(self, operation: str) -> Callable:
-        """Decorator for timing a function.
-        
-        Args:
-            operation: Name of the operation
-            
-        Returns:
-            Decorator function
-        """
-        def decorator(func: Callable[..., T]) -> Callable[..., T]:
-            @wraps(func)
-            async def async_wrapper(*args, **kwargs) -> T:
-                timer_id = self.start_timer(operation)
-                try:
-                    result = await func(*args, **kwargs)
-                    self.stop_timer(timer_id, success=True)
-                    return result
-                except Exception as e:
-                    self.stop_timer(timer_id, success=False, error=str(e))
-                    raise
-            
-            @wraps(func)
-            def sync_wrapper(*args, **kwargs) -> T:
-                timer_id = self.start_timer(operation)
-                try:
-                    result = func(*args, **kwargs)
-                    self.stop_timer(timer_id, success=True)
-                    return result
-                except Exception as e:
-                    self.stop_timer(timer_id, success=False, error=str(e))
-                    raise
-            
-            if asyncio.iscoroutinefunction(func):
-                return async_wrapper
-            return sync_wrapper
-        
-        return decorator
-    
-    def get_operation_stats(self, operation: str) -> Dict[str, Any]:
-        """Get statistics for an operation.
-        
-        Args:
-            operation: Operation name
-            
-        Returns:
-            Statistics dictionary
-        """
-        timings = [t for t in self._timings if t.operation == operation]
-        
-        if not timings:
-            return {"operation": operation, "count": 0}
-        
-        durations = [t.duration for t in timings if t.duration is not None]
-        success_count = sum(1 for t in timings if t.success)
-        
-        return {
-            "operation": operation,
-            "count": len(timings),
-            "success_count": success_count,
-            "failure_count": len(timings) - success_count,
-            "success_rate": success_count / len(timings) if timings else 0,
-            "total_time": sum(durations),
-            "avg_time": statistics.mean(durations) if durations else 0,
-            "min_time": min(durations) if durations else 0,
-            "max_time": max(durations) if durations else 0,
-            "median_time": statistics.median(durations) if durations else 0,
+        # 计算统计信息
+        values = self._histograms[key]
+        histogram_data = {
+            "count": len(values),
+            "sum": sum(values),
+            "avg": statistics.mean(values) if values else 0,
+            "min": min(values) if values else 0,
+            "max": max(values) if values else 0,
+            "buckets": self._create_buckets(values)
         }
+        
+        self._metrics[key] = Metric(
+            name=name,
+            value=histogram_data,
+            metric_type=MetricType.HISTOGRAM,
+            labels=labels or {}
+        )
+        
+        logger.debug(f"Recorded histogram {name}: {value}")
     
-    def get_summary(self) -> Dict[str, Any]:
-        """Get a summary of all metrics.
+    def _create_buckets(self, values: List[float]) -> Dict[str, int]:
+        """创建直方图桶"""
+        if not values:
+            return {}
         
-        Returns:
-            Summary dictionary
-        """
-        session_duration = time.time() - self._session_start
-        
-        operations = set(t.operation for t in self._timings)
-        operation_stats = {op: self.get_operation_stats(op) for op in operations}
-        
-        return {
-            "session_id": self._session_id,
-            "session_duration": session_duration,
-            "total_operations": len(self._timings),
-            "total_metrics": len(self._metrics),
-            "llm_stats": {
-                "total_calls": self._llm_stats.total_calls,
-                "total_tokens": self._llm_stats.total_tokens,
-                "total_time": self._llm_stats.total_time,
-                "success_rate": (
-                    self._llm_stats.success_count / self._llm_stats.total_calls
-                    if self._llm_stats.total_calls > 0 else 0
-                ),
-                "avg_time": self._llm_stats.avg_time,
-                "avg_tokens": self._llm_stats.avg_tokens,
-            },
-            "error_stats": {
-                "total_errors": self._error_stats.total_errors,
-                "recovery_rate": (
-                    self._error_stats.recovery_success / self._error_stats.total_errors
-                    if self._error_stats.total_errors > 0 else 0
-                ),
-                "by_category": dict(self._error_stats.by_category),
-                "by_step": dict(self._error_stats.by_step),
-            },
-            "counters": dict(self._counters),
-            "gauges": dict(self._gauges),
-            "operations": operation_stats,
+        # 创建简单的桶分布
+        buckets = {
+            "<0.01": 0,
+            "0.01-0.05": 0,
+            "0.05-0.1": 0,
+            "0.1-0.5": 0,
+            "0.5-1.0": 0,
+            ">1.0": 0
         }
+        
+        for value in values:
+            if value < 0.01:
+                buckets["<0.01"] += 1
+            elif value < 0.05:
+                buckets["0.01-0.05"] += 1
+            elif value < 0.1:
+                buckets["0.05-0.1"] += 1
+            elif value < 0.5:
+                buckets["0.1-0.5"] += 1
+            elif value < 1.0:
+                buckets["0.5-1.0"] += 1
+            else:
+                buckets[">1.0"] += 1
+        
+        return buckets
     
-    def generate_report(self) -> str:
-        """Generate a human-readable report.
+    def _make_key(self, name: str, labels: Optional[Dict[str, str]] = None) -> str:
+        """创建指标键"""
+        if not labels:
+            return name
         
-        Returns:
-            Report string
-        """
-        summary = self.get_summary()
-        
-        lines = [
-            "=" * 60,
-            "Performance Report",
-            "=" * 60,
-            f"Session ID: {summary['session_id']}",
-            f"Session Duration: {summary['session_duration']:.2f}s",
-            "",
-            "LLM Statistics:",
-            f"  Total Calls: {summary['llm_stats']['total_calls']}",
-            f"  Total Tokens: {summary['llm_stats']['total_tokens']}",
-            f"  Total Time: {summary['llm_stats']['total_time']:.2f}s",
-            f"  Success Rate: {summary['llm_stats']['success_rate']:.1%}",
-            "",
-            "Error Statistics:",
-            f"  Total Errors: {summary['error_stats']['total_errors']}",
-            f"  Recovery Rate: {summary['error_stats']['recovery_rate']:.1%}",
-            "",
-            "Operation Statistics:",
-        ]
-        
-        for op, stats in summary['operations'].items():
-            lines.extend([
-                f"  {op}:",
-                f"    Count: {stats['count']}",
-                f"    Success Rate: {stats['success_rate']:.1%}",
-                f"    Avg Time: {stats['avg_time']:.3f}s",
-            ])
-        
-        lines.append("=" * 60)
-        
-        return "\n".join(lines)
+        labels_str = ",".join(f"{k}={v}" for k, v in sorted(labels.items()))
+        return f"{name}{{{labels_str}}}"
     
-    def save_report(self, path: Union[str, Path]):
-        """Save report to a file.
-        
-        Args:
-            path: File path to save
-        """
-        report = self.generate_report()
-        Path(path).write_text(report, encoding='utf-8')
-        logger.info(f"[Metrics] Report saved to {path}")
+    def get_metric(self, name: str, labels: Optional[Dict[str, str]] = None) -> Optional[Metric]:
+        """获取指标"""
+        key = self._make_key(name, labels)
+        return self._metrics.get(key)
     
-    def reset(self):
-        """Reset all metrics."""
+    def get_metric_value(self, name: str, labels: Optional[Dict[str, str]] = None) -> Any:
+        """获取指标值"""
+        metric = self.get_metric(name, labels)
+        return metric.value if metric else None
+    
+    def list_metrics(self) -> List[str]:
+        """列出所有指标名称"""
+        return list(set(m.name for m in self._metrics.values()))
+    
+    def clear(self) -> None:
+        """清空所有指标"""
         self._metrics.clear()
-        self._timings.clear()
-        self._llm_stats = LLMCallStats()
-        self._error_stats = ErrorStats()
-        self._active_timings.clear()
         self._counters.clear()
         self._gauges.clear()
-        self._session_start = time.time()
-        self._session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        logger.info("[Metrics] All metrics reset")
-
-
-class OperationTimer:
-    """Context manager for timing operations."""
+        self._histograms.clear()
+        logger.debug("Cleared all metrics")
     
-    def __init__(
-        self,
-        collector: MetricsCollector,
-        operation: str,
-        metadata: Optional[Dict[str, Any]] = None
-    ):
-        self.collector = collector
-        self.operation = operation
-        self.metadata = metadata
-        self._timer_id: Optional[str] = None
-        self._duration: Optional[float] = None
-    
-    def __enter__(self):
-        self._timer_id = self.collector.start_timer(self.operation, self.metadata)
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        success = exc_type is None
-        error = str(exc_val) if exc_val else None
-        self._duration = self.collector.stop_timer(self._timer_id, success, error)
-        return False
-    
-    @property
-    def duration(self) -> Optional[float]:
-        return self._duration
-
-
-_metrics_instance: Optional[MetricsCollector] = None
-
-
-def get_metrics() -> MetricsCollector:
-    """Get the global metrics collector instance."""
-    global _metrics_instance
-    if _metrics_instance is None:
-        _metrics_instance = MetricsCollector()
-    return _metrics_instance
-
-
-def setup_metrics(enabled: bool = True) -> MetricsCollector:
-    """Setup the global metrics collector.
-    
-    Args:
-        enabled: Whether metrics collection is enabled
+    def export_metrics(self) -> Dict[str, Any]:
+        """导出指标"""
+        result = {}
         
-    Returns:
-        MetricsCollector instance
-    """
-    global _metrics_instance
-    _metrics_instance = MetricsCollector(enabled=enabled)
-    return _metrics_instance
+        for name in self.list_metrics():
+            metrics = [m for m in self._metrics.values() if m.name == name]
+            if metrics:
+                result[name] = {
+                    "type": metrics[0].metric_type.value,
+                    "value": metrics[0].value,
+                    "timestamp": metrics[0].timestamp.isoformat(),
+                    "labels": metrics[0].labels
+                }
+        
+        return result
+
+
+class PerformanceTracker:
+    """性能追踪器"""
+    
+    def __init__(self):
+        self._collector = MetricsCollector()
+        self._timers: Dict[str, float] = {}
+        self._execution_times: Dict[str, List[float]] = defaultdict(list)
+    
+    def start_timer(self, name: str) -> None:
+        """开始计时器"""
+        self._timers[name] = time.time()
+        logger.debug(f"Started timer: {name}")
+    
+    def stop_timer(self, name: str) -> float:
+        """停止计时器"""
+        if name not in self._timers:
+            logger.warning(f"Timer not started: {name}")
+            return 0.0
+        
+        elapsed = time.time() - self._timers[name]
+        del self._timers[name]
+        
+        # 记录执行时间
+        self._execution_times[name].append(elapsed)
+        self._collector.record_histogram(name, elapsed)
+        
+        logger.debug(f"Stopped timer {name}: {elapsed:.6f}s")
+        return elapsed
+    
+    def record_execution_time(self, name: str) -> Callable:
+        """装饰器：记录函数执行时间"""
+        def decorator(func: Callable) -> Callable:
+            def wrapper(*args, **kwargs):
+                self.start_timer(name)
+                try:
+                    return func(*args, **kwargs)
+                finally:
+                    self.stop_timer(name)
+            return wrapper
+        return decorator
+    
+    def get_average_time(self, name: str) -> float:
+        """获取平均执行时间"""
+        times = self._execution_times.get(name, [])
+        return statistics.mean(times) if times else 0.0
+    
+    def get_max_time(self, name: str) -> float:
+        """获取最大执行时间"""
+        times = self._execution_times.get(name, [])
+        return max(times) if times else 0.0
+    
+    def get_min_time(self, name: str) -> float:
+        """获取最小执行时间"""
+        times = self._execution_times.get(name, [])
+        return min(times) if times else 0.0
+    
+    def get_total_time(self, name: str) -> float:
+        """获取总执行时间"""
+        times = self._execution_times.get(name, [])
+        return sum(times) if times else 0.0
+    
+    def get_call_count(self, name: str) -> int:
+        """获取调用次数"""
+        return len(self._execution_times.get(name, []))
+    
+    def reset(self) -> None:
+        """重置追踪器"""
+        self._timers.clear()
+        self._execution_times.clear()
+        self._collector.clear()
+        logger.debug("Reset performance tracker")
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """获取性能指标"""
+        result = {}
+        
+        for name in self._execution_times:
+            times = self._execution_times[name]
+            result[name] = {
+                "count": len(times),
+                "avg": statistics.mean(times) if times else 0,
+                "min": min(times) if times else 0,
+                "max": max(times) if times else 0,
+                "total": sum(times) if times else 0
+            }
+        
+        return result
+
+
+# 全局指标收集器实例
+_global_collector: Optional[MetricsCollector] = None
+
+
+def get_metrics_collector() -> MetricsCollector:
+    """获取全局指标收集器"""
+    global _global_collector
+    if _global_collector is None:
+        _global_collector = MetricsCollector()
+    return _global_collector
+
+
+def get_metrics() -> Dict[str, Any]:
+    """获取所有指标"""
+    collector = get_metrics_collector()
+    return collector.export_metrics()
+
+
+def record_counter(name: str, value: float, labels: Optional[Dict[str, str]] = None) -> None:
+    """记录计数器（便捷函数）"""
+    collector = get_metrics_collector()
+    collector.record_counter(name, value, labels)
+
+
+def record_gauge(name: str, value: float, labels: Optional[Dict[str, str]] = None) -> None:
+    """记录仪表盘（便捷函数）"""
+    collector = get_metrics_collector()
+    collector.record_gauge(name, value, labels)
+
+
+def record_histogram(name: str, value: float, labels: Optional[Dict[str, str]] = None) -> None:
+    """记录直方图（便捷函数）"""
+    collector = get_metrics_collector()
+    collector.record_histogram(name, value, labels)

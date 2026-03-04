@@ -26,6 +26,7 @@ classifiers = [
 
 dependencies = [
     "PyQt6>=6.8.0",
+    "qasync>=0.27.1",
     "tree-sitter>=0.23.0",
     "tree-sitter-java>=0.23.5",
     "langchain>=0.3.0",
