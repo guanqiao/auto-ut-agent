@@ -385,7 +385,46 @@ class StepExecutor:
                 source_code=effective_source
             )
             
-            prompt = self._optimize_prompt(base_prompt, "test_generation")
+            # Phase 2: Use IntelligenceEnhancedCoT for enhanced prompts
+            if "intelligence_enhanced_cot" in self.components:
+                try:
+                    self.agent_core._update_state(AgentState.GENERATING, "🧠 正在生成智能增强提示词...")
+                    
+                    source_code = self.agent_core.target_class_info.get("source", "")
+                    
+                    # Create a simple JavaClass-like object for semantic analysis
+                    class JavaClassProxy:
+                        def __init__(self, class_info):
+                            self.name = class_info.get('name', '')
+                            self.package = class_info.get('package', '')
+                            self.methods = []
+                            for m in class_info.get('methods', []):
+                                method_proxy = type('obj', (object,), {
+                                    'name': m.get('name', ''),
+                                    'return_type': m.get('return_type', ''),
+                                    'parameters': m.get('parameters', []),
+                                    'modifiers': m.get('modifiers', []),
+                                    'annotations': m.get('annotations', [])
+                                })
+                                self.methods.append(method_proxy)
+                    
+                    java_class_proxy = JavaClassProxy(self.agent_core.target_class_info)
+                    target_file_path = str(Path(self.agent_core.project_path) / self.agent_core.target_file)
+                    
+                    enhanced_prompt = self.components["intelligence_enhanced_cot"].generate_enhanced_test_prompt(
+                        source_code=source_code,
+                        java_class=java_class_proxy,
+                        file_path=target_file_path
+                    )
+                    
+                    # Combine base prompt with enhanced insights
+                    prompt = f"{base_prompt}\n\n---\n\n{enhanced_prompt}"
+                    logger.info("[StepExecutor] ✅ Phase 2: Enhanced prompt generation complete")
+                except Exception as e:
+                    logger.warning(f"[StepExecutor] Phase 2: Failed to generate enhanced prompt, falling back: {e}")
+                    prompt = self._optimize_prompt(base_prompt, "test_generation")
+            else:
+                prompt = self._optimize_prompt(base_prompt, "test_generation")
             
             logger.debug(f"[StepExecutor] Initial test prompt - Length: {len(prompt)}, Model: {self.agent_core.model_name}")
             
@@ -1703,6 +1742,33 @@ class StepExecutor:
                 logger.warning(f"[StepExecutor] Failed to read test code: {e}")
         
         from pyutagent.core.error_recovery import RecoveryStrategy
+        
+        # Phase 2: Use IntelligenceEnhancedCoT for enhanced error fix prompts
+        enhanced_fix_context = {}
+        if "intelligence_enhanced_cot" in self.components and current_test_code:
+            try:
+                self.agent_core._update_state(AgentState.FIXING, "🧠 正在进行根因分析...")
+                
+                error_message = str(error)
+                source_code = self.agent_core.target_class_info.get("source", "")
+                test_method = context.get("step", "unknown")
+                
+                # Generate enhanced fix prompt using root cause analysis
+                enhanced_fix_prompt = self.components["intelligence_enhanced_cot"].generate_enhanced_fix_prompt(
+                    error_message=error_message,
+                    test_code=current_test_code,
+                    source_code=source_code,
+                    test_method=test_method
+                )
+                
+                enhanced_fix_context["enhanced_prompt"] = enhanced_fix_prompt
+                logger.info("[StepExecutor] ✅ Phase 2: Enhanced error analysis complete")
+            except Exception as e:
+                logger.warning(f"[StepExecutor] Phase 2: Failed to generate enhanced fix prompt, falling back: {e}")
+        
+        # Merge enhanced context into the error context
+        context = {**context, **enhanced_fix_context}
+        
         recovery_result = await self.components["error_recovery"].recover(
             error,
             error_context=context,

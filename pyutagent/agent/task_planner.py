@@ -154,7 +154,8 @@ class ExecutionPlan:
                 continue
             
             deps_met = all(
-                self.get_subtask(dep_id)?.status == SubTaskStatus.COMPLETED
+                self.get_subtask(dep_id) is not None and 
+                self.get_subtask(dep_id).status == SubTaskStatus.COMPLETED
                 for dep_id in st.dependencies
             )
             
