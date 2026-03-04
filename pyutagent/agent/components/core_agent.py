@@ -55,6 +55,7 @@ class AgentCore:
         
         self.max_iterations = working_memory.max_iterations
         self.target_coverage = working_memory.target_coverage
+        self.current_iteration = 0
         
         self.current_test_file: Optional[str] = None
         self.target_class_info: Optional[Dict[str, Any]] = None
