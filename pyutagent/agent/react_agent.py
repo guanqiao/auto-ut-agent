@@ -113,14 +113,15 @@ class ReActAgent(BaseAgent):
             progress_callback=self.progress_callback,
         )
         
+        for key, value in components.items():
+            setattr(self._core, key, value)
+            setattr(self, key, value)
+        
         self._step_executor = StepExecutor(self._core, components)
         self._feedback_loop = FeedbackLoopExecutor(self._core, self._step_executor)
         self._recovery_manager = AgentRecoveryManager(components, self._core)
         self._helpers = AgentHelpers(self._core, components)
         self._extensions = AgentExtensions(self._core, components)
-        
-        for key, value in components.items():
-            setattr(self, key, value)
         
         settings = get_settings()
         self.max_compilation_attempts = settings.coverage.max_compilation_attempts
