@@ -515,3 +515,121 @@ class TaskClassifier:
             risks=result.get("risks", []),
             confidence=result.get("confidence", 0.7),
         )
+
+    def extract_entities(self, request: str) -> EntityExtractionResult:
+        """Extract entities from user request.
+
+        Args:
+            request: User's request string
+
+        Returns:
+            EntityExtractionResult with extracted entities
+        """
+        result = EntityExtractionResult()
+
+        file_patterns = [
+            r'([\w/\\\-]+\.(?:java|py|ts|js|go|rs|cpp|c|h))',
+            r'`([^`]+)`',
+            r'"([^"]+\.[^"]+)"',
+        ]
+        for pattern in file_patterns:
+            matches = re.findall(pattern, request)
+            result.files.extend([m for m in matches if '.' in m])
+
+        class_pattern = r'(?:class|interface|enum)\s+(\w+)'
+        result.classes.extend(re.findall(class_pattern, request))
+
+        method_pattern = r'(?:method|function)\s+(\w+)|(\w+)\s*\('
+        for match in re.finditer(method_pattern, request):
+            if match.group(1):
+                result.methods.append(match.group(1))
+            elif match.group(2):
+                result.methods.append(match.group(2))
+
+        package_pattern = r'(?:package|包)\s+([\w.]+)'
+        result.packages.extend(re.findall(package_pattern, request))
+
+        command_pattern = r'(?:command|命令|run|执行)\s+["\']?([\w\-]+)'
+        result.commands.extend(re.findall(command_pattern, request, re.IGNORECASE))
+
+        return result
+
+    def detect_intent(self, request: str) -> Intent:
+        """Detect user intent from request.
+
+        Args:
+            request: User's request string
+
+        Returns:
+            Detected Intent
+        """
+        request_lower = request.lower()
+
+        intent_keywords = {
+            Intent.GENERATE: ['generate', 'create', 'add', 'write', '新建', '生成', '创建'],
+            Intent.MODIFY: ['modify', 'change', 'update', 'edit', '修改', '更新', '编辑'],
+            Intent.FIX: ['fix', 'repair', 'debug', 'resolve', '修复', '调试', '解决'],
+            Intent.ANALYZE: ['analyze', 'check', 'review', 'audit', '分析', '审查', '检查'],
+            Intent.EXPLAIN: ['explain', 'describe', 'understand', '解释', '说明', '理解'],
+            Intent.OPTIMIZE: ['optimize', 'improve', 'refactor', '优化', '改进', '重构'],
+            Intent.QUERY: ['what', 'how', 'why', 'where', '什么', '如何', '为什么'],
+        }
+
+        for intent, keywords in intent_keywords.items():
+            if any(kw in request_lower for kw in keywords):
+                return intent
+
+        return Intent.UNKNOWN
+
+
+class EnhancedTaskClassifier(TaskClassifier):
+    """Enhanced task classifier with entity extraction and intent detection."""
+
+    def __init__(self, llm_client=None, project_path: Optional[str] = None):
+        """Initialize enhanced task classifier.
+
+        Args:
+            llm_client: Optional LLM client
+            project_path: Optional project path for context
+        """
+        super().__init__(llm_client)
+        self.project_path = Path(project_path) if project_path else None
+
+    async def classify_with_context(
+        self,
+        request: str,
+        project_context: str,
+        history: Optional[List[Dict[str, Any]]] = None
+    ) -> TaskUnderstanding:
+        """Classify task with full context including history.
+
+        Args:
+            request: User's request
+            project_context: Project context string
+            history: Optional list of previous tasks
+
+        Returns:
+            TaskUnderstanding with classification
+        """
+        understanding = await self.classify_with_llm(request, project_context)
+
+        entities = self.extract_entities(request)
+        intent = self.detect_intent(request)
+
+        if entities.files:
+            understanding.target_scope.files = list(set(
+                understanding.target_scope.files + entities.files
+            ))
+        if entities.classes:
+            understanding.target_scope.classes = list(set(
+                understanding.target_scope.classes + entities.classes
+            ))
+
+        understanding.context_needed.extend(entities.packages)
+
+        logger.info(
+            f"[EnhancedTaskClassifier] Classified: {understanding.task_type.value}, "
+            f"Intent: {intent.value}, Entities: {len(entities.files)} files"
+        )
+
+        return understanding

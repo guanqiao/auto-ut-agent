@@ -577,3 +577,289 @@ class PlanExecutor:
         except Exception as e:
             subtask.mark_failed(str(e))
             return {"success": False, "error": str(e)}
+
+
+class EnhancedTaskPlanner(TaskPlanner):
+    """Enhanced task planner with dependency analysis and dynamic adjustment."""
+
+    def __init__(self, llm_client=None, tool_registry=None):
+        """Initialize enhanced task planner.
+
+        Args:
+            llm_client: Optional LLM client
+            tool_registry: Optional tool registry
+        """
+        super().__init__(llm_client)
+        self.tool_registry = tool_registry
+
+    async def decompose_with_dependencies(
+        self,
+        understanding: TaskUnderstanding,
+        project_context: Dict[str, Any]
+    ) -> ExecutionPlan:
+        """Decompose task with dependency analysis.
+
+        Args:
+            understanding: Task understanding
+            project_context: Project context
+
+        Returns:
+            ExecutionPlan with analyzed dependencies
+        """
+        plan = self.create_plan(understanding, use_llm=True)
+
+        await self._analyze_dependencies(plan, project_context)
+        self._optimize_execution_order(plan)
+
+        logger.info(
+            f"[EnhancedTaskPlanner] Created plan with {len(plan.subtasks)} "
+            f"subtasks, {self._count_dependencies(plan)} dependencies"
+        )
+
+        return plan
+
+    async def _analyze_dependencies(
+        self,
+        plan: ExecutionPlan,
+        project_context: Dict[str, Any]
+    ) -> None:
+        """Analyze and add dependencies between subtasks.
+
+        Args:
+            plan: Execution plan
+            project_context: Project context
+        """
+        for i, subtask in enumerate(plan.subtasks):
+            for j, other in enumerate(plan.subtasks):
+                if i >= j:
+                    continue
+
+                if self._has_dependency(subtask, other):
+                    if other.id not in subtask.dependencies:
+                        subtask.dependencies.append(other.id)
+
+    def _has_dependency(self, subtask: SubTask, other: SubTask) -> bool:
+        """Check if subtask depends on other.
+
+        Args:
+            subtask: Potential dependent
+            other: Potential dependency
+
+        Returns:
+            True if there's a dependency
+        """
+        if subtask.task_type == SubTaskType.ANALYZE:
+            return other.task_type in [SubTaskType.READ, SubTaskType.SEARCH]
+
+        if subtask.task_type == SubTaskType.GENERATE:
+            return other.task_type == SubTaskType.ANALYZE
+
+        if subtask.task_type == SubTaskType.TEST:
+            return other.task_type in [SubTaskType.COMPILE, SubTaskType.GENERATE]
+
+        if subtask.task_type == SubTaskType.VALIDATE:
+            return other.task_type == SubTaskType.TEST
+
+        return False
+
+    def _optimize_execution_order(self, plan: ExecutionPlan) -> None:
+        """Optimize subtask execution order based on dependencies.
+
+        Args:
+            plan: Execution plan to optimize
+        """
+        sorted_subtasks = []
+        remaining = plan.subtasks.copy()
+        completed_ids = set()
+
+        while remaining:
+            ready = [st for st in remaining if all(
+                dep_id in completed_ids for dep_id in st.dependencies
+            )]
+
+            if not ready:
+                break
+
+            ready.sort(key=lambda x: x.priority, reverse=True)
+            sorted_subtasks.append(ready[0])
+            completed_ids.add(ready[0].id)
+            remaining.remove(ready[0])
+
+        plan.subtasks = sorted_subtasks
+
+    def _count_dependencies(self, plan: ExecutionPlan) -> int:
+        """Count total dependencies in plan.
+
+        Args:
+            plan: Execution plan
+
+        Returns:
+            Total dependency count
+        """
+        return sum(len(st.dependencies) for st in plan.subtasks)
+
+    async def estimate_complexity(self, plan: ExecutionPlan) -> TaskComplexity:
+        """Estimate task complexity.
+
+        Args:
+            plan: Execution plan
+
+        Returns:
+            Estimated complexity
+        """
+        subtask_count = len(plan.subtasks)
+        dependency_count = self._count_dependencies(plan)
+
+        if subtask_count <= 3 and dependency_count <= 2:
+            return TaskComplexity.SIMPLE
+        elif subtask_count <= 6 and dependency_count <= 5:
+            return TaskComplexity.MODERATE
+        elif subtask_count <= 10:
+            return TaskComplexity.COMPLEX
+        else:
+            return TaskComplexity.VERY_COMPLEX
+
+    async def refine_plan_dynamic(
+        self,
+        plan: ExecutionPlan,
+        feedback: Dict[str, Any]
+    ) -> ExecutionPlan:
+        """Dynamically refine plan based on feedback.
+
+        Args:
+            plan: Current execution plan
+            feedback: Execution feedback
+
+        Returns:
+            Refined execution plan
+        """
+        failed_subtask_id = feedback.get("failed_subtask_id")
+        error_message = feedback.get("error", "")
+
+        if failed_subtask_id:
+            failed_subtask = plan.get_subtask(failed_subtask_id)
+            if failed_subtask and failed_subtask.can_retry():
+                failed_subtask.increment_retry()
+            else:
+                for subtask in plan.subtasks:
+                    if subtask.id == failed_subtask_id:
+                        subtask.mark_failed(error_message)
+                    elif failed_subtask_id in subtask.dependencies:
+                        subtask.status = SubTaskStatus.BLOCKED
+
+        logger.info(
+            f"[EnhancedTaskPlanner] Refined plan: {len(plan.subtasks)} subtasks, "
+            f"progress: {plan.get_progress()}"
+        )
+
+        return plan
+
+
+class EnhancedPlanExecutor(PlanExecutor):
+    """Enhanced plan executor with checkpoints and parallel execution."""
+
+    def __init__(self, *args, checkpoint_interval: int = 5, max_parallel: int = 3, **kwargs):
+        """Initialize enhanced plan executor.
+
+        Args:
+            checkpoint_interval: Save checkpoint every N subtasks
+            max_parallel: Maximum parallel subtasks
+        """
+        super().__init__(*args, **kwargs)
+        self.checkpoint_interval = checkpoint_interval
+        self.max_parallel = max_parallel
+        self._checkpoints: List[Dict[str, Any]] = []
+
+    async def execute_with_checkpoints(
+        self,
+        plan: ExecutionPlan,
+        checkpoint_callback: Optional[Callable] = None
+    ) -> Dict[str, Any]:
+        """Execute plan with checkpoint saving.
+
+        Args:
+            plan: Execution plan
+            checkpoint_callback: Optional callback for checkpoints
+
+        Returns:
+            Execution results
+        """
+        completed_count = 0
+
+        while not plan.is_complete():
+            ready_subtasks = plan.get_ready_subtasks()
+
+            if not ready_subtasks:
+                break
+
+            for subtask in ready_subtasks:
+                result = await self._execute_subtask(subtask)
+
+                completed_count += 1
+
+                if completed_count % self.checkpoint_interval == 0:
+                    checkpoint = {
+                        "plan_id": plan.id,
+                        "progress": plan.get_progress(),
+                        "completed_subtasks": [
+                            st.id for st in plan.subtasks
+                            if st.status == SubTaskStatus.COMPLETED
+                        ],
+                        "timestamp": str(datetime.now()),
+                    }
+                    self._checkpoints.append(checkpoint)
+
+                    if checkpoint_callback:
+                        await checkpoint_callback(checkpoint)
+
+        return {
+            "success": plan.is_successful(),
+            "progress": plan.get_progress(),
+            "checkpoints": self._checkpoints,
+        }
+
+    async def parallel_execute_independent(
+        self,
+        subtasks: List[SubTask],
+        executor_func: Callable
+    ) -> List[Dict[str, Any]]:
+        """Execute independent subtasks in parallel.
+
+        Args:
+            subtasks: List of subtasks to execute
+            executor_func: Function to execute each subtask
+
+        Returns:
+            List of execution results
+        """
+        import asyncio
+
+        semaphore = asyncio.Semaphore(self.max_parallel)
+
+        async def execute_with_limit(subtask: SubTask) -> Dict[str, Any]:
+            async with semaphore:
+                return await executor_func(subtask)
+
+        tasks = [execute_with_limit(st) for st in subtasks]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        return [
+            r if not isinstance(r, Exception) else {"success": False, "error": str(r)}
+            for r in results
+        ]
+
+    def get_checkpoints(self) -> List[Dict[str, Any]]:
+        """Get all saved checkpoints.
+
+        Returns:
+            List of checkpoints
+        """
+        return self._checkpoints.copy()
+
+    def restore_from_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Restore state from checkpoint.
+
+        Args:
+            checkpoint: Checkpoint data
+        """
+        logger.info(f"[EnhancedPlanExecutor] Restoring from checkpoint: {checkpoint.get('plan_id')}")
