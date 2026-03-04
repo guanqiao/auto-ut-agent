@@ -3,8 +3,9 @@
 import logging
 from typing import Dict, List, Optional, Any, Callable
 from pathlib import Path
+import asyncio
 
-from pyutagent.agent.base_agent import BaseAgent, StepResult
+from pyutagent.agent.base_agent import StepResult
 from pyutagent.core.protocols import AgentState, AgentResult
 from pyutagent.memory.working_memory import WorkingMemory
 from pyutagent.llm.client import LLMClient
@@ -12,7 +13,7 @@ from pyutagent.llm.client import LLMClient
 logger = logging.getLogger(__name__)
 
 
-class AgentCore(BaseAgent):
+class AgentCore:
     """Core ReAct Agent functionality - state management and basic lifecycle.
     
     This class handles:
@@ -20,6 +21,9 @@ class AgentCore(BaseAgent):
     - Pause/Resume/Terminate control
     - Working memory management
     - Progress callbacks
+    
+    Note: This class does NOT inherit from BaseAgent to avoid abstract method requirements.
+    It's designed to be used as a component within ReActAgent, not as a standalone agent.
     """
     
     def __init__(
@@ -37,20 +41,25 @@ class AgentCore(BaseAgent):
             project_path: Path to the project
             progress_callback: Optional callback for progress updates
         """
-        super().__init__(llm_client, working_memory, project_path, progress_callback)
-        
+        self.llm_client = llm_client
+        self.working_memory = working_memory
         self.project_path = project_path
+        self.progress_callback = progress_callback
+        
+        self.state = AgentState.IDLE
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()
+        
         self.current_test_file: Optional[str] = None
         self.target_class_info: Optional[Dict[str, Any]] = None
         self._stop_requested = False
         self._terminated = False
         
-        logger.debug(f"[AgentCore] Initialized - Project: {project_path}")
+        
     
     def stop(self):
         """Stop agent execution gracefully (legacy, use pause instead)."""
         logger.info("[AgentCore] Stopping agent execution")
-        super().request_stop()
         self._stop_requested = True
     
     def pause(self):
@@ -59,29 +68,29 @@ class AgentCore(BaseAgent):
         The agent will pause at the next checkpoint.
         """
         logger.info("[AgentCore] Pausing agent execution")
-        super().pause()
+        self._pause_event.clear()
         self._stop_requested = True
     
     def resume(self):
         """Resume agent execution."""
         logger.info("[AgentCore] Resuming agent execution")
-        super().resume()
+        self._pause_event.set()
         self._stop_requested = False
         self._terminated = False
     
     def terminate(self):
         """Terminate agent execution immediately."""
         logger.info("[AgentCore] Terminating agent execution")
-        super().terminate()
         self._terminated = True
         self._stop_requested = True
     
     def reset(self):
         """Reset agent state."""
         logger.info("[AgentCore] Resetting agent state")
-        super().reset()
+        self.state = AgentState.IDLE
         self._stop_requested = False
         self._terminated = False
+        self._pause_event.set()
     
     def _update_state(self, state: AgentState, message: str):
         """Update agent state and notify progress.
