@@ -1,0 +1,75 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(tests/fixtures/|\.trae/)
+      - id: end-of-file-fixer
+        exclude: ^(tests/fixtures/|\.trae/)
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-docstring-first
+      - id: check-json
+      - id: check-toml
+      - id: check-xml
+      - id: debug-statements
+      - id: mixed-line-ending
+
+  # Ruff - Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.9
+    hooks:
+      # Run the linter
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        exclude: ^(tests/fixtures/|\.trae/)
+      # Run the formatter
+      - id: ruff-format
+        exclude: ^(tests/fixtures/|\.trae/)
+
+  # Black - Python code formatter
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        language_version: python3
+        exclude: ^(tests/fixtures/|\.trae/)
+
+  # MyPy - Static type checker
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+        args: [--ignore-missing-imports]
+        exclude: ^(tests/|\.trae/)
+
+  # Commit message format check
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.13.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+# Configuration for commitizen (conventional commits)
+# Install: pip install commitizen
+# Usage: cz commit OR git commit (with commit-msg hook)
+# See: https://www.conventionalcommits.org/
+
+# Local hooks (optional - for project-specific checks)
+# - repo: local
+#   hooks:
+#     - id: pytest-check
+#       name: pytest-check
+#       entry: pytest tests/unit -x -q
+#       language: system
+#       pass_filenames: false
+#       always_run: true
+#       stages: [push]
