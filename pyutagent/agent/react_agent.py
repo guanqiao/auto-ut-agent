@@ -21,7 +21,7 @@ from .base_agent import BaseAgent
 from ..core.protocols import AgentState, AgentResult
 from ..memory.working_memory import WorkingMemory
 from ..llm.client import LLMClient
-from ..core.container import Container
+from ..core.container import Container, get_container
 from ..core.config import get_settings
 
 from .components import (
