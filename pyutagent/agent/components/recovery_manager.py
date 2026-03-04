@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from pyutagent.core.error_recovery import ErrorCategory, RecoveryStrategy
+from pyutagent.core.error_classification import get_error_classification_service
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ class AgentRecoveryManager:
     """Handles error recovery with learning and optimization.
     
     Features:
-    - Error categorization
+    - Error categorization (using unified service)
     - Strategy suggestion from error learner
     - Strategy optimization
     - Recovery outcome recording
@@ -28,6 +29,7 @@ class AgentRecoveryManager:
         """
         self.components = components
         self.agent_core = agent_core
+        self.error_classifier = get_error_classification_service()
         
         logger.debug("[AgentRecoveryManager] Initialized")
     
@@ -39,6 +41,8 @@ class AgentRecoveryManager:
         attempt: int
     ) -> Dict[str, Any]:
         """Recover from an error with learning and optimization.
+        
+        Uses unified error classification service for consistent categorization.
         
         Args:
             error: The error that occurred
@@ -52,8 +56,7 @@ class AgentRecoveryManager:
         import time
         start_time = time.time()
         
-        error_message = str(error).lower()
-        if "no compilation errors" in error_message or "no test failures" in error_message or "all tests passed" in error_message:
+        if self.error_classifier.should_skip_recovery(error):
             logger.info(f"[AgentRecoveryManager] Detected false positive error, skipping recovery")
             return {
                 "should_continue": True,
@@ -63,7 +66,7 @@ class AgentRecoveryManager:
         
         logger.info(f"[AgentRecoveryManager] Attempting recovery - Error: {error}, Context: {context}")
         
-        error_category = self._categorize_error(error, context)
+        error_category = self.error_classifier.classify(error, context)
         
         suggested_strategy = self.components["error_learner"].suggest_strategy(error, error_category, context)
         if suggested_strategy:
@@ -115,34 +118,6 @@ class AgentRecoveryManager:
         logger.info(f"[AgentRecoveryManager] Recovery result - Action: {recovery_result.get('action')}, ShouldContinue: {recovery_result.get('should_continue')}")
         
         return recovery_result
-    
-    def _categorize_error(self, error: Exception, context: Dict[str, Any]) -> ErrorCategory:
-        """Categorize an error for learning purposes.
-        
-        Args:
-            error: The error that occurred
-            context: Error context
-            
-        Returns:
-            ErrorCategory enum value
-        """
-        error_message = str(error).lower()
-        step = context.get("step", "")
-        
-        if "compile" in step or "compilation" in error_message:
-            return ErrorCategory.COMPILATION_ERROR
-        elif "test" in step and "fail" in error_message:
-            return ErrorCategory.TEST_FAILURE
-        elif "timeout" in error_message:
-            return ErrorCategory.TIMEOUT
-        elif "network" in error_message or "connection" in error_message:
-            return ErrorCategory.NETWORK
-        elif "api" in error_message or "llm" in error_message:
-            return ErrorCategory.LLM_API_ERROR
-        elif "parse" in error_message:
-            return ErrorCategory.PARSING_ERROR
-        else:
-            return ErrorCategory.UNKNOWN
     
     def _determine_strategy_from_action(self, action: str) -> RecoveryStrategy:
         """Determine recovery strategy from action type.

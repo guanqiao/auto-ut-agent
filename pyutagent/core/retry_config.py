@@ -37,8 +37,8 @@ class RetryConfig:
     
     max_total_attempts: int = 50
     max_step_attempts: int = 5
-    max_compilation_attempts: int = 5
-    max_test_attempts: int = 5
+    max_compilation_attempts: int = 2
+    max_test_attempts: int = 2
     
     backoff_base: float = 2.0
     backoff_max: float = 60.0

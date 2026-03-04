@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from pyutagent.core.protocols import AgentState, AgentResult
+from pyutagent.core.termination import TerminationChecker, TerminationReason
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,8 @@ class FeedbackLoopExecutor:
     4. Run tests -> if fails, AI analyzes & fixes -> retry
     5. Check coverage -> if < target, generate additional tests -> back to 3
     6. Repeat until success or user stops
+    
+    Uses TerminationChecker for unified termination condition checking.
     """
     
     def __init__(self, agent_core: Any, step_executor: Any):
@@ -31,6 +34,11 @@ class FeedbackLoopExecutor:
         """
         self.agent_core = agent_core
         self.step_executor = step_executor
+        
+        self.termination_checker = TerminationChecker(
+            max_iterations=agent_core.max_iterations,
+            target_coverage=agent_core.target_coverage
+        )
         
         logger.debug("[FeedbackLoopExecutor] Initialized")
     
@@ -146,10 +154,14 @@ class FeedbackLoopExecutor:
     async def _phase_feedback_loop(self) -> AgentResult:
         """Phase 3-6: Compile-Test-Analyze-Optimize loop.
         
+        Uses TerminationChecker for unified termination condition checking.
+        
         Returns:
             AgentResult with final results
         """
         loop_start_time = asyncio.get_event_loop().time()
+        
+        self.termination_checker.start()
         
         self.agent_core._update_state(AgentState.COMPILING, "🔨 Step 3/6: Compiling generated tests...")
         logger.info("[FeedbackLoopExecutor] 🔨 Step 3: Starting compile-test loop")
@@ -163,7 +175,22 @@ class FeedbackLoopExecutor:
             
             logger.info(f"[FeedbackLoopExecutor] 🔄 ===== Iteration {self.agent_core.current_iteration}/{self.agent_core.max_iterations} started =====")
             
-            if self._should_stop_iteration():
+            term_state = self.termination_checker.check(
+                current_iteration=self.agent_core.current_iteration,
+                current_coverage=self.agent_core.working_memory.current_coverage,
+                is_stopped=self.agent_core._stop_requested,
+                is_terminated=self.agent_core._terminated
+            )
+            
+            if term_state.should_stop:
+                logger.info(f"[FeedbackLoopExecutor] Termination requested - {term_state.message}")
+                if term_state.reason == TerminationReason.TARGET_COVERAGE_REACHED:
+                    self.agent_core._update_state(AgentState.COMPLETED, term_state.message)
+                    return self.agent_core._create_success_result(
+                        self.agent_core.working_memory.current_coverage
+                    )
+                elif term_state.reason == TerminationReason.MAX_ITERATIONS:
+                    self.agent_core._update_state(AgentState.COMPLETED, term_state.message)
                 break
             
             iteration_result = await self._execute_iteration()
@@ -175,23 +202,31 @@ class FeedbackLoopExecutor:
     def _should_stop_iteration(self) -> bool:
         """Check if iteration should stop based on termination conditions.
         
+        Uses TerminationChecker for unified checking.
+        
         Returns:
             True if should stop, False otherwise
         """
-        if self.agent_core.current_iteration > self.agent_core.max_iterations:
-            logger.warning(f"[FeedbackLoopExecutor] Max iterations reached - Max: {self.agent_core.max_iterations}, FinalCoverage: {self.agent_core.working_memory.current_coverage:.1%}")
-            self.agent_core._update_state(
-                AgentState.COMPLETED,
-                f"Max iterations ({self.agent_core.max_iterations}) reached. Final coverage: {self.agent_core.working_memory.current_coverage:.1%}"
-            )
-            return True
+        term_state = self.termination_checker.check(
+            current_iteration=self.agent_core.current_iteration,
+            current_coverage=self.agent_core.working_memory.current_coverage,
+            is_stopped=self.agent_core._stop_requested,
+            is_terminated=self.agent_core._terminated
+        )
         
-        if self.agent_core.working_memory.current_coverage >= self.agent_core.target_coverage:
-            logger.info(f"[FeedbackLoopExecutor] Target coverage reached - Current: {self.agent_core.working_memory.current_coverage:.1%}, Target: {self.agent_core.target_coverage:.1%}")
-            self.agent_core._update_state(
-                AgentState.COMPLETED,
-                f"Target coverage reached: {self.agent_core.working_memory.current_coverage:.1%}"
-            )
+        if term_state.should_stop:
+            if term_state.reason == TerminationReason.MAX_ITERATIONS:
+                logger.warning(f"[FeedbackLoopExecutor] Max iterations reached - Max: {self.agent_core.max_iterations}, FinalCoverage: {self.agent_core.working_memory.current_coverage:.1%}")
+                self.agent_core._update_state(
+                    AgentState.COMPLETED,
+                    f"Max iterations ({self.agent_core.max_iterations}) reached. Final coverage: {self.agent_core.working_memory.current_coverage:.1%}"
+                )
+            elif term_state.reason == TerminationReason.TARGET_COVERAGE_REACHED:
+                logger.info(f"[FeedbackLoopExecutor] Target coverage reached - Current: {self.agent_core.working_memory.current_coverage:.1%}, Target: {self.agent_core.target_coverage:.1%}")
+                self.agent_core._update_state(
+                    AgentState.COMPLETED,
+                    f"Target coverage reached: {self.agent_core.working_memory.current_coverage:.1%}"
+                )
             return True
         
         return False

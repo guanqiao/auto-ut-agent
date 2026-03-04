@@ -5,16 +5,19 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
+from datetime import datetime
+
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar,
     QSpinBox, QCheckBox, QGroupBox, QAbstractItemView, QMessageBox,
-    QWidget
+    QWidget, QTextEdit, QSplitter
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor
 
 from pyutagent.core.config import get_settings
+from pyutagent.ui.log_handler import LogEmitter
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +27,9 @@ class BatchGenerateWorker(QThread):
     
     progress_updated = pyqtSignal(str, str, float, int, float, str)
     file_completed = pyqtSignal(str, bool, float, int, str, float)
-    all_completed = pyqtSignal(int, int, float, object)  # Added compilation_result
+    all_completed = pyqtSignal(int, int, float, object)
     error = pyqtSignal(str)
+    log_message = pyqtSignal(str, str)
     
     def __init__(
         self,
@@ -52,9 +56,14 @@ class BatchGenerateWorker(QThread):
         self.defer_compilation = defer_compilation
         self.compile_only_at_end = compile_only_at_end
         self._stop_requested = False
+        self._log_emitter: Optional[LogEmitter] = None
     
     def run(self):
         """Run batch generation."""
+        self._log_emitter = LogEmitter()
+        self._log_emitter.log_message.connect(self._on_log)
+        self._log_emitter.install_handler('pyutagent')
+        
         try:
             from pyutagent.services.batch_generator import BatchGenerator, BatchConfig
             
@@ -111,6 +120,13 @@ class BatchGenerateWorker(QThread):
         except Exception as e:
             logger.exception("Batch generation error")
             self.error.emit(str(e))
+        finally:
+            if self._log_emitter:
+                self._log_emitter.uninstall_handler('pyutagent')
+    
+    def _on_log(self, message: str, level: str):
+        """Handle log message from LogEmitter."""
+        self.log_message.emit(message, level)
     
     def stop(self):
         """Stop the generation."""
@@ -280,6 +296,35 @@ class BatchGenerateDialog(QDialog):
         progress_layout.addLayout(status_layout)
         
         layout.addWidget(progress_group)
+        
+        log_group = QGroupBox("Logs")
+        log_layout = QVBoxLayout(log_group)
+        
+        log_header_layout = QHBoxLayout()
+        log_header_layout.addStretch()
+        self.clear_log_btn = QPushButton("Clear")
+        self.clear_log_btn.setMaximumWidth(60)
+        self.clear_log_btn.clicked.connect(self.clear_log)
+        log_header_layout.addWidget(self.clear_log_btn)
+        log_layout.addLayout(log_header_layout)
+        
+        self.log_area = QTextEdit()
+        self.log_area.setReadOnly(True)
+        self.log_area.setStyleSheet("""
+            QTextEdit {
+                background-color: #1e1e1e;
+                color: #d4d4d4;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 12px;
+                border: 1px solid #3c3c3c;
+                border-radius: 4px;
+                padding: 5px;
+            }
+        """)
+        self.log_area.setMaximumHeight(200)
+        log_layout.addWidget(self.log_area)
+        
+        layout.addWidget(log_group)
         
         button_layout = QHBoxLayout()
         button_layout.addStretch()
@@ -451,6 +496,7 @@ class BatchGenerateDialog(QDialog):
         self.worker.file_completed.connect(self.on_file_completed)
         self.worker.all_completed.connect(self.on_all_completed)
         self.worker.error.connect(self.on_error)
+        self.worker.log_message.connect(self.on_log_message)
         
         self.worker.start()
         self.status_label.setText("Running...")
@@ -486,6 +532,29 @@ class BatchGenerateDialog(QDialog):
         if self._is_running:
             elapsed = time.time() - self._start_time
             self.time_label.setText(f"Elapsed: {int(elapsed)}s")
+    
+    def on_log_message(self, message: str, level: str):
+        """Handle log message from worker."""
+        colors = {
+            "DEBUG": "#808080",
+            "INFO": "#4FC1FF",
+            "WARNING": "#FFCC00",
+            "ERROR": "#FF6B6B",
+            "CRITICAL": "#FF0000",
+        }
+        color = colors.get(level.upper(), "#d4d4d4")
+        
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] [{level.upper()}] {message}"
+        
+        self.log_area.append(f'<span style="color: {color};">{formatted_message}</span>')
+        
+        scrollbar = self.log_area.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+    
+    def clear_log(self):
+        """Clear log area."""
+        self.log_area.clear()
     
     def on_progress_updated(self, current_file, status, progress, completed, duration, error):
         """Handle progress update."""

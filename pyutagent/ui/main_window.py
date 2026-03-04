@@ -22,6 +22,7 @@ from .dialogs.jdk_config_dialog import JDKConfigDialog
 from .dialogs.project_stats_dialog import ProjectStatsDialog
 from .dialogs.config_overview_dialog import ConfigOverviewDialog
 from .batch_generate_dialog import BatchGenerateDialog
+from .log_handler import LogEmitter
 from ..core.config import (
     LLMConfig,
     LLMConfigCollection,
@@ -47,12 +48,12 @@ class AgentWorker(QThread):
 
     progress_updated = pyqtSignal(dict)
     state_changed = pyqtSignal(str, str)
-    log_message = pyqtSignal(str)
+    log_message = pyqtSignal(str, str)
     completed = pyqtSignal(dict)
     error = pyqtSignal(str)
-    paused = pyqtSignal()  # Emitted when agent is paused
-    resumed = pyqtSignal()  # Emitted when agent is resumed
-    terminated = pyqtSignal()  # Emitted when agent is terminated
+    paused = pyqtSignal()
+    resumed = pyqtSignal()
+    terminated = pyqtSignal()
 
     def __init__(
         self,
@@ -72,9 +73,14 @@ class AgentWorker(QThread):
         self._is_paused = False
         self.agent: Optional[ReActAgent] = None
         self._lock = asyncio.Lock()
+        self._log_emitter: Optional[LogEmitter] = None
 
     def run(self):
         """Run the agent."""
+        self._log_emitter = LogEmitter()
+        self._log_emitter.log_message.connect(self._on_log)
+        self._log_emitter.install_handler('pyutagent')
+        
         try:
             working_memory = WorkingMemory(
                 target_coverage=self.target_coverage,
@@ -123,10 +129,17 @@ class AgentWorker(QThread):
         except Exception as e:
             logger.exception("Agent worker failed")
             self.error.emit(str(e))
+        finally:
+            if self._log_emitter:
+                self._log_emitter.uninstall_handler('pyutagent')
 
     async def _run_agent(self):
         """Run the agent with pause/resume support."""
         return await self.agent.generate_tests(self.target_file)
+    
+    def _on_log(self, message: str, level: str):
+        """Handle log message from LogEmitter."""
+        self.log_message.emit(message, level)
 
     def pause(self):
         """Pause the agent."""

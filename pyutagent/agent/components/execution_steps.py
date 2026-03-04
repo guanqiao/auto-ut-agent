@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from pyutagent.agent.base_agent import StepResult
 from pyutagent.core.protocols import AgentState
 from pyutagent.core.config import get_settings
+from pyutagent.core.retry_config import RetryConfig, DEFAULT_RETRY_CONFIG
+from pyutagent.core.error_classification import get_error_classification_service
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +27,18 @@ class StepExecutor:
     - Incremental fix handling
     """
     
-    def __init__(self, agent_core: Any, components: Dict[str, Any]):
+    def __init__(self, agent_core: Any, components: Dict[str, Any], retry_config: Optional[RetryConfig] = None):
         """Initialize step executor.
         
         Args:
             agent_core: AgentCore instance
             components: Dictionary of all components
+            retry_config: Optional retry configuration
         """
         self.agent_core = agent_core
         self.components = components
+        self.retry_config = retry_config or DEFAULT_RETRY_CONFIG
+        self.error_classifier = get_error_classification_service()
         
         logger.debug("[StepExecutor] Initialized")
     
@@ -46,6 +51,8 @@ class StepExecutor:
     ) -> StepResult:
         """Execute an operation with automatic error recovery.
         
+        Now includes unified maximum attempt limits to prevent infinite loops.
+        
         Args:
             operation: The operation to execute
             *args: Positional arguments
@@ -56,13 +63,22 @@ class StepExecutor:
             StepResult
         """
         attempt = 0
+        max_attempts = self.retry_config.get_max_attempts(step_name)
         
-        logger.info(f"[StepExecutor] Starting step execution - Step: {step_name}")
+        logger.info(f"[StepExecutor] Starting step execution - Step: {step_name}, MaxAttempts: {max_attempts}")
         
         while not self.agent_core._stop_requested and not self.agent_core._terminated:
             attempt += 1
             
-            logger.debug(f"[StepExecutor] Step attempt - Step: {step_name}, Attempt: {attempt}")
+            if self.retry_config.should_stop(attempt, step_name):
+                logger.error(f"[StepExecutor] Exceeded maximum attempts - Step: {step_name}, Attempts: {attempt}/{max_attempts}")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message=f"Exceeded maximum attempts ({attempt}) for {step_name}"
+                )
+            
+            logger.debug(f"[StepExecutor] Step attempt - Step: {step_name}, Attempt: {attempt}/{max_attempts}")
             
             try:
                 if asyncio.iscoroutinefunction(operation):
@@ -104,6 +120,11 @@ class StepExecutor:
                             step_name="regenerating tests"
                         )
                     
+                    delay = self.retry_config.get_delay(attempt)
+                    if delay > 0:
+                        logger.debug(f"[StepExecutor] Waiting {delay:.1f}s before retry")
+                        await asyncio.sleep(delay)
+                    
                     continue
                     
             except Exception as e:
@@ -135,6 +156,11 @@ class StepExecutor:
                         message=f"Skipped {step_name}",
                         data={}
                     )
+                
+                delay = self.retry_config.get_delay(attempt)
+                if delay > 0:
+                    logger.debug(f"[StepExecutor] Waiting {delay:.1f}s before retry")
+                    await asyncio.sleep(delay)
                 
                 continue
         
@@ -1133,6 +1159,8 @@ class StepExecutor:
     async def _try_recover(self, error: Exception, context: Dict[str, Any]) -> Dict[str, Any]:
         """Try to recover from an error with learning and optimization.
         
+        Uses unified error classification service for consistent categorization.
+        
         Args:
             error: The error that occurred
             context: Error context
@@ -1143,8 +1171,7 @@ class StepExecutor:
         import time
         start_time = time.time()
         
-        error_message = str(error).lower()
-        if "no compilation errors" in error_message or "no test failures" in error_message or "all tests passed" in error_message:
+        if self.error_classifier.should_skip_recovery(error):
             logger.info(f"[StepExecutor] Detected false positive error, skipping recovery")
             return {
                 "should_continue": True,
@@ -1154,7 +1181,7 @@ class StepExecutor:
         
         logger.info(f"[StepExecutor] Attempting recovery - Error: {error}, Context: {context}")
         
-        error_category = self._categorize_error(error, context)
+        error_category = self.error_classifier.classify(error, context)
         
         suggested_strategy = self.components["error_learner"].suggest_strategy(error, error_category, context)
         if suggested_strategy:
@@ -1213,36 +1240,6 @@ class StepExecutor:
         logger.info(f"[StepExecutor] Recovery result - Action: {recovery_result.get('action')}, ShouldContinue: {recovery_result.get('should_continue')}")
         
         return recovery_result
-    
-    def _categorize_error(self, error: Exception, context: Dict[str, Any]) -> Any:
-        """Categorize an error for learning purposes.
-        
-        Args:
-            error: The error that occurred
-            context: Error context
-            
-        Returns:
-            ErrorCategory enum value
-        """
-        from pyutagent.core.error_recovery import ErrorCategory
-        
-        error_message = str(error).lower()
-        step = context.get("step", "")
-        
-        if "compile" in step or "compilation" in error_message:
-            return ErrorCategory.COMPILATION_ERROR
-        elif "test" in step and "fail" in error_message:
-            return ErrorCategory.TEST_FAILURE
-        elif "timeout" in error_message:
-            return ErrorCategory.TIMEOUT
-        elif "network" in error_message or "connection" in error_message:
-            return ErrorCategory.NETWORK
-        elif "api" in error_message or "llm" in error_message:
-            return ErrorCategory.LLM_API_ERROR
-        elif "parse" in error_message:
-            return ErrorCategory.PARSING_ERROR
-        else:
-            return ErrorCategory.UNKNOWN
     
     def _optimize_prompt(self, base_prompt: str, task_type: str) -> str:
         """Optimize prompt for the configured model.
