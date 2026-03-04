@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor
 
+from pyutagent.core.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -431,6 +433,7 @@ class BatchGenerateDialog(QDialog):
             compile_only_at_end = True
         # else: standard mode (both False)
         
+        settings = get_settings()
         self.worker = BatchGenerateWorker(
             llm_client=self.llm_client,
             project_path=self.project_path,
@@ -438,7 +441,7 @@ class BatchGenerateDialog(QDialog):
             parallel_workers=self.parallel_spin.value(),
             timeout=self.timeout_spin.value(),
             coverage_target=self.coverage_spin.value(),
-            max_iterations=10,
+            max_iterations=settings.coverage.max_iterations,
             continue_on_error=self.continue_check.isChecked(),
             defer_compilation=defer_compilation,
             compile_only_at_end=compile_only_at_end
