@@ -380,33 +380,63 @@ Output the new test methods:"""
             for test in tests_to_fix:
                 test_name = test.method_name if hasattr(test, 'method_name') else str(test)
                 error_msg = test.error_message if hasattr(test, 'error_message') else "Unknown error"
-                fix_items.append(f"### {test_name}\nError: {error_msg}")
+                stack_trace = test.stack_trace if hasattr(test, 'stack_trace') else None
+                
+                fix_item = f"### {test_name}\n**Error:** {error_msg}"
+                if stack_trace and len(stack_trace) > 0:
+                    stack_preview = stack_trace[:500] if len(stack_trace) > 500 else stack_trace
+                    fix_item += f"\n**Stack Trace:**\n```\n{stack_preview}\n```"
+                fix_items.append(fix_item)
+            
             tests_to_fix_section = f"""
 ## Tests to Fix (REGENERATE THESE)
 The following tests are FAILING and need to be fixed:
+
 {chr(10).join(fix_items)}
+
+**Instructions for fixing:**
+1. Analyze the error message and stack trace
+2. Identify the root cause (wrong assertion, missing mock, incorrect setup)
+3. Generate a corrected version of the test
+4. Ensure the fix addresses the specific error
 """
         
         uncovered_section = ""
         if uncovered_info:
             uncovered_lines = uncovered_info.get("lines", [])
             uncovered_methods = uncovered_info.get("methods", [])
+            uncovered_branches = uncovered_info.get("branches", [])
             
             lines_str = ", ".join(map(str, uncovered_lines[:20]))
             if len(uncovered_lines) > 20:
                 lines_str += f" and {len(uncovered_lines) - 20} more"
             
             methods_str = "\n".join([f"- {m}" for m in uncovered_methods[:10]])
+            if len(uncovered_methods) > 10:
+                methods_str += f"\n- ... and {len(uncovered_methods) - 10} more methods"
+            
+            branches_str = ""
+            if uncovered_branches:
+                branches_str = f"\n\n**Uncovered Branches:** {len(uncovered_branches)} branches need coverage"
             
             if uncovered_lines or uncovered_methods:
                 uncovered_section = f"""
 ## Uncovered Code (GENERATE NEW TESTS FOR THESE)
-Current coverage: {current_coverage:.1%} (Target: {target_coverage:.1%})
+**Current coverage:** {current_coverage:.1%} (Target: {target_coverage:.1%})
+**Coverage gap:** {(target_coverage - current_coverage):.1%} more needed
 
-Uncovered Lines: {lines_str}
+**Uncovered Lines:** {lines_str}
+({len(uncovered_lines)} total lines need coverage)
 
-Uncovered Methods:
-{methods_str}
+**Uncovered Methods:**
+{methods_str if methods_str else "All methods have some coverage"}
+{branches_str}
+
+**Instructions for new tests:**
+1. Focus on uncovered lines and methods first
+2. Add edge case tests for boundary conditions
+3. Add tests for error handling paths
+4. Consider both happy path and negative scenarios
 """
         
         return f"""{self.system_prompt}

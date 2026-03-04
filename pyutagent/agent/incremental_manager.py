@@ -61,6 +61,7 @@ class ExistingTestAnalysis:
         failing_tests: List of failing test method names
         error_tests: List of tests with errors
         skipped_tests: List of skipped tests
+        test_results: Detailed test results with error messages
         current_coverage: Current line coverage percentage
         uncovered_lines: List of uncovered line numbers
         uncovered_branches: List of uncovered branch info
@@ -76,6 +77,7 @@ class ExistingTestAnalysis:
     failing_tests: List[str] = field(default_factory=list)
     error_tests: List[str] = field(default_factory=list)
     skipped_tests: List[str] = field(default_factory=list)
+    test_results: List[TestMethodResult] = field(default_factory=list)
     current_coverage: float = 0.0
     uncovered_lines: List[int] = field(default_factory=list)
     uncovered_branches: List[int] = field(default_factory=list)
@@ -115,6 +117,20 @@ class ExistingTestAnalysis:
     def should_use_incremental(self) -> bool:
         """Determine if incremental mode should be used."""
         return self.has_passing_tests and not self.has_compilation_errors
+    
+    def get_test_result(self, method_name: str) -> Optional[TestMethodResult]:
+        """Get detailed test result for a specific method.
+        
+        Args:
+            method_name: Name of the test method
+            
+        Returns:
+            TestMethodResult if found, None otherwise
+        """
+        for result in self.test_results:
+            if result.method_name == method_name:
+                return result
+        return None
 
 
 @dataclass
@@ -272,6 +288,24 @@ class IncrementalTestManager:
         
         if not run_tests or self.config.skip_analysis:
             logger.info("[IncrementalTestManager] Skipping test execution analysis")
+            
+            if self.maven_runner:
+                try:
+                    compile_result = await self._compile_test_file(test_file_path)
+                    if not compile_result.success:
+                        analysis.has_compilation_errors = True
+                        analysis.compilation_errors = compile_result.data.get("errors", [])
+                        logger.warning(
+                            f"[IncrementalTestManager] Existing tests have compilation errors: "
+                            f"{len(analysis.compilation_errors)} error(s)"
+                        )
+                        return analysis
+                except Exception as e:
+                    logger.warning(f"[IncrementalTestManager] Failed to compile existing tests: {e}")
+                    analysis.has_compilation_errors = True
+                    analysis.compilation_errors = [str(e)]
+                    return analysis
+            
             analysis.passing_tests = [m.method_name for m in test_methods]
             return analysis
         
@@ -293,6 +327,7 @@ class IncrementalTestManager:
                         t.method_name for t in test_result.test_results
                         if t.status == TestStatus.SKIPPED
                     ]
+                    analysis.test_results = test_result.test_results
                     analysis.last_run_time = datetime.now()
                     
                     logger.info(
@@ -360,11 +395,121 @@ class IncrementalTestManager:
             logger.error(f"[IncrementalTestManager] Error running tests: {e}")
             return None
     
+    async def _compile_test_file(self, test_file_path: str) -> "StepResult":
+        """Compile a test file to check for compilation errors.
+        
+        Args:
+            test_file_path: Path to the test file
+            
+        Returns:
+            StepResult with compilation results
+        """
+        from pyutagent.agent.base_agent import StepResult
+        import asyncio
+        
+        logger.info(f"[IncrementalTestManager] Compiling test file: {test_file_path}")
+        
+        try:
+            from pyutagent.tools.maven_tools import find_maven_executable
+            from pyutagent.tools.java_tools import find_javac_executable
+            
+            settings = get_settings()
+            full_path = self.project_path / test_file_path
+            
+            mvn_exe = find_maven_executable()
+            if mvn_exe:
+                maven_process = await asyncio.create_subprocess_exec(
+                    mvn_exe, "test-compile", "-q",
+                    cwd=str(self.project_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await maven_process.communicate()
+                
+                if maven_process.returncode == 0:
+                    logger.info("[IncrementalTestManager] Compilation successful")
+                    return StepResult(
+                        success=True,
+                        state=None,
+                        message="Compilation successful"
+                    )
+                else:
+                    stderr_text = stderr.decode('utf-8', errors='replace') if stderr else ""
+                    errors = [line.strip() for line in stderr_text.split('\n') if line.strip() and 'error' in line.lower()]
+                    if not errors:
+                        errors = ["Compilation failed"]
+                    
+                    logger.warning(f"[IncrementalTestManager] Compilation failed: {len(errors)} error(s)")
+                    return StepResult(
+                        success=False,
+                        state=None,
+                        message="Compilation failed",
+                        data={"errors": errors}
+                    )
+            
+            javac_exe = find_javac_executable()
+            if javac_exe:
+                classpath = ""
+                cp_file = self.project_path / "cp.txt"
+                if cp_file.exists():
+                    classpath = cp_file.read_text(encoding='utf-8').strip()
+                
+                target_classes = self.project_path / settings.project_paths.target_classes
+                target_test_classes = self.project_path / settings.project_paths.target_test_classes
+                if classpath:
+                    classpath = f"{target_classes};{target_test_classes};{classpath}"
+                else:
+                    classpath = f"{target_classes};{target_test_classes}"
+                
+                compile_process = await asyncio.create_subprocess_exec(
+                    javac_exe, "-cp", classpath,
+                    "-d", str(self.project_path / "target" / "test-classes"),
+                    str(full_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await compile_process.communicate()
+                
+                if compile_process.returncode == 0:
+                    logger.info("[IncrementalTestManager] Compilation successful (javac)")
+                    return StepResult(
+                        success=True,
+                        state=None,
+                        message="Compilation successful"
+                    )
+                else:
+                    stderr_text = stderr.decode('utf-8', errors='replace') if stderr else ""
+                    errors = [line.strip() for line in stderr_text.split('\n') if line.strip()]
+                    
+                    logger.warning(f"[IncrementalTestManager] Compilation failed (javac): {len(errors)} error(s)")
+                    return StepResult(
+                        success=False,
+                        state=None,
+                        message="Compilation failed",
+                        data={"errors": errors}
+                    )
+            
+            logger.warning("[IncrementalTestManager] No compiler available, skipping compilation check")
+            return StepResult(
+                success=True,
+                state=None,
+                message="No compiler available, assuming compilation succeeds"
+            )
+            
+        except Exception as e:
+            logger.error(f"[IncrementalTestManager] Compilation check error: {e}")
+            return StepResult(
+                success=False,
+                state=None,
+                message=f"Compilation check error: {str(e)}",
+                data={"errors": [str(e)]}
+            )
+    
     def _analyze_coverage(self) -> Optional[Dict[str, Any]]:
         """Analyze current test coverage.
         
         Returns:
-            Coverage information dictionary
+            Coverage information dictionary with uncovered lines
         """
         if not self.coverage_analyzer:
             return None
@@ -373,12 +518,21 @@ class IncrementalTestManager:
             report = self.coverage_analyzer.parse_report()
             
             if report:
+                uncovered_lines = []
+                uncovered_branches = []
+                
+                if report.files:
+                    for file_coverage in report.files:
+                        for line_num, is_covered in file_coverage.lines:
+                            if not is_covered:
+                                uncovered_lines.append(line_num)
+                
                 return {
                     "line_coverage": report.line_coverage,
                     "branch_coverage": report.branch_coverage,
                     "method_coverage": report.method_coverage,
-                    "uncovered_lines": [],
-                    "uncovered_branches": [],
+                    "uncovered_lines": uncovered_lines,
+                    "uncovered_branches": uncovered_branches,
                 }
         except Exception as e:
             logger.warning(f"[IncrementalTestManager] Coverage analysis error: {e}")
@@ -426,17 +580,24 @@ class IncrementalTestManager:
         
         if analysis.has_failing_tests and self.config.force_regenerate_failed:
             for test_name in analysis.failing_tests + analysis.error_tests:
-                for method in analysis.test_methods:
-                    if method.method_name == test_name:
-                        context.tests_to_fix.append(TestMethodResult(
-                            method_name=test_name,
-                            status=TestStatus.FAILED,
-                        ))
-                        break
+                test_result = analysis.get_test_result(test_name)
+                if test_result:
+                    context.tests_to_fix.append(test_result)
+                else:
+                    context.tests_to_fix.append(TestMethodResult(
+                        method_name=test_name,
+                        status=TestStatus.FAILED,
+                    ))
             
             logger.info(
                 f"[IncrementalTestManager] Identified {len(context.tests_to_fix)} tests to fix"
             )
+            for test in context.tests_to_fix:
+                if test.error_message:
+                    logger.debug(
+                        f"[IncrementalTestManager] Test to fix: {test.method_name} - "
+                        f"Error: {test.error_message[:100] if test.error_message else 'N/A'}"
+                    )
         
         context.target_coverage_gap = max(0, target_coverage - analysis.current_coverage)
         
@@ -491,6 +652,12 @@ class IncrementalTestManager:
     ) -> str:
         """Merge preserved tests with new tests.
         
+        This method:
+        1. Merges imports from both code versions
+        2. Preserves setup/teardown methods (@BeforeEach, @AfterEach, etc.)
+        3. Preserves helper methods that are not test methods
+        4. Deduplicates test methods (new tests override preserved ones)
+        
         Args:
             preserved_test_code: Code of preserved tests
             new_test_code: Code of new tests
@@ -516,23 +683,193 @@ class IncrementalTestManager:
             if m.method_name not in new_method_names
         ]
         
-        skeleton = self.parser.extract_class_skeleton(preserved_test_code)
+        merged_imports = self._merge_imports(preserved_test_code, new_test_code)
         
-        all_methods = filtered_preserved + new_methods
-        method_codes = [m.content for m in all_methods]
+        setup_methods = self._extract_setup_methods(preserved_test_code, new_test_code)
+        
+        helper_methods = self._extract_helper_methods(preserved_test_code, new_test_code, new_method_names)
+        
+        skeleton = self.parser.extract_class_skeleton(new_test_code)
+        
+        all_test_methods = filtered_preserved + new_methods
+        method_codes = [m.content for m in all_test_methods]
+        
+        all_code_parts = []
+        
+        if setup_methods:
+            all_code_parts.extend(setup_methods)
+        
+        if helper_methods:
+            all_code_parts.extend(helper_methods)
+        
+        all_code_parts.extend(method_codes)
         
         last_brace = skeleton.rfind('}')
         if last_brace > 0:
-            merged = skeleton[:last_brace] + "\n\n" + "\n\n".join(method_codes) + "\n}"
+            merged = skeleton[:last_brace] + "\n\n" + "\n\n".join(all_code_parts) + "\n}"
         else:
-            merged = skeleton + "\n\n" + "\n\n".join(method_codes)
+            merged = skeleton + "\n\n" + "\n\n".join(all_code_parts)
+        
+        if merged_imports:
+            package_end = merged.find(';')
+            if package_end > 0:
+                next_line = merged.find('\n', package_end)
+                if next_line > 0:
+                    merged = merged[:next_line + 1] + "\n" + merged_imports + merged[next_line + 1:]
+            else:
+                merged = merged_imports + "\n\n" + merged
         
         logger.info(
             f"[IncrementalTestManager] Merged {len(filtered_preserved)} preserved + "
-            f"{len(new_methods)} new = {len(all_methods)} total tests"
+            f"{len(new_methods)} new = {len(all_test_methods)} total tests, "
+            f"{len(setup_methods)} setup methods, {len(helper_methods)} helper methods"
         )
         
         return merged
+    
+    def _merge_imports(self, code1: str, code2: str) -> str:
+        """Merge imports from two code versions.
+        
+        Args:
+            code1: First code version
+            code2: Second code version
+            
+        Returns:
+            Merged import statements
+        """
+        import re
+        
+        import_pattern = re.compile(r'^import\s+[\w.]+(?:\.\*)?\s*;\s*$', re.MULTILINE)
+        
+        imports1 = set(import_pattern.findall(code1))
+        imports2 = set(import_pattern.findall(code2))
+        
+        all_imports = imports1 | imports2
+        
+        sorted_imports = sorted(all_imports, key=lambda x: (
+            not x.startswith('import static'),
+            x.replace('import static', 'import')
+        ))
+        
+        return '\n'.join(sorted_imports) if sorted_imports else ""
+    
+    def _extract_setup_methods(self, code1: str, code2: str) -> List[str]:
+        """Extract setup/teardown methods from code.
+        
+        Args:
+            code1: First code version
+            code2: Second code version
+            
+        Returns:
+            List of setup method code
+        """
+        import re
+        
+        setup_pattern = re.compile(
+            r'@(BeforeEach|AfterEach|BeforeAll|AfterAll|Before|After)\s*\n'
+            r'(?:public\s+|private\s+|protected\s+)?'
+            r'(?:static\s+)?'
+            r'void\s+(\w+)\s*\([^)]*\)\s*(?:throws\s+[\w,\s]+)?\s*\{',
+            re.MULTILINE
+        )
+        
+        setup_methods = []
+        seen_names = set()
+        
+        for match in setup_pattern.finditer(code2):
+            method_name = match.group(2)
+            if method_name not in seen_names:
+                start = match.start()
+                brace_count = 1
+                pos = match.end()
+                while brace_count > 0 and pos < len(code2):
+                    if code2[pos] == '{':
+                        brace_count += 1
+                    elif code2[pos] == '}':
+                        brace_count -= 1
+                    pos += 1
+                setup_methods.append(code2[start:pos])
+                seen_names.add(method_name)
+        
+        for match in setup_pattern.finditer(code1):
+            method_name = match.group(2)
+            if method_name not in seen_names:
+                start = match.start()
+                brace_count = 1
+                pos = match.end()
+                while brace_count > 0 and pos < len(code1):
+                    if code1[pos] == '{':
+                        brace_count += 1
+                    elif code1[pos] == '}':
+                        brace_count -= 1
+                    pos += 1
+                setup_methods.append(code1[start:pos])
+                seen_names.add(method_name)
+        
+        return setup_methods
+    
+    def _extract_helper_methods(
+        self, 
+        code1: str, 
+        code2: str, 
+        test_method_names: Set[str]
+    ) -> List[str]:
+        """Extract helper methods (non-test methods) from code.
+        
+        Args:
+            code1: First code version
+            code2: Second code version
+            test_method_names: Set of test method names to exclude
+            
+        Returns:
+            List of helper method code
+        """
+        import re
+        
+        helper_pattern = re.compile(
+            r'(?:public\s+|private\s+|protected\s+)?'
+            r'(?:static\s+)?'
+            r'(?:\w+(?:<[\w\s,<>]+>)?)\s+'  # Return type
+            r'(\w+)\s*\([^)]*\)\s*'  # Method name and params
+            r'(?:throws\s+[\w,\s]+)?\s*\{',
+            re.MULTILINE
+        )
+        
+        helper_methods = []
+        seen_names = set()
+        
+        for code in [code2, code1]:
+            for match in helper_pattern.finditer(code):
+                method_name = match.group(1)
+                
+                if method_name in test_method_names:
+                    continue
+                if method_name in seen_names:
+                    continue
+                if method_name.lower() in ('setup', 'teardown', 'init', 'cleanup'):
+                    continue
+                if method_name.startswith('test') or method_name.startswith('should'):
+                    continue
+                
+                start = match.start()
+                brace_count = 1
+                pos = match.end()
+                while brace_count > 0 and pos < len(code):
+                    if code[pos] == '{':
+                        brace_count += 1
+                    elif code[pos] == '}':
+                        brace_count -= 1
+                    pos += 1
+                
+                method_code = code[start:pos]
+                
+                if '@Test' in method_code:
+                    continue
+                
+                helper_methods.append(method_code)
+                seen_names.add(method_name)
+        
+        return helper_methods
     
     def should_use_incremental_mode(
         self,

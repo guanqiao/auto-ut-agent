@@ -191,6 +191,14 @@ class TestCodeParser:
     def extract_class_skeleton(self, test_code: str) -> str:
         """Extract class skeleton without test methods.
         
+        Preserves:
+        - Package declaration
+        - Imports
+        - Class declaration
+        - Fields
+        - Setup/teardown methods (@BeforeEach, @AfterEach, @BeforeAll, @AfterAll)
+        - Helper methods (non-test methods)
+        
         Args:
             test_code: Full test code
             
@@ -202,18 +210,19 @@ class TestCodeParser:
         in_test_method = False
         brace_depth = 0
         
+        setup_annotations = ['@BeforeEach', '@AfterEach', '@BeforeAll', '@AfterAll', '@Before', '@After']
+        
         i = 0
         while i < len(lines):
             line = lines[i]
             stripped = line.strip()
             
-            # Check if this is the start of a test method
-            if re.match(r'\s*@Test\b', stripped):
+            is_setup_method = any(ann in stripped for ann in setup_annotations)
+            
+            if re.match(r'\s*@Test\b', stripped) and not is_setup_method:
                 in_test_method = True
-                # Skip until we find the method signature
                 while i < len(lines) and 'void' not in lines[i]:
                     i += 1
-                # Skip the method body
                 brace_depth = 0
                 while i < len(lines):
                     if '{' in lines[i]:
