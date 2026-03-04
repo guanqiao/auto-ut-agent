@@ -13,7 +13,7 @@ from typing import Any
 
 from pyutagent.core.retry_manager import (
     RetryManager, CircuitBreaker, CircuitBreakerConfig, CircuitState,
-    AsyncRetryWithBackoff, TimeoutManager, RetryConfig, RetryStrategy,
+    AsyncRetryWithBackoff, TimeoutManager, RetryManagerConfig, RetryStrategy,
     create_retry_manager, retry_with_backoff, circuit_breaker,
     get_retry_manager
 )
@@ -216,7 +216,7 @@ class TestRetryManager:
     @allure.severity(allure.severity_level.CRITICAL)
     def test_exponential_wait_strategy(self, retry_manager):
         """Test exponential backoff wait strategy."""
-        config = RetryConfig(
+        config = RetryManagerConfig(
             strategy=RetryStrategy.EXPONENTIAL,
             base_delay=1.0,
             max_delay=60.0
@@ -231,7 +231,7 @@ class TestRetryManager:
     @allure.severity(allure.severity_level.NORMAL)
     def test_fixed_wait_strategy(self, retry_manager):
         """Test fixed interval wait strategy."""
-        config = RetryConfig(
+        config = RetryManagerConfig(
             strategy=RetryStrategy.FIXED,
             base_delay=2.0
         )
@@ -245,7 +245,7 @@ class TestRetryManager:
     @allure.severity(allure.severity_level.NORMAL)
     def test_random_wait_strategy(self, retry_manager):
         """Test random interval wait strategy."""
-        config = RetryConfig(
+        config = RetryManagerConfig(
             strategy=RetryStrategy.RANDOM,
             base_delay=1.0,
             max_delay=5.0
@@ -260,7 +260,7 @@ class TestRetryManager:
     @allure.severity(allure.severity_level.CRITICAL)
     def test_stop_strategy(self, retry_manager):
         """Test stop strategy."""
-        config = RetryConfig(max_attempts=5)
+        config = RetryManagerConfig(max_attempts=5)
         
         strategy = retry_manager.get_stop_strategy(config)
         
@@ -271,7 +271,7 @@ class TestRetryManager:
     @allure.severity(allure.severity_level.CRITICAL)
     def test_retry_strategy_by_exception(self, retry_manager):
         """Test retry strategy based on exception types."""
-        config = RetryConfig(
+        config = RetryManagerConfig(
             retryable_exceptions=[ConnectionError, TimeoutError]
         )
         
@@ -547,15 +547,15 @@ class TestUtilityFunctions:
 
 @allure.feature("Retry Management")
 @allure.story("Retry Configuration")
-class TestRetryConfig:
-    """Tests for RetryConfig dataclass with display descriptions."""
+class TestRetryManagerConfig:
+    """Tests for RetryManagerConfig dataclass with display descriptions."""
     
     @display_description("验证默认重试配置")
     @allure.title("Test default retry config")
     @allure.severity(allure.severity_level.NORMAL)
     def test_default_config(self):
         """Test default retry configuration."""
-        config = RetryConfig()
+        config = RetryManagerConfig()
         
         assert config.max_attempts == 10
         assert config.strategy == RetryStrategy.ADAPTIVE
@@ -566,7 +566,7 @@ class TestRetryConfig:
     @allure.severity(allure.severity_level.NORMAL)
     def test_custom_config(self):
         """Test custom retry configuration."""
-        config = RetryConfig(
+        config = RetryManagerConfig(
             max_attempts=5,
             strategy=RetryStrategy.FIXED,
             retryable_exceptions=[ValueError]

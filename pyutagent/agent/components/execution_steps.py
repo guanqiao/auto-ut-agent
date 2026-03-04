@@ -49,7 +49,24 @@ class StepExecutor:
         self.retry_config = retry_config
         self.error_classifier = get_error_classification_service()
         
+        self._global_attempt_count: int = 0
+        self._step_attempt_counts: Dict[str, int] = {}
+        
         logger.debug("[StepExecutor] Initialized")
+    
+    def reset_attempt_counts(self):
+        """Reset all attempt counters."""
+        self._global_attempt_count = 0
+        self._step_attempt_counts.clear()
+        logger.info("[StepExecutor] Attempt counters reset")
+    
+    def get_attempt_stats(self) -> Dict[str, Any]:
+        """Get current attempt statistics."""
+        return {
+            "global_attempts": self._global_attempt_count,
+            "max_global_attempts": self.retry_config.max_total_attempts,
+            "step_attempts": dict(self._step_attempt_counts),
+        }
     
     async def execute_with_recovery(
         self,
@@ -85,10 +102,27 @@ class StepExecutor:
                 message=f"Exceeded maximum reset count ({self.retry_config.max_reset_count})"
             )
         
-        logger.info(f"[StepExecutor] Starting step execution - Step: {step_name}, MaxAttempts: {max_attempts}, ResetCount: {reset_count}/{self.retry_config.max_reset_count}")
+        if self._global_attempt_count >= self.retry_config.max_total_attempts:
+            logger.error(f"[StepExecutor] Exceeded global attempt limit - GlobalAttempts: {self._global_attempt_count}/{self.retry_config.max_total_attempts}")
+            return StepResult(
+                success=False,
+                state=AgentState.FAILED,
+                message=f"Exceeded global attempt limit ({self.retry_config.max_total_attempts})"
+            )
+        
+        logger.info(f"[StepExecutor] Starting step execution - Step: {step_name}, MaxAttempts: {max_attempts}, ResetCount: {reset_count}/{self.retry_config.max_reset_count}, GlobalAttempts: {self._global_attempt_count}/{self.retry_config.max_total_attempts}")
         
         while not self.agent_core._stop_requested and not self.agent_core._terminated:
             attempt += 1
+            self._global_attempt_count += 1
+            
+            if self._global_attempt_count >= self.retry_config.max_total_attempts:
+                logger.error(f"[StepExecutor] Exceeded global attempt limit - Step: {step_name}, GlobalAttempts: {self._global_attempt_count}/{self.retry_config.max_total_attempts}")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message=f"Exceeded global attempt limit ({self.retry_config.max_total_attempts})"
+                )
             
             if self.retry_config.should_stop(attempt, step_name):
                 logger.error(f"[StepExecutor] Exceeded maximum attempts - Step: {step_name}, Attempts: {attempt}/{max_attempts}")

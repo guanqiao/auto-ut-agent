@@ -22,7 +22,7 @@ from ..core.error_recovery import (
 from ..core.retry_manager import (
     RetryManager,
     InfiniteRetryManager,
-    RetryConfig,
+    RetryManagerConfig,
     RetryStrategy,
     RetryResult
 )
@@ -117,7 +117,7 @@ __all__ = [
     "RecoveryAttempt",
     "RetryManager",
     "InfiniteRetryManager",
-    "RetryConfig",
+    "RetryManagerConfig",
     "RetryStrategy",
     "RetryResult",
     

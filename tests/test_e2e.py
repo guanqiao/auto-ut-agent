@@ -246,10 +246,8 @@ class TestAgentWorkflowE2E:
     async def test_error_recovery_workflow(self, temp_project):
         """Test error recovery in workflow."""
         from pyutagent.core.error_recovery import ErrorRecoveryManager, ErrorCategory
-        from pyutagent.core.retry_manager import RetryConfig
         
-        retry_config = RetryConfig(max_attempts=3)
-        recovery_manager = ErrorRecoveryManager(retry_config=retry_config)
+        recovery_manager = ErrorRecoveryManager(max_total_attempts=3)
         
         error = Exception("Compilation failed: cannot find symbol")
         

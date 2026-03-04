@@ -488,19 +488,76 @@ class ErrorRecoveryManager:
         project_path: str = "",
         prompt_builder: Optional[Any] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
-        max_total_attempts: int = 50
+        max_total_attempts: int = 50,
+        max_same_error_attempts: int = 3
     ):
         self.llm_client = llm_client
         self.project_path = project_path
         self.prompt_builder = prompt_builder
         self.progress_callback = progress_callback
         self.max_total_attempts = max_total_attempts
+        self.max_same_error_attempts = max_same_error_attempts
 
         self.recovery_history: List[RecoveryAttempt] = []
         self.state_preserver = StatePreserver()
+        
+        self._last_error_signature: Optional[str] = None
+        self._same_error_count: int = 0
 
     def categorize_error(self, error_message: str, error_details: Dict[str, Any]) -> ErrorCategory:
         return ErrorClassifier.categorize_error(error_message, error_details)
+
+    def _compute_error_signature(self, error: Exception, error_context: Dict[str, Any]) -> str:
+        """Compute a signature for the error to detect repeated errors.
+        
+        Args:
+            error: The error to compute signature for
+            error_context: Error context information
+            
+        Returns:
+            A string signature for the error
+        """
+        error_type = type(error).__name__
+        error_msg = str(error)[:200]
+        step = error_context.get("step", "")
+        
+        if "compilation" in step.lower():
+            compiler_output = error_context.get("compiler_output", "")
+            error_lines = [line.strip() for line in compiler_output.split('\n') 
+                          if "error:" in line.lower() or "cannot find" in line.lower()]
+            error_msg = "|".join(error_lines[:3]) if error_lines else error_msg
+        elif "test" in step.lower():
+            failures = error_context.get("failures", [])
+            if failures:
+                error_msg = "|".join([f.get("error", "")[:50] for f in failures[:3]])
+        
+        return f"{error_type}:{step}:{error_msg}"
+
+    def _check_same_error(self, error: Exception, error_context: Dict[str, Any]) -> bool:
+        """Check if this is the same error as before and update tracking.
+        
+        Args:
+            error: The error to check
+            error_context: Error context information
+            
+        Returns:
+            True if this is a repeated error (same as last)
+        """
+        current_signature = self._compute_error_signature(error, error_context)
+        
+        if current_signature == self._last_error_signature:
+            self._same_error_count += 1
+            logger.warning(f"[ErrorRecoveryManager] Same error detected - Count: {self._same_error_count}")
+            return True
+        
+        self._last_error_signature = current_signature
+        self._same_error_count = 1
+        return False
+
+    def reset_error_tracking(self):
+        """Reset error tracking state."""
+        self._last_error_signature = None
+        self._same_error_count = 0
 
     async def recover(
         self,
@@ -511,6 +568,11 @@ class ErrorRecoveryManager:
     ) -> Dict[str, Any]:
         error_message = str(error)
         error_category = self.categorize_error(error_message, error_context)
+
+        is_same_error = self._check_same_error(error, error_context)
+        if is_same_error and self._same_error_count >= self.max_same_error_attempts:
+            logger.error(f"[ErrorRecoveryManager] Same error repeated {self._same_error_count} times, escalating strategy")
+            error_category = ErrorCategory.PERMANENT
 
         category_attempts = len([a for a in self.recovery_history
                                  if a.error_category == error_category])
@@ -532,10 +594,18 @@ class ErrorRecoveryManager:
         )
 
         local_analysis = await self._local_analysis(context)
+        if is_same_error and self._same_error_count > 1:
+            local_analysis["same_error_count"] = self._same_error_count
+            local_analysis["previous_fix_failed"] = True
 
         llm_analysis = await self._llm_analysis(context, local_analysis)
 
         strategy = self._determine_strategy(context, local_analysis, llm_analysis)
+        if is_same_error and self._same_error_count >= 2:
+            if strategy in (RecoveryStrategy.ANALYZE_AND_FIX, RecoveryStrategy.RETRY_IMMEDIATE):
+                if self._same_error_count >= self.max_same_error_attempts:
+                    strategy = RecoveryStrategy.RESET_AND_REGENERATE
+                    logger.info(f"[ErrorRecoveryManager] Escalating to RESET_AND_REGENERATE due to repeated errors")
 
         attempt_number = category_attempts + 1
         result = await self._execute_recovery(context, strategy, llm_analysis, attempt_number)
@@ -973,6 +1043,7 @@ class ErrorRecoveryManager:
     def clear_history(self):
         self.recovery_history.clear()
         self.state_preserver.clear_history()
+        self.reset_error_tracking()
 
 
 @contextmanager

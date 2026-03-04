@@ -9,7 +9,7 @@ from pyutagent.core.config import get_settings
 from pyutagent.agent.prompts import PromptBuilder
 from pyutagent.agent.actions import ActionRegistry
 from pyutagent.core.error_recovery import ErrorRecoveryManager
-from pyutagent.core.retry_manager import InfiniteRetryManager, RetryConfig, RetryStrategy
+from pyutagent.core.retry_manager import InfiniteRetryManager, RetryManagerConfig, RetryStrategy
 from pyutagent.tools.java_parser import JavaCodeParser
 from pyutagent.tools.maven_tools import MavenRunner, CoverageAnalyzer, ProjectScanner
 from pyutagent.tools.aider_integration import AiderCodeFixer, AiderConfig
@@ -179,7 +179,7 @@ class AgentInitializer:
         )
         components["error_recovery"] = error_recovery
         
-        retry_config = RetryConfig(
+        retry_config = RetryManagerConfig(
             strategy=RetryStrategy.ADAPTIVE,
             base_delay=2.0,
             max_delay=30.0,

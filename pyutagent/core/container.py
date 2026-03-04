@@ -357,7 +357,7 @@ def configure_container(
         from .config import AiderConfig
         container.register_instance(AiderConfig, aider_config)
 
-    from .retry_manager import RetryManager, RetryConfig
+    from .retry_manager import RetryManager, RetryManagerConfig
     container.register_singleton(RetryManager, lambda: RetryManager())
 
     from .error_recovery import ErrorRecoveryManager

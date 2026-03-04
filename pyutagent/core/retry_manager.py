@@ -71,8 +71,15 @@ class RetryCondition(Enum):
 
 
 @dataclass
-class RetryConfig:
-    """Configuration for retry behavior."""
+class RetryManagerConfig:
+    """Configuration for RetryManager behavior.
+    
+    This is distinct from RetryConfig in retry_config.py which is used for
+    step-level retry configuration (compilation, test execution, etc.).
+    
+    This config is for the RetryManager's internal retry behavior with
+    strategies like exponential backoff, circuit breaker, etc.
+    """
     max_attempts: int = 10
     strategy: RetryStrategy = RetryStrategy.ADAPTIVE
     base_delay: float = 1.0
@@ -231,8 +238,8 @@ class RetryManager:
     and various retry strategies.
     """
 
-    def __init__(self, config: Optional[RetryConfig] = None):
-        self.config = config or RetryConfig()
+    def __init__(self, config: Optional[RetryManagerConfig] = None):
+        self.config = config or RetryManagerConfig()
         self._stop_requested = False
         self.circuit_breakers: Dict[str, CircuitBreaker] = {}
 
@@ -314,11 +321,11 @@ class RetryManager:
             self.circuit_breakers[name] = CircuitBreaker(name, config)
         return self.circuit_breakers[name]
 
-    def get_wait_strategy(self, config: Optional[RetryConfig] = None) -> Callable[[int], float]:
+    def get_wait_strategy(self, config: Optional[RetryManagerConfig] = None) -> Callable[[int], float]:
         """Get wait strategy function for backward compatibility.
 
         Args:
-            config: RetryConfig to use (defaults to self.config)
+            config: RetryManagerConfig to use (defaults to self.config)
 
         Returns:
             Function that calculates delay for a given attempt number
@@ -326,11 +333,11 @@ class RetryManager:
         cfg = config or self.config
         return lambda attempt: self.calculate_delay(attempt)
 
-    def get_stop_strategy(self, config: Optional[RetryConfig] = None) -> Callable[[int, Exception], bool]:
+    def get_stop_strategy(self, config: Optional[RetryManagerConfig] = None) -> Callable[[int, Exception], bool]:
         """Get stop strategy function for backward compatibility.
 
         Args:
-            config: RetryConfig to use (defaults to self.config)
+            config: RetryManagerConfig to use (defaults to self.config)
 
         Returns:
             Function that returns True if should stop
@@ -340,11 +347,11 @@ class RetryManager:
             return attempt >= cfg.max_attempts
         return stop_strategy
 
-    def get_retry_strategy(self, config: Optional[RetryConfig] = None) -> Callable[[Exception], bool]:
+    def get_retry_strategy(self, config: Optional[RetryManagerConfig] = None) -> Callable[[Exception], bool]:
         """Get retry strategy function for backward compatibility.
 
         Args:
-            config: RetryConfig to use (defaults to self.config)
+            config: RetryManagerConfig to use (defaults to self.config)
 
         Returns:
             Function that returns True if exception is retryable
@@ -531,7 +538,7 @@ class InfiniteRetryManager(RetryManager):
     until the user explicitly stops the operation.
     """
 
-    def __init__(self, config: Optional[RetryConfig] = None):
+    def __init__(self, config: Optional[RetryManagerConfig] = None):
         super().__init__(config)
         if self.config:
             self.config.max_attempts = 999999
@@ -683,7 +690,7 @@ def with_retry(
 ):
     """Decorator for adding retry logic to functions."""
     def decorator(func: Callable[..., T]) -> Callable[..., RetryResult[T]]:
-        config = RetryConfig(
+        config = RetryManagerConfig(
             max_attempts=max_attempts,
             strategy=strategy,
             base_delay=base_delay,
@@ -738,7 +745,7 @@ def retry_with_backoff(
     Returns the result directly (not RetryResult) for backward compatibility.
     """
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        config = RetryConfig(
+        config = RetryManagerConfig(
             max_attempts=max_attempts,
             base_delay=base_delay,
             max_delay=max_delay,
@@ -795,7 +802,7 @@ def create_retry_manager(
     Returns:
         Configured RetryManager instance
     """
-    config = RetryConfig(
+    config = RetryManagerConfig(
         max_attempts=max_attempts,
         base_delay=base_delay,
         max_delay=max_delay,
