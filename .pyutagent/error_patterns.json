@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-03-04T14:30:04.366211",
+  "updated_at": "2026-03-04T16:38:06.242904",
   "patterns": [
     {
       "pattern_id": "ec1cdc7393654620",
@@ -72,6 +72,54 @@
       ],
       "created_at": "2026-03-04T14:30:04.356596",
       "updated_at": "2026-03-04T14:30:04.366211",
+      "occurrence_count": 1,
+      "success_count": 1,
+      "failure_count": 0
+    },
+    {
+      "pattern_id": "902977da4c6aa0f8",
+      "category": "PARSING_ERROR",
+      "signature": "PARSING_ERROR:Exception:failed to parse coverage report - please ensure jacoco is configured and tests have run",
+      "keywords": [
+        "failed",
+        "parse",
+        "coverage",
+        "report",
+        "please"
+      ],
+      "regex_patterns": [
+        "Failed\\ to\\ parse[a-f0-9]+overage\\ report\\ \\-\\ please[a-f0-9]+nsure\\ JaCoCo\\ is[a-f0-9]+onfigured[a-f0-9]+nd\\ tests\\ have\\ run"
+      ],
+      "created_at": "2026-03-04T16:06:33.409334",
+      "updated_at": "2026-03-04T16:08:34.565029",
+      "occurrence_count": 2,
+      "success_count": 2,
+      "failure_count": 0
+    },
+    {
+      "pattern_id": "5df2a30b8ebe45f1",
+      "category": "NETWORK",
+      "signature": "NETWORK:Exception:error generating tests: llm generation timed out after NUM seconds (timeout: 60s)",
+      "keywords": [],
+      "regex_patterns": [
+        "Error\\ generating\\ tests:\\ LLM\\ generation\\ timed\\ out[a-f0-9]+ter\\d+\\ seconds\\ \\(timeout:\\d+s\\)"
+      ],
+      "created_at": "2026-03-04T16:25:19.092852",
+      "updated_at": "2026-03-04T16:25:19.109699",
+      "occurrence_count": 1,
+      "success_count": 1,
+      "failure_count": 0
+    },
+    {
+      "pattern_id": "19748becd50b2e80",
+      "category": "NETWORK",
+      "signature": "NETWORK:Exception:error generating tests: llm generation timed out after NUM seconds (timeout: 90s)",
+      "keywords": [],
+      "regex_patterns": [
+        "Error\\ generating\\ tests:\\ LLM\\ generation\\ timed\\ out[a-f0-9]+ter\\d+\\ seconds\\ \\(timeout:\\d+s\\)"
+      ],
+      "created_at": "2026-03-04T16:38:06.229341",
+      "updated_at": "2026-03-04T16:38:06.242904",
       "occurrence_count": 1,
       "success_count": 1,
       "failure_count": 0
@@ -989,6 +1037,100 @@
           }
         },
         "time_to_recover": 196.98381781578064,
+        "attempts_needed": 1
+      }
+    ],
+    "902977da4c6aa0f8": [
+      {
+        "strategy": "ANALYZE_AND_FIX",
+        "success": true,
+        "timestamp": "2026-03-04T16:06:33.426295",
+        "context": {
+          "step": "analyzing coverage",
+          "attempt": 1,
+          "result": {
+            "success": false,
+            "state": {
+              "_value_": 11,
+              "_name_": "FAILED",
+              "__objclass__": "{'_generate_next_value_': <staticmethod(<function Enum._generate_next_value_ at 0x00000228244128E0>)>, '__module__': 'pyutagent.core.protocols', '__doc__': 'Agent execution states.', '_new_member_': <built-in method __new__ of type object at 0x00007FFB68308710>, '_use_args_': False, '_member_names_': ['IDLE', 'INITIALIZING', 'PARSING', 'GENERATING', 'COMPILING', 'TESTING', 'ANALYZING', 'FIXING', 'OPTIMIZING', 'COMPLETED', 'FAILED', 'PAUSED'], '_member_map_': {'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>}, '_value2member_map_': {1: <AgentState.IDLE: 1>, 2: <AgentState.INITIALIZING: 2>, 3: <AgentState.PARSING: 3>, 4: <AgentState.GENERATING: 4>, 5: <AgentState.COMPILING: 5>, 6: <AgentState.TESTING: 6>, 7: <AgentState.ANALYZING: 7>, 8: <AgentState.FIXING: 8>, 9: <AgentState.OPTIMIZING: 9>, 10: <AgentState.COMPLETED: 10>, 11: <AgentState.FAILED: 11>, 12: <AgentState.PAUSED: 12>}, '_unhashable_values_': [], '_member_type_': <class 'object'>, '_value_repr_': None, 'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>, '__new__': <function Enum.__new__ at 0x00000228244127A0>}",
+              "_sort_order_": 10
+            },
+            "message": "Failed to parse coverage report - please ensure JaCoCo is configured and tests have run",
+            "data": {}
+          }
+        },
+        "time_to_recover": 242.4962956905365,
+        "attempts_needed": 1
+      },
+      {
+        "strategy": "ANALYZE_AND_FIX",
+        "success": true,
+        "timestamp": "2026-03-04T16:08:34.565029",
+        "context": {
+          "step": "analyzing coverage",
+          "attempt": 2,
+          "result": {
+            "success": false,
+            "state": {
+              "_value_": 11,
+              "_name_": "FAILED",
+              "__objclass__": "{'_generate_next_value_': <staticmethod(<function Enum._generate_next_value_ at 0x00000228244128E0>)>, '__module__': 'pyutagent.core.protocols', '__doc__': 'Agent execution states.', '_new_member_': <built-in method __new__ of type object at 0x00007FFB68308710>, '_use_args_': False, '_member_names_': ['IDLE', 'INITIALIZING', 'PARSING', 'GENERATING', 'COMPILING', 'TESTING', 'ANALYZING', 'FIXING', 'OPTIMIZING', 'COMPLETED', 'FAILED', 'PAUSED'], '_member_map_': {'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>}, '_value2member_map_': {1: <AgentState.IDLE: 1>, 2: <AgentState.INITIALIZING: 2>, 3: <AgentState.PARSING: 3>, 4: <AgentState.GENERATING: 4>, 5: <AgentState.COMPILING: 5>, 6: <AgentState.TESTING: 6>, 7: <AgentState.ANALYZING: 7>, 8: <AgentState.FIXING: 8>, 9: <AgentState.OPTIMIZING: 9>, 10: <AgentState.COMPLETED: 10>, 11: <AgentState.FAILED: 11>, 12: <AgentState.PAUSED: 12>}, '_unhashable_values_': [], '_member_type_': <class 'object'>, '_value_repr_': None, 'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>, '__new__': <function Enum.__new__ at 0x00000228244127A0>}",
+              "_sort_order_": 10
+            },
+            "message": "Failed to parse coverage report - please ensure JaCoCo is configured and tests have run",
+            "data": {}
+          }
+        },
+        "time_to_recover": 108.88524651527405,
+        "attempts_needed": 2
+      }
+    ],
+    "5df2a30b8ebe45f1": [
+      {
+        "strategy": "ANALYZE_AND_FIX",
+        "success": true,
+        "timestamp": "2026-03-04T16:25:19.109699",
+        "context": {
+          "step": "generating initial tests",
+          "attempt": 1,
+          "result": {
+            "success": false,
+            "state": {
+              "_value_": 11,
+              "_name_": "FAILED",
+              "__objclass__": "{'_generate_next_value_': <staticmethod(<function Enum._generate_next_value_ at 0x00000190A83B28E0>)>, '__module__': 'pyutagent.core.protocols', '__doc__': 'Agent execution states.', '_new_member_': <built-in method __new__ of type object at 0x00007FFB68308710>, '_use_args_': False, '_member_names_': ['IDLE', 'INITIALIZING', 'PARSING', 'GENERATING', 'COMPILING', 'TESTING', 'ANALYZING', 'FIXING', 'OPTIMIZING', 'COMPLETED', 'FAILED', 'PAUSED'], '_member_map_': {'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>}, '_value2member_map_': {1: <AgentState.IDLE: 1>, 2: <AgentState.INITIALIZING: 2>, 3: <AgentState.PARSING: 3>, 4: <AgentState.GENERATING: 4>, 5: <AgentState.COMPILING: 5>, 6: <AgentState.TESTING: 6>, 7: <AgentState.ANALYZING: 7>, 8: <AgentState.FIXING: 8>, 9: <AgentState.OPTIMIZING: 9>, 10: <AgentState.COMPLETED: 10>, 11: <AgentState.FAILED: 11>, 12: <AgentState.PAUSED: 12>}, '_unhashable_values_': [], '_member_type_': <class 'object'>, '_value_repr_': None, 'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>, '__new__': <function Enum.__new__ at 0x00000190A83B27A0>}",
+              "_sort_order_": 10
+            },
+            "message": "Error generating tests: LLM generation timed out after 60 seconds (timeout: 60s)",
+            "data": {}
+          }
+        },
+        "time_to_recover": 95.56211137771606,
+        "attempts_needed": 1
+      }
+    ],
+    "19748becd50b2e80": [
+      {
+        "strategy": "ANALYZE_AND_FIX",
+        "success": true,
+        "timestamp": "2026-03-04T16:38:06.242904",
+        "context": {
+          "step": "generating initial tests",
+          "attempt": 1,
+          "result": {
+            "success": false,
+            "state": {
+              "_value_": 11,
+              "_name_": "FAILED",
+              "__objclass__": "{'_generate_next_value_': <staticmethod(<function Enum._generate_next_value_ at 0x00000190A83B28E0>)>, '__module__': 'pyutagent.core.protocols', '__doc__': 'Agent execution states.', '_new_member_': <built-in method __new__ of type object at 0x00007FFB68308710>, '_use_args_': False, '_member_names_': ['IDLE', 'INITIALIZING', 'PARSING', 'GENERATING', 'COMPILING', 'TESTING', 'ANALYZING', 'FIXING', 'OPTIMIZING', 'COMPLETED', 'FAILED', 'PAUSED'], '_member_map_': {'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>}, '_value2member_map_': {1: <AgentState.IDLE: 1>, 2: <AgentState.INITIALIZING: 2>, 3: <AgentState.PARSING: 3>, 4: <AgentState.GENERATING: 4>, 5: <AgentState.COMPILING: 5>, 6: <AgentState.TESTING: 6>, 7: <AgentState.ANALYZING: 7>, 8: <AgentState.FIXING: 8>, 9: <AgentState.OPTIMIZING: 9>, 10: <AgentState.COMPLETED: 10>, 11: <AgentState.FAILED: 11>, 12: <AgentState.PAUSED: 12>}, '_unhashable_values_': [], '_member_type_': <class 'object'>, '_value_repr_': None, 'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>, '__new__': <function Enum.__new__ at 0x00000190A83B27A0>}",
+              "_sort_order_": 10
+            },
+            "message": "Error generating tests: LLM generation timed out after 90 seconds (timeout: 90s)",
+            "data": {}
+          }
+        },
+        "time_to_recover": 143.90480852127075,
         "attempts_needed": 1
       }
     ]
