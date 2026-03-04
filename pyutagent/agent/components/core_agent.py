@@ -96,17 +96,28 @@ class AgentCore:
         self._terminated = False
         self._pause_event.set()
     
-    def _update_state(self, state: AgentState, message: str):
+    def _update_state(self, state: AgentState | str, message: str):
         """Update agent state and notify progress.
         
         Args:
-            state: New agent state
+            state: New agent state (can be AgentState enum or string)
             message: Status message
         """
+        # Handle both AgentState enum and string
+        if isinstance(state, str):
+            state_name = state
+            # Try to convert string to AgentState enum
+            try:
+                state = AgentState[state]
+            except (KeyError, AttributeError):
+                pass  # Keep as string if conversion fails
+        else:
+            state_name = state.name
+        
         self.state = state
         if self.progress_callback:
             self.progress_callback({
-                "state": state.name,
+                "state": state_name,
                 "message": message,
                 "progress": {
                     "iteration": f"{self.working_memory.current_iteration}/{self.working_memory.max_iterations}",
