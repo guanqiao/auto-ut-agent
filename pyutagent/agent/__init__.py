@@ -12,6 +12,7 @@ from .integration_manager import (
 )
 from .actions import Action, ActionRegistry
 from .prompts import PromptBuilder, ToolUsagePromptBuilder
+from .tool_service import AgentToolService, create_agent_tool_service
 from ..core.protocols import AgentState, AgentResult
 from ..core.error_recovery import (
     ErrorRecoveryManager,
@@ -92,6 +93,15 @@ from .multi_agent import (
     ExperienceReplay
 )
 
+# P4 Intelligent Enhancement Components
+from .self_reflection import (
+    SelfReflection,
+    CritiqueResult,
+    ImprovementResult,
+    QualityDimension,
+    IssueSeverity
+)
+
 __all__ = [
     # Base Components
     "BaseAgent",
@@ -112,6 +122,8 @@ __all__ = [
     "ActionRegistry",
     "PromptBuilder",
     "ToolUsagePromptBuilder",
+    "AgentToolService",
+    "create_agent_tool_service",
     "ErrorRecoveryManager",
     "ErrorCategory",
     "RecoveryStrategy",
@@ -172,4 +184,11 @@ __all__ = [
     "MessageType",
     "SharedKnowledgeBase",
     "ExperienceReplay",
+    
+    # P4 Intelligent Enhancement Components
+    "SelfReflection",
+    "CritiqueResult",
+    "ImprovementResult",
+    "QualityDimension",
+    "IssueSeverity",
 ]

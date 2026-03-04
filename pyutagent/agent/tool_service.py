@@ -20,7 +20,7 @@ from ..tools.standard_tools import (
     GrepTool,
     BashTool,
 )
-from ..tools.build_tool_manager import BuildToolManager
+from ..tools.git_tools import get_all_git_tools
 from ..llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -94,21 +94,16 @@ class AgentToolService:
         )
         self.registry.register(bash_tool, tags=["command", "bash", "shell", "execute"])
         
+        git_tools = get_all_git_tools(str(self.base_path))
+        for tool in git_tools:
+            self.registry.register(tool)
+        
+        logger.info(f"[AgentToolService] Registered {len(git_tools)} git tools")
         logger.info("[AgentToolService] Registered standard tools")
     
     def _register_project_tools(self):
         """注册项目专用工具（如Java解析、Maven等）。"""
-        try:
-            build_manager = BuildToolManager(str(self.project_path))
-            
-            maven_tools = build_manager.get_maven_tools()
-            for tool in maven_tools:
-                self.registry.register(tool)
-            
-            logger.info(f"[AgentToolService] Registered {len(maven_tools)} project tools")
-            
-        except Exception as e:
-            logger.warning(f"[AgentToolService] Failed to register project tools: {e}")
+        pass
     
     def set_llm_client(self, llm_client: LLMClient):
         """设置LLM客户端。

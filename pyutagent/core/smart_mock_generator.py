@@ -11,7 +11,7 @@ import string
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum, auto
-from typing import Dict, List, Optional, Any, Set, Type, get_type_hints
+from typing import Dict, List, Optional, Any, Set, Type, Tuple, get_type_hints
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)

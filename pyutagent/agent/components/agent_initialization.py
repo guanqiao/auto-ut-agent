@@ -78,6 +78,7 @@ class AgentInitializer:
         components.update(self._init_p3_components())
         components.update(self._init_phase4_components())
         components.update(self._init_lazy_components())
+        components.update(self._init_tool_service())
         
         logger.info("[AgentInitializer] All components initialized")
         return components
@@ -355,6 +356,25 @@ class AgentInitializer:
         components["_embedding_cache"] = {}
         
         logger.debug("[AgentInitializer] Lazy components initialized")
+        return components
+    
+    def _init_tool_service(self) -> Dict[str, Any]:
+        """Initialize AgentToolService for tool management."""
+        from pyutagent.agent.tool_service import AgentToolService
+        
+        components = {}
+        
+        tool_service = AgentToolService(
+            project_path=self.project_path,
+            base_path=self.project_path
+        )
+        
+        components["tool_service"] = tool_service
+        components["_tool_schemas"] = tool_service.get_schemas_for_llm()
+        
+        logger.info("[AgentInitializer] AgentToolService initialized")
+        logger.debug(f"[AgentInitializer] Registered {len(tool_service.list_available_tools())} tools")
+        
         return components
     
     def _init_aider_fixer(self) -> Optional[Any]:
