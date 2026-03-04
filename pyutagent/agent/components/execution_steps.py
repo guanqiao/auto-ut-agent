@@ -959,6 +959,23 @@ class StepExecutor:
                 
                 logger.warning(f"[StepExecutor] Compilation failed - Errors: {len(errors)}, Return code: {compile_process.returncode}")
                 
+                # P4: Record compilation failure for learning
+                if hasattr(self.agent_core, 'feedback_loop') and self.agent_core.feedback_loop:
+                    try:
+                        from ...core.enhanced_feedback_loop import FeedbackType
+                        self.agent_core.feedback_loop.record_feedback(
+                            feedback_type=FeedbackType.COMPILATION_FAILURE,
+                            context={
+                                "test_file": self.agent_core.current_test_file,
+                                "class_name": self.agent_core.target_class_info.get("name", "Unknown")
+                            },
+                            outcome="compilation_failed",
+                            details={"errors": errors[:5], "error_count": len(errors)}
+                        )
+                        logger.debug(f"[StepExecutor] 🧠 P4 Compilation failure recorded for learning")
+                    except Exception as e:
+                        logger.warning(f"[StepExecutor] Feedback recording failed: {e}")
+                
                 return StepResult(
                     success=False,
                     state=AgentState.FIXING,
@@ -1119,6 +1136,24 @@ class StepExecutor:
             else:
                 failures = self._parse_test_failures()
                 logger.warning(f"[StepExecutor] Tests failed - Failures: {len(failures)}")
+                
+                # P4: Record test failure for learning
+                if hasattr(self.agent_core, 'feedback_loop') and self.agent_core.feedback_loop:
+                    try:
+                        from ...core.enhanced_feedback_loop import FeedbackType
+                        self.agent_core.feedback_loop.record_feedback(
+                            feedback_type=FeedbackType.TEST_FAILURE,
+                            context={
+                                "test_file": self.agent_core.current_test_file,
+                                "class_name": self.agent_core.target_class_info.get("name", "Unknown")
+                            },
+                            outcome="test_failed",
+                            details={"failures": failures[:3], "failure_count": len(failures)}
+                        )
+                        logger.debug(f"[StepExecutor] 🧠 P4 Test failure recorded for learning")
+                    except Exception as e:
+                        logger.warning(f"[StepExecutor] Feedback recording failed: {e}")
+                
                 return StepResult(
                     success=False,
                     state=AgentState.FIXING,
