@@ -100,6 +100,10 @@ class StreamingCodeGenerator:
         self.llm_client = llm_client
         self.config = config or StreamingConfig()
         
+        if self.config.timeout == 300.0 and hasattr(llm_client, 'timeout'):
+            self.config.timeout = float(llm_client.timeout)
+            logger.info(f"[StreamingCodeGenerator] Using LLM client timeout: {self.config.timeout}s")
+        
         self._state = StreamingState.IDLE
         self._interrupt_event = asyncio.Event()
         self._interrupt_event.set()

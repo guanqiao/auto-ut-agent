@@ -141,7 +141,7 @@ class LLMClient:
         Returns:
             LLMClient instance
         """
-        logger.info(f"[LLMClient] Creating client from config - ConfigID: {config.id}, Name: {config.name}")
+        logger.info(f"[LLMClient] Creating client from config - ConfigID: {config.id}, Name: {config.name}, Timeout: {config.timeout}s")
         return cls(
             endpoint=config.endpoint,
             api_key=config.api_key.get_secret_value(),
