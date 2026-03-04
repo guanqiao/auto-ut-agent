@@ -216,18 +216,21 @@ class StepExecutor:
                 message=f"Error parsing file: {str(e)}"
             )
     
-    async def generate_initial_tests(self, use_streaming: bool = True) -> StepResult:
+    async def generate_initial_tests(self, use_streaming: bool = True, max_retries: int = 2) -> StepResult:
         """Generate initial test cases with context management, streaming and quality evaluation.
         
         Args:
             use_streaming: Whether to use streaming generation
+            max_retries: Maximum number of retries on timeout
             
         Returns:
             StepResult with generation results
         """
-        logger.info("[StepExecutor] Generating initial tests with P0-P3 enhancements")
+        class_name = self.agent_core.target_class_info.get('name', 'Unknown')
+        logger.info(f"[StepExecutor] 🎯 Starting test generation for class: {class_name}")
+        logger.info(f"[StepExecutor] ⚙️ Configuration - Streaming: {use_streaming}, MaxRetries: {max_retries}, Timeout: 180s")
         
-        self.agent_core._update_state(AgentState.GENERATING, "🚀 正在准备生成测试代码...")
+        self.agent_core._update_state(AgentState.GENERATING, f"🚀 正在为 {class_name} 生成测试代码...")
         
         if hasattr(self.agent_core.llm_client, 'set_progress_callback'):
             self.agent_core.llm_client.set_progress_callback(self._llm_progress_callback)
@@ -259,62 +262,112 @@ class StepExecutor:
             logger.debug(f"[StepExecutor] Initial test prompt - Length: {len(prompt)}, Model: {self.agent_core.model_name}")
             
             test_code = None
+            last_error = None
             
-            if use_streaming:
-                logger.info("[StepExecutor] Using streaming generation")
-                self.agent_core._update_state(AgentState.GENERATING, "🚀 正在使用流式生成测试代码...")
-                
-                chunk_count = 0
-                total_chars = 0
-                last_update_time = time.time()
-                streaming_start_time = time.time()
-                
-                def on_chunk(chunk: str):
-                    nonlocal chunk_count, total_chars, last_update_time
-                    chunk_count += 1
-                    total_chars += len(chunk)
-                    
-                    if self.agent_core.progress_callback:
-                        self.agent_core.progress_callback({
-                            "type": "streaming_chunk",
-                            "chunk": chunk[:100] + "..." if len(chunk) > 100 else chunk
-                        })
-                    
-                    current_time = time.time()
-                    if current_time - last_update_time >= 3:
-                        logger.info(f"[StepExecutor] 📥 已接收 {chunk_count} 个数据块，累计 {total_chars} 字符")
-                        last_update_time = current_time
+            # Retry loop for handling timeouts
+            for attempt in range(max_retries + 1):
+                if attempt > 0:
+                    logger.warning(f"[StepExecutor] 🔄 Retry attempt {attempt}/{max_retries} after previous failure")
+                    self.agent_core._update_state(AgentState.GENERATING, f"🔄 重试 {attempt}/{max_retries}: 重新生成测试代码...")
+                    # Add a small delay before retry to allow any transient issues to resolve
+                    await asyncio.sleep(2.0 * attempt)  # Exponential backoff: 2s, 4s, ...
                 
                 try:
-                    streaming_result = await asyncio.wait_for(
-                        self.components["streaming_generator"].generate_with_streaming(
-                            prompt=prompt,
-                            on_chunk=on_chunk,
-                            on_progress=lambda p: logger.debug(f"[StepExecutor] Streaming progress: {p:.1%}")
-                        ),
-                        timeout=300.0
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning("[StepExecutor] ⏰ Streaming generation timeout (5 minutes), falling back to normal generation")
-                    self.agent_core._update_state(AgentState.GENERATING, "⏰ 流式生成超时，切换到普通模式...")
-                    streaming_result = None
-                
-                if streaming_result and streaming_result.success:
-                    test_code = self.agent_core._extract_java_code(streaming_result.complete_code)
-                    self.agent_core._update_state(AgentState.GENERATING, f"✅ 流式生成完成 - {len(test_code)} 字符")
-                    logger.info(f"[StepExecutor] Streaming generation complete - "
-                               f"Tokens: {streaming_result.total_tokens}, "
-                               f"Time: {streaming_result.total_time:.2f}s")
-                else:
-                    if streaming_result:
-                        logger.warning(f"[StepExecutor] Streaming generation failed: {streaming_result.state}")
-                    self.agent_core._update_state(AgentState.GENERATING, "⚠️ 切换到普通生成模式...")
-                    response = await self.agent_core.llm_client.agenerate(prompt)
-                    test_code = self.agent_core._extract_java_code(response)
-            else:
-                self.agent_core._update_state(AgentState.GENERATING, "🚀 正在调用 LLM 生成测试代码...")
-                response = await self.agent_core.llm_client.agenerate(prompt)
-                test_code = self.agent_core._extract_java_code(response)
+                    if use_streaming:
+                        logger.info("[StepExecutor] Using streaming generation")
+                        self.agent_core._update_state(AgentState.GENERATING, "🚀 正在使用流式生成测试代码...")
+                        
+                        chunk_count = 0
+                        total_chars = 0
+                        last_update_time = time.time()
+                        streaming_start_time = time.time()
+                        
+                        def on_chunk(chunk: str):
+                            nonlocal chunk_count, total_chars, last_update_time
+                            chunk_count += 1
+                            total_chars += len(chunk)
+                            
+                            if self.agent_core.progress_callback:
+                                self.agent_core.progress_callback({
+                                    "type": "streaming_chunk",
+                                    "chunk": chunk[:100] + "..." if len(chunk) > 100 else chunk
+                                })
+                            
+                            current_time = time.time()
+                            if current_time - last_update_time >= 3:
+                                logger.info(f"[StepExecutor] 📥 已接收 {chunk_count} 个数据块，累计 {total_chars} 字符")
+                                last_update_time = current_time
+                        
+                        # Reduced timeout from 300s to 180s (3 minutes) for streaming
+                        streaming_timeout = 180.0
+                        try:
+                            streaming_result = await asyncio.wait_for(
+                                self.components["streaming_generator"].generate_with_streaming(
+                                    prompt=prompt,
+                                    on_chunk=on_chunk,
+                                    on_progress=lambda p: logger.debug(f"[StepExecutor] Streaming progress: {p:.1%}")
+                                ),
+                                timeout=streaming_timeout
+                            )
+                        except asyncio.TimeoutError:
+                            logger.warning(f"[StepExecutor] ⏰ Streaming generation timeout ({streaming_timeout/60:.0f} minutes), falling back to normal generation")
+                            self.agent_core._update_state(AgentState.GENERATING, f"⏰ 流式生成超时 (>{streaming_timeout/60:.0f}分钟),切换到普通模式...")
+                            streaming_result = None
+                        
+                        if streaming_result and streaming_result.success:
+                            test_code = self.agent_core._extract_java_code(streaming_result.complete_code)
+                            self.agent_core._update_state(AgentState.GENERATING, f"✅ 流式生成完成 - {len(test_code)} 字符")
+                            logger.info(f"[StepExecutor] Streaming generation complete - "
+                                       f"Tokens: {streaming_result.total_tokens}, "
+                                       f"Time: {streaming_result.total_time:.2f}s")
+                        else:
+                            if streaming_result:
+                                logger.warning(f"[StepExecutor] Streaming generation failed: {streaming_result.state}")
+                            self.agent_core._update_state(AgentState.GENERATING, "⚠️ 切换到普通生成模式...")
+                            # Use the new timeout parameter (180 seconds default)
+                            response = await self.agent_core.llm_client.agenerate(prompt, timeout=180.0)
+                            test_code = self.agent_core._extract_java_code(response)
+                    else:
+                        self.agent_core._update_state(AgentState.GENERATING, "🚀 正在调用 LLM 生成测试代码...")
+                        # Use the new timeout parameter (180 seconds default)
+                        response = await self.agent_core.llm_client.agenerate(prompt, timeout=180.0)
+                        test_code = self.agent_core._extract_java_code(response)
+                    
+                    # If we got test code, break out of retry loop
+                    if test_code and len(test_code) > 0:
+                        logger.info(f"[StepExecutor] ✅ Test code generated successfully on attempt {attempt + 1}")
+                        break
+                    else:
+                        logger.warning(f"[StepExecutor] ⚠️ Generated test code is empty on attempt {attempt + 1}")
+                        last_error = Exception("Empty test code generated")
+                        
+                except asyncio.TimeoutError as e:
+                    elapsed_time = time.time() - streaming_start_time if use_streaming else time.time() - last_update_time
+                    logger.error(f"[StepExecutor] ⏰ Timeout on attempt {attempt + 1}/{max_retries + 1} (elapsed: {elapsed_time:.1f}s): {e}")
+                    self.agent_core._update_state(AgentState.GENERATING, f"⏰ 第 {attempt + 1} 次尝试超时 (耗时 {elapsed_time:.1f}秒)")
+                    last_error = e
+                    if attempt < max_retries:
+                        logger.info(f"[StepExecutor] 🔄 Will retry ({max_retries - attempt} attempts remaining)...")
+                        continue  # Retry
+                    else:
+                        logger.error(f"[StepExecutor] ❌ All {max_retries + 1} attempts exhausted due to timeouts")
+                        raise  # Re-raise if all retries exhausted
+                except Exception as e:
+                    logger.exception(f"[StepExecutor] ❌ Error on attempt {attempt + 1}/{max_retries + 1}: {e}")
+                    self.agent_core._update_state(AgentState.GENERATING, f"❌ 第 {attempt + 1} 次尝试失败：{str(e)[:100]}")
+                    last_error = e
+                    if attempt < max_retries:
+                        logger.info(f"[StepExecutor] 🔄 Will retry ({max_retries - attempt} attempts remaining)...")
+                        continue  # Retry
+                    else:
+                        logger.error(f"[StepExecutor] ❌ All {max_retries + 1} attempts exhausted due to errors")
+                        raise  # Re-raise if all retries exhausted
+            
+            # If we exhausted all retries and still no test code
+            if not test_code or len(test_code) == 0:
+                logger.error(f"[StepExecutor] ❌ Failed to generate test code after {max_retries + 1} attempts")
+                self.agent_core._update_state(AgentState.FAILED, f"❌ 无法生成测试代码 (已尝试 {max_retries + 1} 次)")
+                raise last_error or Exception("Failed to generate test code after all retries")
             
             logger.debug(f"[StepExecutor] Extracted test code - Length: {len(test_code)}")
             

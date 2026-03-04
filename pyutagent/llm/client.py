@@ -195,19 +195,22 @@ class LLMClient:
     async def agenerate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        timeout: Optional[float] = None
     ) -> str:
         """Generate text asynchronously.
         
         Args:
             prompt: User prompt
             system_prompt: Optional system prompt
+            timeout: Optional timeout in seconds (default: 180 seconds)
             
         Returns:
             Generated text
             
         Raises:
             asyncio.CancelledError: If operation was cancelled
+            asyncio.TimeoutError: If operation times out
         """
         from langchain_core.messages import HumanMessage, SystemMessage
         
@@ -221,32 +224,41 @@ class LLMClient:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
         
+        # Default timeout: 180 seconds (3 minutes) - reasonable for most LLM calls
+        operation_timeout = timeout if timeout is not None else 180.0
+        
         prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
-        self._report_progress(f"🚀 正在调用 LLM - Model: {self.model}, Prompt长度: {len(prompt)} 字符")
-        self._report_progress("⏳ 等待 LLM 响应中... (通常需要 10-60 秒，请耐心等待)")
-        logger.info(f"[LLM] 🚀 Starting async generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)} chars")
+        self._report_progress(f"🚀 正在调用 LLM - Model: {self.model}, Prompt 长度：{len(prompt)} 字符")
+        self._report_progress(f"⏳ 等待 LLM 响应中... (超时时间：{operation_timeout:.0f}秒，通常需要 10-60 秒)")
+        logger.info(f"[LLM] 🚀 Starting async generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)} chars, Timeout: {operation_timeout:.0f}s")
         logger.debug(f"[LLM] Prompt preview: {prompt_preview}")
         
         start_time = time.time()
         last_progress_time = start_time
         
         try:
-            # Create a task for the LLM call
+            # Create a task for the LLM call with timeout
             llm_task = asyncio.create_task(client.ainvoke(messages))
             
-            # Wait for completion with periodic progress updates
+            # Wait for completion with timeout and periodic progress updates
             while not llm_task.done():
                 # Check for cancellation
                 await self._check_cancelled()
                 
+                # Check for timeout
+                elapsed = time.time() - start_time
+                if elapsed > operation_timeout:
+                    llm_task.cancel()
+                    raise asyncio.TimeoutError(f"LLM generation timed out after {elapsed:.0f} seconds (timeout: {operation_timeout:.0f}s)")
+                
                 # Report progress every 5 seconds
                 current_time = time.time()
-                elapsed = current_time - start_time
                 if current_time - last_progress_time >= 5:
-                    self._report_progress(f"⏳ 仍在等待 LLM 响应... 已等待 {elapsed:.0f} 秒")
+                    remaining = operation_timeout - elapsed
+                    self._report_progress(f"⏳ 仍在等待 LLM 响应... 已等待 {elapsed:.0f}秒，剩余 {remaining:.0f}秒")
                     last_progress_time = current_time
                 
-                # Short sleep to allow cancellation checking
+                # Short sleep to allow cancellation checking (with shorter timeout for responsiveness)
                 try:
                     await asyncio.wait_for(asyncio.shield(llm_task), timeout=0.5)
                 except asyncio.TimeoutError:
@@ -261,13 +273,21 @@ class LLMClient:
             self._report_progress(f"✅ LLM 响应完成 - 生成 {len(response.content)} 字符，耗时 {elapsed:.1f} 秒")
             logger.info(f"[LLM] ✅ Async generation complete - Model: {self.model}, Endpoint: {self.endpoint}, ResponseLength: {len(response.content)} chars, Elapsed: {elapsed:.2f}s")
             return response.content
+        except asyncio.TimeoutError:
+            elapsed = time.time() - start_time
+            self._call_stats["agenerate"].append(elapsed)
+            self._report_progress(f"⏰ LLM 响应超时 (已等待 {elapsed:.0f}秒，超时限制：{operation_timeout:.0f}秒)")
+            logger.error(f"[LLM] ⏰ Async generation timed out - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Timeout: {operation_timeout:.0f}s")
+            raise
         except asyncio.CancelledError:
-            logger.warning("[LLM] ⚠️ Operation was cancelled")
+            elapsed = time.time() - start_time
+            self._call_stats["agenerate"].append(elapsed)
+            logger.warning(f"[LLM] ⚠️ Operation was cancelled after {elapsed:.1f}s")
             raise
         except Exception as e:
             elapsed = time.time() - start_time
             self._call_stats["agenerate"].append(elapsed)
-            self._report_progress(f"❌ LLM 调用失败: {str(e)}")
+            self._report_progress(f"❌ LLM 调用失败：{str(e)}")
             logger.exception(f"[LLM] ❌ Async generation failed - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
