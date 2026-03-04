@@ -713,6 +713,92 @@ class UniversalPlanner:
 | 经验积累 | 单项目记忆 | 跨项目情景记忆 |
 | 策略学习 | 无 | 成功策略学习和复用 |
 
+### 11.4 Phase 3: MCP深度集成
+
+#### ✅ MCP Server自动发现
+- **文件**: `pyutagent/tools/mcp_dynamic_manager.py`
+- **实现**:
+  - `MCPServerDiscovery`: MCP服务器自动发现
+  - 支持npm全局包发现
+  - 支持配置文件发现 (~/.config/mcp/*.json)
+  - 支持项目配置发现
+- **功能**:
+  - 自动识别常见MCP服务器
+  - 多源发现（npm_global/config_file/project）
+
+#### ✅ 动态工具注册
+- **文件**: `pyutagent/tools/mcp_dynamic_manager.py`
+- **实现**:
+  - `DynamicToolRegistry`: 动态工具注册表
+  - `MCPDynamicManager`: MCP动态管理器
+  - SQLite持久化存储
+- **功能**:
+  - 工具使用统计
+  - 热插拔支持
+  - 按服务器分组管理
+
+### 11.5 Phase 4: 灵活用户协作
+
+#### ✅ 灵活协作模式
+- **文件**: `pyutagent/agent/collaboration.py`
+- **实现**:
+  - `CollaborationMode`: 4种协作模式枚举
+  - `CollaborationHandler`: 协作处理器
+  - `CollaborationConfig`: 协作配置
+- **协作模式**:
+  - `FULL_AUTONOMOUS`: 完全自主执行
+  - `SUGGEST_AND_CONFIRM`: 建议后确认（默认）
+  - `STEP_BY_STEP`: 每步确认
+  - `MANUAL_REVIEW`: 人工审查
+- **功能**:
+  - 置信度阈值自动审批
+  - 风险级别评估
+  - 执行历史追踪
+
+### 11.6 额外已确认的能力
+
+#### ✅ Skills机制（已存在）
+- **文件**: `pyutagent/agent/skills.py`
+- **实现**:
+  - `Skill`: 技能基类
+  - `SkillRegistry`: 技能注册表
+  - `SkillLoader`: 技能加载器
+  - `SkillCategory`: 技能分类（代码生成/代码审查/调试/重构/测试等）
+- **特性**:
+  - 技能元数据管理
+  - 技能步骤定义
+  - 示例和最佳实践
+
+#### ✅ 语音交互（已存在）
+- **文件**: `pyutagent/agent/voice.py`
+- **实现**:
+  - `VoiceInputHandler`: 语音识别输入
+  - `VoiceOutputHandler`: TTS语音输出
+  - `VoiceCommandParser`: 语音命令解析
+  - 支持多提供商（Whisper/Google/Azure/OpenAI）
+- **功能**:
+  - 中文语音命令支持
+  - 多TTS引擎（GTTS/Edge TTS/Azure/OpenAI）
+
+#### ✅ 远程MCP支持
+- **文件**: `pyutagent/tools/remote_mcp.py`
+- **实现**:
+  - `RemoteMCPClient`: 远程MCP客户端
+  - `RemoteMCPManager`: 远程MCP管理器
+  - 支持WebSocket/HTTP连接
+  - 认证支持（API Key/Bearer Token）
+- **功能**:
+  - 安全远程连接
+  - 连接池
+  - 自动重连
+
+#### ✅ ACP协议/IDE集成（已存在）
+- **文件**: `pyutagent/agent/acp_client.py`
+- **实现**:
+  - `ACPClient`: ACP协议客户端
+  - 支持IDEA集成
+- **VSCode扩展**: `pyutagent-vscode/` 目录
+
 ---
 
 **参考资料**：

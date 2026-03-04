@@ -1,0 +1,86 @@
+{
+  "name": "pyutagent-vscode",
+  "displayName": "PyUT Agent",
+  "description": "AI-powered Java unit test generation agent",
+  "version": "1.0.0",
+  "publisher": "pyutagent",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Testing"
+  ],
+  "activationEvents": [
+    "onCommand:pyutagent.generateTests",
+    "onCommand:pyutagent.analyzeCode",
+    "onCommand:pyutagent.fixErrors",
+    "onView:pyutagent-sidebar"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "pyutagent.generateTests",
+        "title": "PyUT Agent: Generate Tests",
+        "category": "PyUT Agent"
+      },
+      {
+        "command": "pyutagent.analyzeCode",
+        "title": "PyUT Agent: Analyze Code",
+        "category": "PyUT Agent"
+      },
+      {
+        "command": "pyutagent.fixErrors",
+        "title": "PyUT Agent: Fix Errors",
+        "category": "PyUT Agent"
+      },
+      {
+        "command": "pyutagent.openPanel",
+        "title": "PyUT Agent: Open Panel",
+        "category": "PyUT Agent"
+      }
+    ],
+    "views": {
+      "sidebar": [
+        {
+          "id": "pyutagent-sidebar",
+          "name": "PyUT Agent",
+          "icon": "resources/icon.png"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "PyUT Agent",
+      "properties": {
+        "pyutagent.endpoint": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "PyUT Agent server endpoint"
+        },
+        "pyutagent.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for authentication"
+        },
+        "pyutagent.autoGenerate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-generate tests on file save"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/test-electron": "^2.3.0",
+    "typescript": "^5.0.0"
+  }
+}
