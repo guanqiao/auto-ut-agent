@@ -2,11 +2,38 @@
 
 ## 概述
 
-批量测试生成的两阶段模式允许您先生成所有测试代码，然后再统一进行语法检查和编译。这对于大规模批量生成场景非常有用，可以：
+批量测试生成支持两种模式：
+- **标准模式**：逐文件生成并验证
+- **两阶段模式**：先生成所有代码，再统一编译
 
-1. **提高生成速度** - 避免每个文件生成后都进行耗时的编译和测试
-2. **集中查看错误** - 所有生成完成后再统一检查编译错误
-3. **减少资源消耗** - 避免频繁的编译/测试循环
+PyUT Agent 同时提供 CLI 和 GUI 两种使用方式，功能完全对齐。
+
+## 使用方式对比
+
+### CLI 使用
+
+```bash
+# 标准模式（默认）
+pyutagent generate-all /path/to/project
+
+# 两阶段模式
+pyutagent generate-all /path/to/project --defer-compilation
+
+# 快速模式
+pyutagent generate-all /path/to/project --compile-only-at-end
+```
+
+### GUI 使用
+
+1. 打开项目：`文件 → 打开项目`
+2. 批量生成：`工具 → Generate All Tests`
+3. 在批量生成对话框中：
+   - 选择要生成的文件
+   - 选择编译策略：
+     - **Standard Mode**：逐文件验证（推荐用于质量保证）
+     - **Defer Compilation**：生成所有后统一编译（推荐用于大规模生成）
+     - **Fast Mode**：仅生成代码，最后编译一次（最快）
+   - 点击 "Start" 开始生成
 
 ## 工作原理
 

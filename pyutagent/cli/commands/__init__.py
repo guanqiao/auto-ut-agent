@@ -3,20 +3,20 @@
 This package contains all CLI commands for PyUT Agent.
 
 Available Commands:
-    - GenerateCommand: Generate tests for a specific class
-    - GenerateAllCommand: Generate tests for all classes in a project
-    - ScanCommand: Scan project for testable classes
-    - ConfigCommand: Manage configuration
+    - generate_command: Generate tests for a specific class
+    - generate_all_command: Generate tests for all classes in a project
+    - scan_command: Scan project for testable classes
+    - config_group: Manage configuration
 """
 
-from .generate import GenerateCommand
-from .generate_all import GenerateAllCommand
-from .scan import ScanCommand
-from .config import ConfigCommand
+from .generate import generate_command
+from .generate_all import generate_all_command
+from .scan import scan_command
+from .config import config_group
 
 __all__ = [
-    "GenerateCommand",
-    "GenerateAllCommand",
-    "ScanCommand",
-    "ConfigCommand",
+    "generate_command",
+    "generate_all_command",
+    "scan_command",
+    "config_group",
 ]

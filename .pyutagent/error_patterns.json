@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-03-04T09:49:54.030027",
+  "updated_at": "2026-03-04T14:30:04.366211",
   "patterns": [
     {
       "pattern_id": "ec1cdc7393654620",
@@ -51,9 +51,29 @@
         "Error\\ generating\\ tests:\\ 'AgentCore'\\ object\\ has\\ no[a-f0-9]+ttribute\\ 'model_name'"
       ],
       "created_at": "2026-03-04T09:22:47.307599",
-      "updated_at": "2026-03-04T09:49:54.030027",
-      "occurrence_count": 28,
-      "success_count": 28,
+      "updated_at": "2026-03-04T14:14:32.223160",
+      "occurrence_count": 30,
+      "success_count": 30,
+      "failure_count": 0
+    },
+    {
+      "pattern_id": "bd44c900d2cbb074",
+      "category": "UNKNOWN",
+      "signature": "UNKNOWN:Exception:error generating tests: no module named 'pyutagent.agent.utils.code_extractor'",
+      "keywords": [
+        "error",
+        "generating",
+        "tests",
+        "module",
+        "named"
+      ],
+      "regex_patterns": [
+        "Error\\ generating\\ tests:\\ No\\ module\\ named\\ 'pyutagent\\.agent\\.utils\\.code_extractor'"
+      ],
+      "created_at": "2026-03-04T14:30:04.356596",
+      "updated_at": "2026-03-04T14:30:04.366211",
+      "occurrence_count": 1,
+      "success_count": 1,
       "failure_count": 0
     }
   ],
@@ -902,6 +922,74 @@
         },
         "time_to_recover": 407.35295248031616,
         "attempts_needed": 23
+      },
+      {
+        "strategy": "ANALYZE_AND_FIX",
+        "success": true,
+        "timestamp": "2026-03-04T14:11:12.700660",
+        "context": {
+          "step": "generating initial tests",
+          "attempt": 1,
+          "result": {
+            "success": false,
+            "state": {
+              "_value_": 11,
+              "_name_": "FAILED",
+              "__objclass__": "{'_generate_next_value_': <staticmethod(<function Enum._generate_next_value_ at 0x000001C1E4C128E0>)>, '__module__': 'pyutagent.core.protocols', '__doc__': 'Agent execution states.', '_new_member_': <built-in method __new__ of type object at 0x00007FFB1A6D8710>, '_use_args_': False, '_member_names_': ['IDLE', 'INITIALIZING', 'PARSING', 'GENERATING', 'COMPILING', 'TESTING', 'ANALYZING', 'FIXING', 'OPTIMIZING', 'COMPLETED', 'FAILED', 'PAUSED'], '_member_map_': {'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>}, '_value2member_map_': {1: <AgentState.IDLE: 1>, 2: <AgentState.INITIALIZING: 2>, 3: <AgentState.PARSING: 3>, 4: <AgentState.GENERATING: 4>, 5: <AgentState.COMPILING: 5>, 6: <AgentState.TESTING: 6>, 7: <AgentState.ANALYZING: 7>, 8: <AgentState.FIXING: 8>, 9: <AgentState.OPTIMIZING: 9>, 10: <AgentState.COMPLETED: 10>, 11: <AgentState.FAILED: 11>, 12: <AgentState.PAUSED: 12>}, '_unhashable_values_': [], '_member_type_': <class 'object'>, '_value_repr_': None, 'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>, '__new__': <function Enum.__new__ at 0x000001C1E4C127A0>}",
+              "_sort_order_": 10
+            },
+            "message": "Error generating tests: 'AgentCore' object has no attribute 'model_name'",
+            "data": {}
+          }
+        },
+        "time_to_recover": 247.97101950645447,
+        "attempts_needed": 1
+      },
+      {
+        "strategy": "ANALYZE_AND_FIX",
+        "success": true,
+        "timestamp": "2026-03-04T14:14:32.223160",
+        "context": {
+          "step": "generating initial tests",
+          "attempt": 2,
+          "result": {
+            "success": false,
+            "state": {
+              "_value_": 11,
+              "_name_": "FAILED",
+              "__objclass__": "{'_generate_next_value_': <staticmethod(<function Enum._generate_next_value_ at 0x000001C1E4C128E0>)>, '__module__': 'pyutagent.core.protocols', '__doc__': 'Agent execution states.', '_new_member_': <built-in method __new__ of type object at 0x00007FFB1A6D8710>, '_use_args_': False, '_member_names_': ['IDLE', 'INITIALIZING', 'PARSING', 'GENERATING', 'COMPILING', 'TESTING', 'ANALYZING', 'FIXING', 'OPTIMIZING', 'COMPLETED', 'FAILED', 'PAUSED'], '_member_map_': {'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>}, '_value2member_map_': {1: <AgentState.IDLE: 1>, 2: <AgentState.INITIALIZING: 2>, 3: <AgentState.PARSING: 3>, 4: <AgentState.GENERATING: 4>, 5: <AgentState.COMPILING: 5>, 6: <AgentState.TESTING: 6>, 7: <AgentState.ANALYZING: 7>, 8: <AgentState.FIXING: 8>, 9: <AgentState.OPTIMIZING: 9>, 10: <AgentState.COMPLETED: 10>, 11: <AgentState.FAILED: 11>, 12: <AgentState.PAUSED: 12>}, '_unhashable_values_': [], '_member_type_': <class 'object'>, '_value_repr_': None, 'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>, '__new__': <function Enum.__new__ at 0x000001C1E4C127A0>}",
+              "_sort_order_": 10
+            },
+            "message": "Error generating tests: 'AgentCore' object has no attribute 'model_name'",
+            "data": {}
+          }
+        },
+        "time_to_recover": 199.50770378112793,
+        "attempts_needed": 2
+      }
+    ],
+    "bd44c900d2cbb074": [
+      {
+        "strategy": "ANALYZE_AND_FIX",
+        "success": true,
+        "timestamp": "2026-03-04T14:30:04.366211",
+        "context": {
+          "step": "generating initial tests",
+          "attempt": 1,
+          "result": {
+            "success": false,
+            "state": {
+              "_value_": 11,
+              "_name_": "FAILED",
+              "__objclass__": "{'_generate_next_value_': <staticmethod(<function Enum._generate_next_value_ at 0x000001F8447328E0>)>, '__module__': 'pyutagent.core.protocols', '__doc__': 'Agent execution states.', '_new_member_': <built-in method __new__ of type object at 0x00007FFB1A6D8710>, '_use_args_': False, '_member_names_': ['IDLE', 'INITIALIZING', 'PARSING', 'GENERATING', 'COMPILING', 'TESTING', 'ANALYZING', 'FIXING', 'OPTIMIZING', 'COMPLETED', 'FAILED', 'PAUSED'], '_member_map_': {'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>}, '_value2member_map_': {1: <AgentState.IDLE: 1>, 2: <AgentState.INITIALIZING: 2>, 3: <AgentState.PARSING: 3>, 4: <AgentState.GENERATING: 4>, 5: <AgentState.COMPILING: 5>, 6: <AgentState.TESTING: 6>, 7: <AgentState.ANALYZING: 7>, 8: <AgentState.FIXING: 8>, 9: <AgentState.OPTIMIZING: 9>, 10: <AgentState.COMPLETED: 10>, 11: <AgentState.FAILED: 11>, 12: <AgentState.PAUSED: 12>}, '_unhashable_values_': [], '_member_type_': <class 'object'>, '_value_repr_': None, 'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>, '__new__': <function Enum.__new__ at 0x000001F8447327A0>}",
+              "_sort_order_": 10
+            },
+            "message": "Error generating tests: No module named 'pyutagent.agent.utils.code_extractor'",
+            "data": {}
+          }
+        },
+        "time_to_recover": 196.98381781578064,
+        "attempts_needed": 1
       }
     ]
   }

@@ -69,13 +69,37 @@ pip install -e ".[dev]"
 
 ## 运行
 
+### GUI 模式
+
 ```bash
-# 启动应用
+# 启动图形界面
 pyutagent
 
 # 或者
 python -m pyutagent
 ```
+
+### CLI 模式
+
+```bash
+# 查看帮助
+pyutagent --help
+
+# 扫描项目
+pyutagent scan /path/to/maven/project
+
+# 为单个文件生成测试
+pyutagent generate /path/to/MyClass.java
+
+# 批量生成测试
+pyutagent generate-all /path/to/project --parallel 4
+
+# 配置管理
+pyutagent config llm list
+pyutagent config maven show
+```
+
+详细 CLI 使用说明请参考 [CLI 使用指南](docs/cli_usage.md)。
 
 ## 使用指南
 
@@ -103,6 +127,36 @@ python -m pyutagent
 ### 5. 查看结果
 - 生成的测试文件保存在 `src/test/java` 目录
 - 覆盖率报告在右侧进度面板显示
+
+## CLI vs GUI 功能对比
+
+| 功能 | CLI | GUI | 说明 |
+|------|-----|-----|------|
+| **测试生成** ||||
+| 单文件生成 | ✅ `generate` | ✅ | CLI适合脚本化，GUI适合交互 |
+| 批量生成 | ✅ `generate-all` | ✅ | 都支持并行和两阶段模式 |
+| 项目扫描 | ✅ `scan` | ✅ | CLI列表/树形，GUI统计对话框 |
+| **配置管理** ||||
+| LLM配置 | ✅ `config llm` | ✅ | GUI有可视化对话框 |
+| Maven配置 | ✅ `config maven` | ✅ | CLI和GUI功能对齐 |
+| JDK配置 | ✅ `config jdk` | ✅ | CLI和GUI功能对齐 |
+| 覆盖率配置 | ✅ `config coverage` | ✅ | CLI和GUI功能对齐 |
+| Aider配置 | ✅ `config aider` | ✅ | CLI和GUI功能对齐 |
+| **过程控制** ||||
+| 暂停/恢复 | ⚠️ 有限 | ✅ | GUI有完整的暂停/恢复按钮 |
+| 终止生成 | ✅ Ctrl+C | ✅ | 都支持 |
+| **信息展示** ||||
+| 实时日志 | ⚠️ 简单 | ✅ | GUI有详细日志面板 |
+| 进度显示 | ✅ 进度条 | ✅ | GUI更直观 |
+| 项目历史 | ❌ | ✅ | GUI有最近项目列表 |
+| **集成场景** ||||
+| CI/CD集成 | ✅ 完美 | ❌ | CLI适合自动化流程 |
+| 批处理脚本 | ✅ 完美 | ❌ | CLI适合批量处理 |
+| 交互式使用 | ⚠️ | ✅ | GUI更适合日常使用 |
+
+**选择建议：**
+- **使用 CLI**：CI/CD 流程、批量脚本、自动化任务
+- **使用 GUI**：日常开发、交互式生成、需要详细日志
 
 ## 支持的 LLM 提供商
 

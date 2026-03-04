@@ -8,6 +8,7 @@ from .commands.scan import scan_command
 from .commands.generate import generate_command
 from .commands.generate_all import generate_all_command
 from .commands.config import config_group
+from .commands.history import history_group
 
 console = Console()
 
@@ -26,6 +27,7 @@ cli.add_command(scan_command)
 cli.add_command(generate_command)
 cli.add_command(generate_all_command)
 cli.add_command(config_group, name='config')
+cli.add_command(history_group, name='history')
 
 
 def main():

@@ -20,6 +20,7 @@ from .dialogs.coverage_config_dialog import CoverageConfigDialog
 from .dialogs.maven_config_dialog import MavenConfigDialog
 from .dialogs.jdk_config_dialog import JDKConfigDialog
 from .dialogs.project_stats_dialog import ProjectStatsDialog
+from .dialogs.config_overview_dialog import ConfigOverviewDialog
 from .batch_generate_dialog import BatchGenerateDialog
 from ..core.config import (
     LLMConfig,
@@ -509,6 +510,12 @@ class MainWindow(QMainWindow):
 
         settings_menu = menubar.addMenu("&Settings")
 
+        show_config_action = QAction("&Show Current Configuration", self)
+        show_config_action.triggered.connect(self.on_show_config)
+        settings_menu.addAction(show_config_action)
+
+        settings_menu.addSeparator()
+
         llm_config_action = QAction("&LLM Configuration...", self)
         llm_config_action.triggered.connect(self.on_llm_config)
         settings_menu.addAction(llm_config_action)
@@ -576,6 +583,15 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.exception("Failed to initialize LLM client")
             self.status_bar.showMessage(f"LLM client initialization failed: {e}")
+
+    def on_show_config(self):
+        """Handle show configuration action."""
+        try:
+            dialog = ConfigOverviewDialog(self)
+            dialog.exec()
+            logger.info("Configuration overview shown")
+        except Exception as e:
+            logger.exception("Failed to show configuration")
 
     def on_open_project(self):
         """Handle open project action."""
