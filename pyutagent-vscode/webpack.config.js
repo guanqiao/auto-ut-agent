@@ -1,0 +1,38 @@
+const path = require('path');
+
+/** @type {import('webpack').Configuration} */
+module.exports = {
+    target: 'node',
+    mode: 'none',
+    entry: './src/extension.ts',
+    output: {
+        path: path.resolve(__dirname, 'dist'),
+        filename: 'extension.js',
+        libraryTarget: 'commonjs2'
+    },
+    externals: {
+        vscode: 'commonjs vscode'
+    },
+    resolve: {
+        extensions: ['.ts', '.js', '.tsx', '.jsx']
+    },
+    module: {
+        rules: [
+            {
+                test: /\.ts$/,
+                exclude: /node_modules/,
+                use: 'ts-loader'
+            },
+            {
+                test: /\.tsx$/,
+                exclude: /node_modules/,
+                use: ['ts-loader', 'react-hot-loader/webpack']
+            },
+            {
+                test: /\.css$/,
+                use: ['style-loader', 'css-loader']
+            }
+        ]
+    },
+    devtool: 'nosources-source-map'
+};

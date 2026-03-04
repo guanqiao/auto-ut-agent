@@ -1,0 +1,135 @@
+{
+  "name": "pyutagent-vscode",
+  "displayName": "PyUT Agent",
+  "description": "AI-driven unit test generation for Java",
+  "version": "0.1.0",
+  "publisher": "pyutagent",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Testing",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "java",
+    "unit test",
+    "AI",
+    "test generation",
+    "JUnit"
+  ],
+  "activationEvents": [
+    "onLanguage:java",
+    "onView:pyutagent.chatView",
+    "onCommand:pyutagent.generateTest"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "pyutagent.generateTest",
+        "title": "Generate Unit Test",
+        "category": "PyUT Agent",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "pyutagent.showChatPanel",
+        "title": "Show Chat Panel",
+        "category": "PyUT Agent",
+        "icon": "$(comment)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "pyutagent.generateTest",
+          "when": "resourceLang == java",
+          "group": "PyUTAgent@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "pyutagent.generateTest",
+          "when": "resourceLang == java",
+          "group": "PyUTAgent"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "type": "webview",
+          "id": "pyutagent.chatView",
+          "name": "PyUT Agent Chat",
+          "icon": "resources/icon.png",
+          "contextualTitle": "PyUT Agent",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "PyUT Agent",
+      "properties": {
+        "pyutagent.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "PyUT Agent API URL"
+        },
+        "pyutagent.autoApprove": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically approve changes"
+        },
+        "pyutagent.mode": {
+          "type": "string",
+          "enum": [
+            "autonomous",
+            "interactive",
+            "supervised"
+          ],
+          "default": "interactive",
+          "description": "Agent operating mode"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p .",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/test-cli": "^0.0.4",
+    "@vscode/test-electron": "^2.3.8",
+    "css-loader": "^6.8.1",
+    "html-webpack-plugin": "^5.5.4",
+    "style-loader": "^3.3.3",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.0",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "monaco-editor": "^0.45.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/coding-agent/pyutagent-vscode"
+  },
+  "homepage": "https://github.com/coding-agent/pyutagent-vscode",
+  "bugs": {
+    "url": "https://github.com/coding-agent/pyutagent-vscode/issues"
+  }
+}

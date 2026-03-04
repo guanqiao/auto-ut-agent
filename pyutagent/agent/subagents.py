@@ -201,13 +201,29 @@ class SubAgent(ABC):
 
 
 class SubAgentManager:
-    """Manager for subagents."""
+    """Manager for subagents with delegation and result aggregation."""
 
-    def __init__(self):
-        """Initialize manager."""
+    def __init__(
+        self,
+        agent_factory: Optional[Any] = None,
+        llm_client: Optional[Any] = None,
+        tool_service: Optional[Any] = None
+    ):
+        """Initialize manager.
+        
+        Args:
+            agent_factory: Optional SubAgentFactory for creating agents
+            llm_client: Optional LLM client for agents
+            tool_service: Optional tool service for agents
+        """
         self._agents: Dict[str, SubAgent] = {}
         self._task_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self._running = False
+        self._agent_factory = agent_factory
+        self._llm_client = llm_client
+        self._tool_service = tool_service
+        self._task_results: Dict[str, Task] = {}
+        self._delegation_callbacks: Dict[str, Callable] = {}
         logger.debug("[SubAgentManager] Initialized")
 
     def register_agent(self, agent: SubAgent):
@@ -317,6 +333,340 @@ class SubAgentManager:
             "queued_tasks": self._task_queue.qsize(),
             "agents": [a.get_stats() for a in self._agents.values()]
         }
+
+    async def delegate_task(
+        self,
+        task: Task,
+        agent_type: Optional[str] = None,
+        agent_id: Optional[str] = None
+    ) -> Task:
+        """Delegate a task to an agent.
+
+        Args:
+            task: Task to delegate
+            agent_type: Optional agent type to use
+            agent_id: Optional specific agent ID
+
+        Returns:
+            Task with result populated
+        """
+        agent = None
+
+        if agent_id:
+            agent = self._agents.get(agent_id)
+        elif agent_type:
+            agent = self.get_available_agent(agent_type)
+        else:
+            agent = self.get_available_agent()
+
+        if not agent:
+            if self._agent_factory:
+                agent = self._agent_factory.get_or_create_agent(
+                    agent_type or "generic"
+                )
+                self.register_agent(agent)
+            else:
+                task.error = f"No available agent for task: {task.name}"
+                task.completed_at = datetime.now()
+                return task
+
+        logger.info(f"[SubAgentManager] Delegating task {task.id} to agent {agent.id}")
+
+        await agent.process_task(task)
+
+        self._task_results[task.id] = task
+
+        if task.id in self._delegation_callbacks:
+            callback = self._delegation_callbacks.pop(task.id)
+            callback(task)
+
+        return task
+
+    async def delegate_to_skill(
+        self,
+        task: Task,
+        skill_name: str,
+        agent_type: Optional[str] = None
+    ) -> Task:
+        """Delegate a task to an agent with a specific skill.
+
+        Args:
+            task: Task to delegate
+            skill_name: Name of skill to use
+            agent_type: Optional agent type
+
+        Returns:
+            Task with result populated
+        """
+        task.input_data["skill_name"] = skill_name
+
+        if self._agent_factory:
+            from .skills import get_skill_registry
+            skill_registry = get_skill_registry()
+            skill = skill_registry.get(skill_name)
+
+            if skill:
+                agent = self._agent_factory.create_from_skill(
+                    skill,
+                    llm_client=self._llm_client,
+                    tool_service=self._tool_service
+                )
+                self.register_agent(agent)
+                return await self.delegate_task(task, agent_id=agent.id)
+
+        return await self.delegate_task(task, agent_type=agent_type)
+
+    async def broadcast_task(
+        self,
+        task: Task,
+        agent_types: Optional[List[str]] = None
+    ) -> List[Task]:
+        """Broadcast a task to multiple agents.
+
+        Args:
+            task: Task to broadcast
+            agent_types: Optional list of agent types to broadcast to
+
+        Returns:
+            List of task results from each agent
+        """
+        agents = []
+
+        if agent_types:
+            for agent_type in agent_types:
+                agent = self.get_available_agent(agent_type)
+                if agent:
+                    agents.append(agent)
+        else:
+            agents = [a for a in self._agents.values() if a.is_available]
+
+        if not agents:
+            task.error = "No available agents for broadcast"
+            task.completed_at = datetime.now()
+            return [task]
+
+        logger.info(f"[SubAgentManager] Broadcasting task {task.id} to {len(agents)} agents")
+
+        tasks = []
+        for agent in agents:
+            task_copy = Task(
+                id=str(uuid4()),
+                name=task.name,
+                description=task.description,
+                input_data=task.input_data.copy(),
+                priority=task.priority
+            )
+            tasks.append((agent, task_copy))
+
+        results = await asyncio.gather(
+            *[agent.process_task(t) for agent, t in tasks],
+            return_exceptions=True
+        )
+
+        final_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                tasks[i][1].error = str(result)
+                tasks[i][1].completed_at = datetime.now()
+            else:
+                tasks[i][1] = result
+            final_results.append(tasks[i][1])
+            self._task_results[tasks[i][1].id] = tasks[i][1]
+
+        return final_results
+
+    def get_or_create_agent(
+        self,
+        agent_type: str,
+        config: Optional[Dict[str, Any]] = None
+    ) -> SubAgent:
+        """Get an available agent or create a new one.
+
+        Args:
+            agent_type: Type of agent needed
+            config: Optional configuration for new agent
+
+        Returns:
+            SubAgent instance
+        """
+        agent = self.get_available_agent(agent_type)
+        if agent:
+            return agent
+
+        if self._agent_factory:
+            agent = self._agent_factory.create_agent(agent_type, config)
+            self.register_agent(agent)
+            return agent
+
+        from .delegating_subagent import create_delegating_subagent
+        agent = create_delegating_subagent(
+            name=f"{agent_type}_{uuid4().hex[:8]}",
+            agent_type=agent_type,
+            description=f"Auto-created {agent_type} agent",
+            llm_client=self._llm_client,
+            tool_service=self._tool_service
+        )
+        self.register_agent(agent)
+        return agent
+
+    async def aggregate_results(
+        self,
+        task_ids: List[str]
+    ) -> Dict[str, Any]:
+        """Aggregate results from multiple tasks.
+
+        Args:
+            task_ids: List of task IDs to aggregate
+
+        Returns:
+            Aggregated results dictionary
+        """
+        results = []
+        for task_id in task_ids:
+            if task_id in self._task_results:
+                results.append(self._task_results[task_id])
+
+        if not results:
+            return {"success": False, "error": "No results found"}
+
+        successful = [r for r in results if r.error is None]
+        failed = [r for r in results if r.error is not None]
+
+        aggregated = {
+            "success": len(successful) > 0 and len(failed) == 0,
+            "total_tasks": len(results),
+            "successful_tasks": len(successful),
+            "failed_tasks": len(failed),
+            "results": [
+                {
+                    "task_id": r.id,
+                    "task_name": r.name,
+                    "success": r.error is None,
+                    "result": r.result,
+                    "error": r.error,
+                    "duration": r.duration
+                }
+                for r in results
+            ]
+        }
+
+        if successful:
+            result_values = [r.result for r in successful if r.result is not None]
+            if result_values:
+                aggregated["combined_result"] = result_values
+
+        return aggregated
+
+    def set_delegation_callback(
+        self,
+        task_id: str,
+        callback: Callable[[Task], None]
+    ) -> None:
+        """Set a callback for when a task delegation completes.
+
+        Args:
+            task_id: Task ID to watch
+            callback: Function to call when task completes
+        """
+        self._delegation_callbacks[task_id] = callback
+
+    def get_task_result(self, task_id: str) -> Optional[Task]:
+        """Get the result of a delegated task.
+
+        Args:
+            task_id: Task ID
+
+        Returns:
+            Task with result or None
+        """
+        return self._task_results.get(task_id)
+
+    async def execute_parallel(
+        self,
+        tasks: List[Task],
+        max_concurrent: int = 5
+    ) -> List[Task]:
+        """Execute multiple tasks in parallel.
+
+        Args:
+            tasks: List of tasks to execute
+            max_concurrent: Maximum concurrent executions
+
+        Returns:
+            List of completed tasks
+        """
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def execute_with_semaphore(task: Task) -> Task:
+            async with semaphore:
+                return await self.delegate_task(task)
+
+        results = await asyncio.gather(
+            *[execute_with_semaphore(t) for t in tasks],
+            return_exceptions=True
+        )
+
+        final_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                tasks[i].error = str(result)
+                tasks[i].completed_at = datetime.now()
+                final_results.append(tasks[i])
+            else:
+                final_results.append(result)
+
+        return final_results
+
+    async def execute_sequential(
+        self,
+        tasks: List[Task]
+    ) -> List[Task]:
+        """Execute multiple tasks sequentially.
+
+        Args:
+            tasks: List of tasks to execute
+
+        Returns:
+            List of completed tasks in order
+        """
+        results = []
+        for task in tasks:
+            result = await self.delegate_task(task)
+            results.append(result)
+        return results
+
+    async def cleanup_idle_agents(self, max_idle_time: int = 300) -> int:
+        """Clean up idle agents.
+
+        Args:
+            max_idle_time: Maximum idle time in seconds
+
+        Returns:
+            Number of agents cleaned up
+        """
+        if self._agent_factory:
+            return self._agent_factory.cleanup_idle_agents(max_idle_time)
+
+        cleaned = 0
+        to_remove = []
+
+        for agent_id, agent in self._agents.items():
+            if agent.status == AgentStatus.IDLE:
+                if agent.task_history:
+                    last_task = agent.task_history[-1]
+                    if last_task.completed_at:
+                        idle_seconds = (datetime.now() - last_task.completed_at).total_seconds()
+                        if idle_seconds > max_idle_time:
+                            to_remove.append(agent_id)
+
+        for agent_id in to_remove:
+            self.unregister_agent(agent_id)
+            cleaned += 1
+
+        if cleaned > 0:
+            logger.info(f"[SubAgentManager] Cleaned up {cleaned} idle agents")
+
+        return cleaned
 
 
 class AgentPool:
