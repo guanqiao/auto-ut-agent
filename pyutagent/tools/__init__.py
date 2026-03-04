@@ -70,6 +70,17 @@ from .search_tools import (
     WebFetchTool,
     get_all_search_tools,
 )
+from .analysis_tools import (
+    CodeStructureTool,
+    DependencyGraphTool,
+    get_all_analysis_tools,
+)
+from .tool_cache import (
+    ToolResultCache,
+    CacheEntry,
+    CachedToolExecutor,
+    create_result_cache,
+)
 
 __all__ = [
     "JavaCodeParser",
@@ -131,4 +142,11 @@ __all__ = [
     "WebSearchTool",
     "WebFetchTool",
     "get_all_search_tools",
+    "CodeStructureTool",
+    "DependencyGraphTool",
+    "get_all_analysis_tools",
+    "ToolResultCache",
+    "CacheEntry",
+    "CachedToolExecutor",
+    "create_result_cache",
 ]

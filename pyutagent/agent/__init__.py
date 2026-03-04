@@ -102,6 +102,20 @@ from .self_reflection import (
     IssueSeverity
 )
 
+# P4 Intelligent Enhancement Components - Additional
+from .intelligent_selector import (
+    IntelligentToolSelector,
+    ToolScore,
+    create_intelligent_selector
+)
+from .tool_use_agent import (
+    ToolUseAgent,
+    ToolUseTurn,
+    ToolUseResult,
+    create_tool_use_agent
+)
+from .intelligence_enhancer import IntelligenceEnhancer
+
 __all__ = [
     # Base Components
     "BaseAgent",
@@ -191,4 +205,14 @@ __all__ = [
     "ImprovementResult",
     "QualityDimension",
     "IssueSeverity",
+    
+    # P4 Intelligent Enhancement Components - Additional
+    "IntelligentToolSelector",
+    "ToolScore",
+    "create_intelligent_selector",
+    "ToolUseAgent",
+    "ToolUseTurn",
+    "ToolUseResult",
+    "create_tool_use_agent",
+    "IntelligenceEnhancer",
 ]

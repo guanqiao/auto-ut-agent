@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
     QTextEdit, QTreeWidget, QTreeWidgetItem, QLabel,
     QScrollArea, QWidget, QFrame, QSplitter, QPushButton,
-    QProgressBar, QGroupBox, QGridLayout
+    QProgressBar, QGroupBox, QGridLayout, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor, QTextCursor

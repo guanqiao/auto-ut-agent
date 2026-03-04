@@ -24,6 +24,14 @@ from pyutagent.core.smart_mock_generator import (
     GeneratedMock,
     GenerationContext
 )
+from pyutagent.core.cache import (
+    get_global_cache,
+    init_global_cache,
+    get_file_cache,
+    MultiLevelCache,
+    L1MemoryCache,
+    L2DiskCache
+)
 
 __all__ = [
     'EventBus',
@@ -44,4 +52,10 @@ __all__ = [
     'MockConfig',
     'GeneratedMock',
     'GenerationContext',
+    'get_global_cache',
+    'init_global_cache',
+    'get_file_cache',
+    'MultiLevelCache',
+    'L1MemoryCache',
+    'L2DiskCache',
 ]
