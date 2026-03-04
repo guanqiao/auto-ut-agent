@@ -367,6 +367,25 @@ class ProjectPaths:
 
 
 @dataclass
+class MavenSettings:
+    """Maven configuration.
+
+    Attributes:
+        maven_path: Path to Maven executable (mvn or mvn.cmd). If empty, auto-detect will be used.
+    """
+    maven_path: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MavenSettings":
+        """Create from dictionary."""
+        return cls(**data)
+
+
+@dataclass
 class CoverageSettings:
     """Coverage configuration.
 
@@ -543,6 +562,11 @@ class Settings(BaseModel):
     project_paths: ProjectPaths = Field(
         default_factory=ProjectPaths,
         description="Project path configuration"
+    )
+
+    maven: MavenSettings = Field(
+        default_factory=MavenSettings,
+        description="Maven configuration"
     )
 
     coverage: CoverageSettings = Field(

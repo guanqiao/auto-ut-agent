@@ -596,11 +596,25 @@ class BuildToolManager:
         wrapper = self.project_path / "mvnw"
         wrapper_available = wrapper.exists()
         
+        # Get configured Maven path
+        configured_maven_path = None
+        try:
+            from ..core.config import get_settings
+            settings = get_settings()
+            if settings.maven.maven_path and settings.maven.maven_path.strip():
+                configured_path = settings.maven.maven_path.strip()
+                if Path(configured_path).exists():
+                    configured_maven_path = configured_path
+                    logger.info(f"[BuildToolManager] Using configured Maven path: {configured_path}")
+        except Exception as e:
+            logger.debug(f"[BuildToolManager] Failed to get configured Maven path: {e}")
+        
         # Try to get version
         version = None
+        maven_cmd = configured_maven_path or "mvn"
         try:
             result = subprocess.run(
-                ["mvn", "--version"],
+                [maven_cmd, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -614,12 +628,20 @@ class BuildToolManager:
         except Exception:
             pass
         
+        # Determine executable path
+        if wrapper_available:
+            executable_path = str(wrapper)
+        elif configured_maven_path:
+            executable_path = configured_maven_path
+        else:
+            executable_path = "mvn"
+        
         return BuildToolInfo(
             tool_type=BuildToolType.MAVEN,
             version=version,
             config_file=pom_xml,
             wrapper_available=wrapper_available,
-            executable_path="mvn" if not wrapper_available else str(wrapper)
+            executable_path=executable_path
         )
     
     def _detect_gradle(self) -> Optional[BuildToolInfo]:

@@ -6,10 +6,136 @@ import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 import os
+import shutil
+import platform
 
 logger = logging.getLogger(__name__)
+
+
+def find_maven_executable() -> Optional[str]:
+    """Find Maven executable with smart search strategy.
+    
+    Search order:
+    1. Check PATH using shutil.which
+    2. Check M2_HOME and M3_HOME environment variables
+    3. Check MAVEN_HOME environment variable
+    4. Windows-specific locations (Program Files, etc.)
+    5. Common installation directories
+    
+    Returns:
+        Path to mvn executable if found, None otherwise
+    """
+    # Step 1: Check PATH
+    mvn_path = shutil.which("mvn")
+    if mvn_path:
+        logger.debug(f"[MavenFinder] Found mvn in PATH: {mvn_path}")
+        return mvn_path
+    
+    # Step 2: Check M2_HOME / M3_HOME
+    for env_var in ["M3_HOME", "M2_HOME"]:
+        maven_home = os.environ.get(env_var)
+        if maven_home:
+            mvn_path = _check_maven_bin(maven_home)
+            if mvn_path:
+                logger.debug(f"[MavenFinder] Found mvn via {env_var}: {mvn_path}")
+                return mvn_path
+    
+    # Step 3: Check MAVEN_HOME
+    maven_home = os.environ.get("MAVEN_HOME")
+    if maven_home:
+        mvn_path = _check_maven_bin(maven_home)
+        if mvn_path:
+            logger.debug(f"[MavenFinder] Found mvn via MAVEN_HOME: {mvn_path}")
+            return mvn_path
+    
+    # Step 4: Platform-specific search
+    if platform.system() == "Windows":
+        mvn_path = _find_maven_windows()
+        if mvn_path:
+            return mvn_path
+    else:
+        mvn_path = _find_maven_unix()
+        if mvn_path:
+            return mvn_path
+    
+    logger.warning("[MavenFinder] Maven not found in any standard location")
+    return None
+
+
+def _check_maven_bin(maven_home: str) -> Optional[str]:
+    """Check if mvn exists in the bin directory of maven home."""
+    home_path = Path(maven_home)
+    
+    if platform.system() == "Windows":
+        mvn_exe = home_path / "bin" / "mvn.cmd"
+        if mvn_exe.exists():
+            return str(mvn_exe)
+        mvn_exe = home_path / "bin" / "mvn.bat"
+        if mvn_exe.exists():
+            return str(mvn_exe)
+    
+    mvn_bin = home_path / "bin" / "mvn"
+    if mvn_bin.exists():
+        return str(mvn_bin)
+    
+    return None
+
+
+def _find_maven_windows() -> Optional[str]:
+    """Search for Maven in Windows-specific locations."""
+    search_paths = [
+        # Program Files locations
+        Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Apache" / "maven" / "bin",
+        Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Maven" / "bin",
+        Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")) / "Apache" / "maven" / "bin",
+        Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")) / "Maven" / "bin",
+        
+        # Chocolatey installation
+        Path(os.environ.get("ProgramData", "C:\\ProgramData")) / "chocolatey" / "bin",
+        
+        # Scoop installation
+        Path(os.environ.get("USERPROFILE", "C:\\Users\\Default")) / "scoop" / "shims",
+        
+        # Common user installations
+        Path(os.environ.get("USERPROFILE", "C:\\Users\\Default")) / "apache-maven" / "bin",
+        Path("C:\\") / "apache-maven" / "bin",
+        Path("D:\\") / "apache-maven" / "bin",
+    ]
+    
+    for search_path in search_paths:
+        mvn_cmd = search_path / "mvn.cmd"
+        if mvn_cmd.exists():
+            logger.debug(f"[MavenFinder] Found mvn.cmd at {mvn_cmd}")
+            return str(mvn_cmd)
+        
+        mvn_bat = search_path / "mvn.bat"
+        if mvn_bat.exists():
+            logger.debug(f"[MavenFinder] Found mvn.bat at {mvn_bat}")
+            return str(mvn_bat)
+    
+    return None
+
+
+def _find_maven_unix() -> Optional[str]:
+    """Search for Maven in Unix-specific locations."""
+    search_paths = [
+        "/usr/share/maven/bin",
+        "/usr/local/share/maven/bin",
+        "/opt/maven/bin",
+        "/usr/local/opt/maven/bin",  # Homebrew on macOS
+        "/opt/homebrew/opt/maven/bin",  # Homebrew on Apple Silicon
+        "/snap/bin",  # Snap packages
+    ]
+    
+    for search_path in search_paths:
+        mvn = Path(search_path) / "mvn"
+        if mvn.exists():
+            logger.debug(f"[MavenFinder] Found mvn at {mvn}")
+            return str(mvn)
+    
+    return None
 
 
 @dataclass
@@ -48,6 +174,49 @@ class MavenRunner:
         self.project_path = Path(project_path)
         self.pom_path = self.project_path / "pom.xml"
         self._classpath_cache: Optional[str] = None
+        self._maven_executable: Optional[str] = None
+    
+    def _get_maven_executable(self) -> str:
+        """Get Maven executable path with configured path priority and smart fallback.
+        
+        Priority:
+        1. Use configured Maven path from settings if available
+        2. Auto-detect Maven using find_maven_executable()
+        3. Fall back to "mvn" command
+        
+        Returns:
+            Path to Maven executable, defaults to "mvn"
+        """
+        if self._maven_executable is None:
+            try:
+                from ..core.config import get_settings
+                settings = get_settings()
+                configured_path = settings.maven.maven_path
+                
+                if configured_path and configured_path.strip():
+                    if Path(configured_path).exists():
+                        self._maven_executable = configured_path.strip()
+                        logger.info(f"[MavenRunner] Using configured Maven executable: {self._maven_executable}")
+                    else:
+                        logger.warning(f"[MavenRunner] Configured Maven path not found: {configured_path}, will auto-detect")
+                        self._maven_executable = find_maven_executable()
+                        if self._maven_executable:
+                            logger.info(f"[MavenRunner] Auto-detected Maven executable: {self._maven_executable}")
+                        else:
+                            logger.warning("[MavenRunner] Maven executable not found, will use 'mvn' command")
+                            self._maven_executable = "mvn"
+                else:
+                    self._maven_executable = find_maven_executable()
+                    if self._maven_executable:
+                        logger.info(f"[MavenRunner] Auto-detected Maven executable: {self._maven_executable}")
+                    else:
+                        logger.warning("[MavenRunner] Maven executable not found, will use 'mvn' command")
+                        self._maven_executable = "mvn"
+            except Exception as e:
+                logger.exception(f"[MavenRunner] Failed to get configured Maven path, using auto-detect: {e}")
+                self._maven_executable = find_maven_executable() or "mvn"
+        
+        return self._maven_executable
     
     def is_maven_project(self) -> bool:
         """Check if the project is a Maven project."""
@@ -62,7 +231,8 @@ class MavenRunner:
         Returns:
             True if tests passed, False otherwise
         """
-        cmd = ["mvn"]
+        mvn = self._get_maven_executable()
+        cmd = [mvn]
         if clean:
             cmd.append("clean")
         cmd.extend(["test", "-q"])
@@ -77,7 +247,7 @@ class MavenRunner:
             )
             return result.returncode == 0
         except FileNotFoundError:
-            logger.error("Maven not found. Please ensure mvn is in PATH.")
+            logger.error(f"Maven executable not found at {mvn}. Please ensure mvn is in PATH.")
             return False
         except Exception as e:
             logger.exception("Error running tests")
@@ -92,7 +262,8 @@ class MavenRunner:
         Returns:
             True if tests passed, False otherwise
         """
-        cmd = ["mvn"]
+        mvn = self._get_maven_executable()
+        cmd = [mvn]
         if clean:
             cmd.append("clean")
         cmd.extend(["test", "-q"])
@@ -107,7 +278,7 @@ class MavenRunner:
             stdout, stderr = await process.communicate()
             return process.returncode == 0
         except FileNotFoundError:
-            logger.error("Maven not found. Please ensure mvn is in PATH.")
+            logger.error(f"Maven executable not found at {mvn}. Please ensure mvn is in PATH.")
             return False
         except Exception as e:
             logger.exception("Error running tests asynchronously")
@@ -122,7 +293,8 @@ class MavenRunner:
         Returns:
             True if successful, False otherwise
         """
-        cmd = ["mvn"]
+        mvn = self._get_maven_executable()
+        cmd = [mvn]
         if clean:
             cmd.append("clean")
         cmd.extend(["test", "jacoco:report", "-q"])
@@ -137,7 +309,7 @@ class MavenRunner:
             )
             return result.returncode == 0
         except FileNotFoundError:
-            logger.error("Maven not found. Please ensure mvn is in PATH.")
+            logger.error(f"Maven executable not found at {mvn}. Please ensure mvn is in PATH.")
             return False
         except Exception as e:
             logger.exception("Error generating coverage")
@@ -152,7 +324,8 @@ class MavenRunner:
         Returns:
             True if successful, False otherwise
         """
-        cmd = ["mvn"]
+        mvn = self._get_maven_executable()
+        cmd = [mvn]
         if clean:
             cmd.append("clean")
         cmd.extend(["test", "jacoco:report", "-q"])
@@ -167,7 +340,7 @@ class MavenRunner:
             stdout, stderr = await process.communicate()
             return process.returncode == 0
         except FileNotFoundError:
-            logger.error("Maven not found. Please ensure mvn is in PATH.")
+            logger.error(f"Maven executable not found at {mvn}. Please ensure mvn is in PATH.")
             return False
         except Exception as e:
             logger.exception("Error generating coverage asynchronously")
@@ -179,9 +352,10 @@ class MavenRunner:
         Returns:
             True if successful, False otherwise
         """
+        mvn = self._get_maven_executable()
         try:
             result = subprocess.run(
-                ["mvn", "compile", "-q"],
+                [mvn, "compile", "-q"],
                 cwd=self.project_path,
                 capture_output=True,
                 text=True,
@@ -198,9 +372,10 @@ class MavenRunner:
         Returns:
             True if successful, False otherwise
         """
+        mvn = self._get_maven_executable()
         try:
             process = await asyncio.create_subprocess_exec(
-                "mvn", "compile", "-q",
+                mvn, "compile", "-q",
                 cwd=str(self.project_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
@@ -223,9 +398,10 @@ class MavenRunner:
         if not force_refresh and self._classpath_cache:
             return self._classpath_cache
         
+        mvn = self._get_maven_executable()
         try:
             result = subprocess.run(
-                ["mvn", "dependency:build-classpath", "-Dmdep.outputFile=cp.txt", "-q"],
+                [mvn, "dependency:build-classpath", "-Dmdep.outputFile=cp.txt", "-q"],
                 cwd=self.project_path,
                 capture_output=True,
                 text=True,
@@ -258,9 +434,10 @@ class MavenRunner:
         if not force_refresh and self._classpath_cache:
             return self._classpath_cache
         
+        mvn = self._get_maven_executable()
         try:
             process = await asyncio.create_subprocess_exec(
-                "mvn", "dependency:build-classpath", "-Dmdep.outputFile=cp.txt", "-q",
+                mvn, "dependency:build-classpath", "-Dmdep.outputFile=cp.txt", "-q",
                 cwd=str(self.project_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
@@ -288,7 +465,10 @@ class MavenRunner:
 
 
 class CoverageAnalyzer:
-    """Analyzes JaCoCo coverage reports."""
+    """Analyzes JaCoCo coverage reports.
+    
+    Supports multiple report locations and formats for robust parsing.
+    """
     
     def __init__(self, project_path: str):
         """Initialize coverage analyzer.
@@ -297,38 +477,77 @@ class CoverageAnalyzer:
             project_path: Path to project root
         """
         self.project_path = Path(project_path)
-        self.jacoco_xml_path = (
-            self.project_path / "target" / "site" / "jacoco" / "jacoco.xml"
-        )
+        self.possible_report_paths = [
+            self.project_path / "target" / "site" / "jacoco" / "jacoco.xml",
+            self.project_path / "target" / "jacoco" / "jacoco.xml",
+            self.project_path / "build" / "reports" / "jacoco" / "test" / "jacocoTestReport.xml",
+            self.project_path / "target" / "site" / "jacoco" / "index.html",
+        ]
+    
+    def _find_report_path(self) -> Optional[Path]:
+        """Find JaCoCo XML report from possible locations.
+        
+        Returns:
+            Path to report if found, None otherwise
+        """
+        for report_path in self.possible_report_paths:
+            if report_path.exists() and report_path.suffix == '.xml':
+                logger.debug(f"[CoverageAnalyzer] Found report at {report_path}")
+                return report_path
+        
+        logger.warning("[CoverageAnalyzer] No JaCoCo XML report found in standard locations")
+        return None
+    
+    def _get_diagnostic_info(self) -> Dict[str, Any]:
+        """Get diagnostic information about coverage reports.
+        
+        Returns:
+            Dictionary with diagnostic information
+        """
+        info = {
+            "searched_paths": [str(p) for p in self.possible_report_paths],
+            "existing_paths": [],
+            "target_dir_exists": (self.project_path / "target").exists(),
+            "jacoco_dir_exists": False,
+        }
+        
+        for path in self.possible_report_paths:
+            if path.exists():
+                info["existing_paths"].append(str(path))
+                if "jacoco" in str(path):
+                    info["jacoco_dir_exists"] = True
+        
+        return info
     
     def parse_report(self) -> Optional[CoverageReport]:
-        """Parse JaCoCo XML report.
+        """Parse JaCoCo XML report with enhanced error handling.
         
         Returns:
             CoverageReport if successful, None otherwise
         """
-        if not self.jacoco_xml_path.exists():
+        report_path = self._find_report_path()
+        if not report_path:
+            diag_info = self._get_diagnostic_info()
+            logger.warning(f"[CoverageAnalyzer] Report not found. Target exists: {diag_info['target_dir_exists']}, "
+                          f"Jacoco dir exists: {diag_info['jacoco_dir_exists']}")
+            logger.debug(f"[CoverageAnalyzer] Searched paths: {diag_info['searched_paths']}")
+            logger.debug(f"[CoverageAnalyzer] Existing paths: {diag_info['existing_paths']}")
             return None
         
         try:
-            tree = ET.parse(self.jacoco_xml_path)
+            logger.info(f"[CoverageAnalyzer] Parsing report from {report_path}")
+            tree = ET.parse(report_path)
             root = tree.getroot()
             
-            # Parse overall counters
-            counters = {}
-            for counter in root.findall('counter'):
-                counter_type = counter.get('type')
-                missed = int(counter.get('missed', 0))
-                covered = int(counter.get('covered', 0))
-                total = missed + covered
-                counters[counter_type] = {
-                    'missed': missed,
-                    'covered': covered,
-                    'ratio': covered / total if total > 0 else 0.0
-                }
+            if root.tag not in ['report', 'session']:
+                logger.warning(f"[CoverageAnalyzer] Unexpected root tag: {root.tag}")
+                return None
             
-            # Parse file-level coverage
+            counters = self._parse_counters(root)
             files = self._parse_file_coverage(root)
+            
+            logger.info(f"[CoverageAnalyzer] Parsed {len(files)} files, "
+                       f"line coverage: {counters.get('LINE', {}).get('ratio', 0.0):.1%}")
             
             return CoverageReport(
                 line_coverage=counters.get('LINE', {}).get('ratio', 0.0),
@@ -339,9 +558,49 @@ class CoverageAnalyzer:
                 class_coverage=counters.get('CLASS', {}).get('ratio', 0.0),
                 files=files
             )
-        except Exception as e:
-            logger.exception("Error parsing coverage report")
+        except ET.ParseError as e:
+            logger.error(f"[CoverageAnalyzer] XML parsing error: {e}")
             return None
+        except Exception as e:
+            logger.exception(f"[CoverageAnalyzer] Error parsing coverage report: {e}")
+            return None
+    
+    def _parse_counters(self, root: ET.Element) -> Dict[str, Dict[str, Any]]:
+        """Parse coverage counters from report.
+        
+        Args:
+            root: XML root element
+            
+        Returns:
+            Dictionary of counter types to their metrics
+        """
+        counters = {}
+        
+        for counter in root.findall('counter'):
+            counter_type = counter.get('type')
+            if not counter_type:
+                continue
+            
+            try:
+                missed = int(counter.get('missed', 0))
+                covered = int(counter.get('covered', 0))
+                total = missed + covered
+                ratio = covered / total if total > 0 else 0.0
+                
+                counters[counter_type] = {
+                    'missed': missed,
+                    'covered': covered,
+                    'total': total,
+                    'ratio': ratio
+                }
+            except (ValueError, TypeError) as e:
+                logger.warning(f"[CoverageAnalyzer] Failed to parse counter {counter_type}: {e}")
+                continue
+        
+        if not counters:
+            logger.debug("[CoverageAnalyzer] No counters found in report")
+        
+        return counters
     
     def _parse_file_coverage(self, root: ET.Element) -> List[FileCoverage]:
         """Parse file-level coverage from JaCoCo report."""
