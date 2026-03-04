@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
-import { ChatViewProvider } from './chat/chatViewProvider';
+import { EnhancedChatViewProvider } from './chat/enhancedChatProvider';
 import { generateTest } from './commands/generateTest';
 import { showChatPanel } from './commands/showChatPanel';
 import { PyUTAgentAPI, getApiInstance } from './backend/apiClient';
 import { getTerminalInstance } from './terminal/terminalManager';
+import { ConfigPanel } from './config/configPanel';
 
 let api: PyUTAgentAPI;
 
@@ -15,8 +16,8 @@ export function activate(context: vscode.ExtensionContext) {
     const apiUrl = config.get<string>('apiUrl', 'http://localhost:8000');
     api = getApiInstance(apiUrl);
     
-    // 注册 Chat View Provider
-    const chatProvider = new ChatViewProvider(context.extensionUri, api);
+    // 注册增强的 Chat View Provider
+    const chatProvider = new EnhancedChatViewProvider(context.extensionUri, api);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             'pyutagent.chatView',
@@ -36,6 +37,14 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             'pyutagent.showChatPanel',
             showChatPanel
+        )
+    );
+    
+    // 注册配置面板命令
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'pyutagent.openConfig',
+            () => ConfigPanel.createOrShow(context.extensionUri)
         )
     );
     
@@ -66,4 +75,7 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {
     console.log('PyUT Agent is now deactivated.');
     getTerminalInstance().dispose();
+    if (ConfigPanel.currentPanel) {
+        ConfigPanel.currentPanel.dispose();
+    }
 }

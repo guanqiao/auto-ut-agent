@@ -38,6 +38,12 @@
         "title": "Show Chat Panel",
         "category": "PyUT Agent",
         "icon": "$(comment)"
+      },
+      {
+        "command": "pyutagent.openConfig",
+        "title": "Open Configuration",
+        "category": "PyUT Agent",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
@@ -62,7 +68,7 @@
           "type": "webview",
           "id": "pyutagent.chatView",
           "name": "PyUT Agent Chat",
-          "icon": "resources/icon.png",
+          "icon": "resources/icon.svg",
           "contextualTitle": "PyUT Agent",
           "visibility": "visible"
         }
@@ -100,7 +106,9 @@
     "watch": "webpack --watch",
     "package": "webpack --mode production --devtool hidden-source-map",
     "compile-tests": "tsc -p .",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "lint": "eslint src --ext ts",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

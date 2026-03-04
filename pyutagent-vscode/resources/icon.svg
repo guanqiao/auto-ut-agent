@@ -1,0 +1,14 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="128" height="128" rx="24" fill="#4A90D9"/>
+  
+  <!-- Letter P -->
+  <path d="M30 100V28H58C66.5 28 73 30 78 34C83 38 85.5 44 85.5 52C85.5 60 83 66 78 70C73 74 66.5 76 58 76H48V100H30ZM48 62H56C60 62 63 61 65 59C67 57 68 54.5 68 51.5C68 48.5 67 46 65 44C63 42 60 41 56 41H48V62Z" fill="white"/>
+  
+  <!-- Test tube icon -->
+  <path d="M90 35L100 35L100 80C100 88 94 94 86 94C78 94 72 88 72 80L72 35L82 35L82 80C82 83 84 85 86 85C88 85 90 83 90 80L90 35Z" fill="white" fill-opacity="0.8"/>
+  
+  <!-- Check mark -->
+  <circle cx="100" cy="100" r="20" fill="#4CAF50"/>
+  <path d="M92 100L98 106L110 94" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
