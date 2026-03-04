@@ -54,6 +54,17 @@ from .tool_use import (
     ToolUseTurn,
     create_tool_use_agent,
 )
+from .git_tools import (
+    GitStatusTool,
+    GitDiffTool,
+    GitCommitTool,
+    GitBranchTool,
+    GitLogTool,
+    GitAddTool,
+    GitPushTool,
+    GitPullTool,
+    get_all_git_tools,
+)
 
 __all__ = [
     "JavaCodeParser",
@@ -103,4 +114,13 @@ __all__ = [
     "ToolCall",
     "ToolUseTurn",
     "create_tool_use_agent",
+    "GitStatusTool",
+    "GitDiffTool",
+    "GitCommitTool",
+    "GitBranchTool",
+    "GitLogTool",
+    "GitAddTool",
+    "GitPushTool",
+    "GitPullTool",
+    "get_all_git_tools",
 ]

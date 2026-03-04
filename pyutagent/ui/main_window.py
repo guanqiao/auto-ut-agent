@@ -23,6 +23,8 @@ from .dialogs.project_stats_dialog import ProjectStatsDialog
 from .dialogs.config_overview_dialog import ConfigOverviewDialog
 from .batch_generate_dialog import BatchGenerateDialog
 from .log_handler import LogEmitter
+from .styles import get_style_manager
+from .components import get_notification_manager
 from ..core.config import (
     LLMConfig,
     LLMConfigCollection,
@@ -461,10 +463,16 @@ class MainWindow(QMainWindow):
         self.llm_client: LLMClient = None
         self.agent_worker: AgentWorker = None
         self.recent_project_actions: list = []
+        
+        # Initialize style manager and notification manager
+        self._style_manager = get_style_manager()
+        self._notification_manager = get_notification_manager()
 
         self.setup_ui()
         self.setup_menu()
+        self.setup_toolbar()
         self.setup_status_bar()
+        self.apply_styles()
         self.setup_llm_client()
         
         # Initialize button states
@@ -576,12 +584,119 @@ class MainWindow(QMainWindow):
         about_action = QAction("&About", self)
         about_action.triggered.connect(self.on_about)
         help_menu.addAction(about_action)
+        
+        # Theme menu
+        view_menu = menubar.addMenu("&View")
+        theme_menu = QMenu("Theme", self)
+        view_menu.addMenu(theme_menu)
+        
+        light_theme_action = QAction("Light", self)
+        light_theme_action.setCheckable(True)
+        light_theme_action.triggered.connect(lambda: self.on_theme_changed("light"))
+        theme_menu.addAction(light_theme_action)
+        
+        dark_theme_action = QAction("Dark", self)
+        dark_theme_action.setCheckable(True)
+        dark_theme_action.triggered.connect(lambda: self.on_theme_changed("dark"))
+        theme_menu.addAction(dark_theme_action)
+        
+        self._theme_actions = {
+            "light": light_theme_action,
+            "dark": dark_theme_action
+        }
+        self._update_theme_menu()
+
+    def setup_toolbar(self):
+        """Setup toolbar with quick actions."""
+        toolbar = self.addToolBar("Quick Actions")
+        toolbar.setMovable(False)
+        
+        # Open project action
+        open_action = QAction("📂 Open", self)
+        open_action.setToolTip("Open Maven Project (Ctrl+O)")
+        open_action.triggered.connect(self.on_open_project)
+        toolbar.addAction(open_action)
+        
+        toolbar.addSeparator()
+        
+        # Generate tests action
+        generate_action = QAction("🧪 Generate", self)
+        generate_action.setToolTip("Generate Tests (Ctrl+G)")
+        generate_action.triggered.connect(self.on_generate_tests)
+        toolbar.addAction(generate_action)
+        
+        # Batch generate action
+        batch_action = QAction("📦 Batch", self)
+        batch_action.setToolTip("Batch Generate Tests (Ctrl+B)")
+        batch_action.triggered.connect(self.on_generate_all_tests)
+        toolbar.addAction(batch_action)
+        
+        toolbar.addSeparator()
+        
+        # Settings action
+        settings_action = QAction("⚙️ Settings", self)
+        settings_action.setToolTip("Open Settings (Ctrl+,)")
+        settings_action.triggered.connect(self.on_llm_config)
+        toolbar.addAction(settings_action)
+
+    def apply_styles(self):
+        """Apply theme styles to main window."""
+        self._style_manager.apply_stylesheet(self, "main_window")
+        
+        # Apply scrollbar style to the whole application
+        scrollbar_style = self._style_manager.get_stylesheet("scrollbar")
+        if scrollbar_style:
+            self.setStyleSheet(self.styleSheet() + scrollbar_style)
+
+    def on_theme_changed(self, theme_name: str):
+        """Handle theme change."""
+        if self._style_manager.set_theme(theme_name):
+            self.apply_styles()
+            self._update_theme_menu()
+            self._notification_manager.show_info(f"Theme changed to {theme_name.capitalize()}")
+            logger.info(f"Theme changed to: {theme_name}")
+
+    def _update_theme_menu(self):
+        """Update theme menu check states."""
+        current_theme = self._style_manager.current_theme
+        for theme_name, action in self._theme_actions.items():
+            action.setChecked(theme_name == current_theme)
 
     def setup_status_bar(self):
-        """Setup status bar."""
+        """Setup status bar with enhanced indicators."""
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+        
+        # Left side: Status message
         self.status_bar.showMessage("Ready - Please open a Maven project")
+        
+        # Right side: Connection status
+        self._connection_label = QLabel("🔴 LLM: Not Connected")
+        self._connection_label.setStyleSheet("padding: 0 10px; color: #F44336;")
+        self.status_bar.addPermanentWidget(self._connection_label)
+        
+        # Project indicator
+        self._project_label = QLabel("📁 No Project")
+        self._project_label.setStyleSheet("padding: 0 10px; color: #757575;")
+        self.status_bar.addPermanentWidget(self._project_label)
+
+    def update_connection_status(self, connected: bool, message: str = ""):
+        """Update LLM connection status indicator."""
+        if connected:
+            self._connection_label.setText(f"🟢 LLM: {message or 'Connected'}")
+            self._connection_label.setStyleSheet("padding: 0 10px; color: #4CAF50;")
+        else:
+            self._connection_label.setText(f"🔴 LLM: {message or 'Not Connected'}")
+            self._connection_label.setStyleSheet("padding: 0 10px; color: #F44336;")
+
+    def update_project_status(self, project_name: str = ""):
+        """Update project status indicator."""
+        if project_name:
+            self._project_label.setText(f"📁 {project_name}")
+            self._project_label.setStyleSheet("padding: 0 10px; color: #2196F3;")
+        else:
+            self._project_label.setText("📁 No Project")
+            self._project_label.setStyleSheet("padding: 0 10px; color: #757575;")
 
     def setup_llm_client(self):
         """Setup LLM client using default configuration."""
@@ -589,13 +704,21 @@ class MainWindow(QMainWindow):
             default_config = self.config_collection.get_default_config()
             if default_config:
                 self.llm_client = LLMClient.from_config(default_config)
+                self.update_connection_status(True, default_config.get_display_name())
+                self._notification_manager.show_success(
+                    f"LLM client initialized with {default_config.get_display_name()}",
+                    duration=3000
+                )
                 logger.info(f"LLM client initialized with config: {default_config.name}")
             else:
+                self.update_connection_status(False, "Not Configured")
                 self.status_bar.showMessage("Please configure LLM model")
                 logger.warning("No default LLM config found")
         except Exception as e:
+            self.update_connection_status(False, "Error")
             logger.exception("Failed to initialize LLM client")
             self.status_bar.showMessage(f"LLM client initialization failed: {e}")
+            self._notification_manager.show_error(f"Failed to initialize LLM client: {e}")
 
     def on_show_config(self):
         """Handle show configuration action."""
@@ -633,9 +756,7 @@ class MainWindow(QMainWindow):
         try:
             pom_path = Path(dir_path) / "pom.xml"
             if not pom_path.exists():
-                QMessageBox.warning(
-                    self,
-                    "Warning",
+                self._notification_manager.show_warning(
                     "Selected directory is not a Maven project (pom.xml not found)"
                 )
                 logger.warning(f"Selected directory is not a Maven project: {dir_path}")
@@ -645,6 +766,11 @@ class MainWindow(QMainWindow):
             self.project_tree.load_project(dir_path)
             self.project_opened.emit(dir_path)
             self.status_bar.showMessage(f"Project: {dir_path}")
+            
+            # Update project status indicator
+            project_name = Path(dir_path).name
+            self.update_project_status(project_name)
+            
             logger.info(f"Project opened: {dir_path}")
 
             # Save to app state
@@ -653,11 +779,18 @@ class MainWindow(QMainWindow):
             self._update_recent_projects_menu()
 
             self.chat_widget.add_agent_message(
-                f"Project opened: {Path(dir_path).name}\n"
+                f"Project opened: {project_name}\n"
                 "Please select a Java file, then click Generate Tests or send a message."
+            )
+            
+            # Show success notification
+            self._notification_manager.show_success(
+                f"Project '{project_name}' opened successfully",
+                duration=3000
             )
             return True
         except Exception as e:
+            self._notification_manager.show_error(f"Failed to open project: {e}")
             logger.exception(f"Failed to open project: {dir_path}")
             return False
 
@@ -761,14 +894,16 @@ class MainWindow(QMainWindow):
 
                 default_config = self.config_collection.get_default_config()
                 if default_config:
-                    self.status_bar.showMessage(
-                        f"LLM configuration updated: {default_config.get_display_name()}"
+                    self._notification_manager.show_success(
+                        f"LLM configuration updated: {default_config.get_display_name()}",
+                        duration=3000
                     )
                     logger.info(f"LLM config updated: {default_config.get_display_name()}")
                 else:
-                    self.status_bar.showMessage("LLM configuration updated")
+                    self._notification_manager.show_info("LLM configuration updated")
                     logger.info("LLM config updated")
         except Exception as e:
+            self._notification_manager.show_error(f"Failed to open LLM config: {e}")
             logger.exception("Failed to open LLM config dialog")
 
     def on_aider_config(self):

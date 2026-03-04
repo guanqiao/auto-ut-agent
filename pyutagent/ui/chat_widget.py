@@ -1,16 +1,71 @@
 """Chat widget for Agent conversation with streaming support."""
 
 import logging
+import re
 from typing import Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLineEdit, QPushButton, QScrollArea, QLabel,
-    QFrame, QSizePolicy, QTextBrowser
+    QFrame, QSizePolicy, QTextBrowser, QApplication
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
-from PyQt6.QtGui import QColor, QFont, QTextCursor
+from PyQt6.QtGui import QColor, QFont, QTextCursor, QSyntaxHighlighter, QTextCharFormat
+
+from .styles import get_style_manager
 
 logger = logging.getLogger(__name__)
+
+
+class CodeHighlighter:
+    """Simple code syntax highlighter for Java."""
+    
+    KEYWORDS = [
+        'abstract', 'assert', 'boolean', 'break', 'byte', 'case', 'catch',
+        'char', 'class', 'const', 'continue', 'default', 'do', 'double',
+        'else', 'enum', 'extends', 'final', 'finally', 'float', 'for',
+        'goto', 'if', 'implements', 'import', 'instanceof', 'int',
+        'interface', 'long', 'native', 'new', 'package', 'private',
+        'protected', 'public', 'return', 'short', 'static', 'strictfp',
+        'super', 'switch', 'synchronized', 'this', 'throw', 'throws',
+        'transient', 'try', 'void', 'volatile', 'while', 'true', 'false', 'null'
+    ]
+    
+    @classmethod
+    def highlight_java(cls, code: str) -> str:
+        """Highlight Java code with HTML."""
+        # Escape HTML first
+        code = code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        # Highlight strings
+        code = re.sub(
+            r'(".*?")',
+            r'<span style="color: #228B22;">\1</span>',
+            code
+        )
+        
+        # Highlight comments
+        code = re.sub(
+            r'(//.*?$)',
+            r'<span style="color: #808080;">\1</span>',
+            code,
+            flags=re.MULTILINE
+        )
+        code = re.sub(
+            r'(/\*.*?\*/)',
+            r'<span style="color: #808080;">\1</span>',
+            code,
+            flags=re.DOTALL
+        )
+        
+        # Highlight keywords
+        for keyword in cls.KEYWORDS:
+            code = re.sub(
+                rf'\b({keyword})\b',
+                r'<span style="color: #0000FF; font-weight: bold;">\1</span>',
+                code
+            )
+        
+        return code
 
 
 class StreamingMessageWidget(QFrame):
@@ -21,14 +76,36 @@ class StreamingMessageWidget(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self._role = role
         self._content = ""
+        self._style_manager = get_style_manager()
         
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 5, 10, 5)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
+        
+        # Header with avatar and timestamp
+        header_layout = QHBoxLayout()
         
         avatar_label = QLabel("🤖" if role == "agent" else "👤")
         avatar_label.setStyleSheet("font-size: 20px;")
-        layout.addWidget(avatar_label)
+        header_layout.addWidget(avatar_label)
         
+        role_text = "Assistant" if role == "agent" else "You"
+        role_label = QLabel(role_text)
+        role_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        header_layout.addWidget(role_label)
+        
+        header_layout.addStretch()
+        
+        # Timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M")
+        self.time_label = QLabel(timestamp)
+        self.time_label.setStyleSheet("color: #999; font-size: 11px;")
+        header_layout.addWidget(self.time_label)
+        
+        layout.addLayout(header_layout)
+        
+        # Content browser
         self.content_browser = QTextBrowser()
         self.content_browser.setOpenExternalLinks(True)
         self.content_browser.setSizePolicy(
@@ -45,22 +122,27 @@ class StreamingMessageWidget(QFrame):
         
         layout.addWidget(self.content_browser, stretch=1)
         
-        if role == "agent":
-            self.setStyleSheet("""
-                StreamingMessageWidget {
-                    background-color: #e3f2fd;
-                    border-radius: 10px;
-                    margin: 5px 50px 5px 5px;
-                }
-            """)
+        self._apply_theme_style()
+    
+    def _apply_theme_style(self):
+        """Apply theme-based styles."""
+        is_dark = self._style_manager.current_theme == "dark"
+        
+        if self._role == "agent":
+            bg_color = "#1E3A5F" if is_dark else "#E3F2FD"
+            border_color = "#2196F3"
         else:
-            self.setStyleSheet("""
-                StreamingMessageWidget {
-                    background-color: #f5f5f5;
-                    border-radius: 10px;
-                    margin: 5px 5px 5px 50px;
-                }
-            """)
+            bg_color = "#2D2D2D" if is_dark else "#F5F5F5"
+            border_color = "#9E9E9E"
+        
+        self.setStyleSheet(f"""
+            StreamingMessageWidget {{
+                background-color: {bg_color};
+                border-radius: 12px;
+                border-left: 3px solid {border_color};
+                margin: 5px 40px 5px 5px;
+            }}
+        """)
     
     def append_chunk(self, chunk: str):
         """Append a chunk of streaming content."""
@@ -80,31 +162,67 @@ class StreamingMessageWidget(QFrame):
         QTimer.singleShot(10, self._adjust_height)
     
     def _format_content(self, content: str) -> str:
-        """Format content with basic highlighting."""
+        """Format content with enhanced Markdown support."""
+        is_dark = self._style_manager.current_theme == "dark"
+        text_color = "#E0E0E0" if is_dark else "#212121"
+        code_bg = "#1E1E1E" if is_dark else "#F5F5F5"
+        
         formatted = content
         
+        # Escape HTML
         formatted = formatted.replace('&', '&amp;')
         formatted = formatted.replace('<', '&lt;')
         formatted = formatted.replace('>', '&gt;')
         
-        import re
-        
-        code_block_pattern = r'```(\w*)\n(.*?)```'
+        # Code blocks with syntax highlighting
         def replace_code_block(match):
-            lang = match.group(1) or 'java'
+            lang = match.group(1) or 'text'
             code = match.group(2)
-            return f'<pre style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto;"><code class="{lang}">{code}</code></pre>'
-        formatted = re.sub(code_block_pattern, replace_code_block, formatted, flags=re.DOTALL)
+            
+            if lang.lower() == 'java':
+                code = CodeHighlighter.highlight_java(code)
+            
+            return f'''<div style="background-color: {code_bg}; border-radius: 8px; margin: 10px 0; overflow: hidden;">
+                <div style="background-color: {"#2D2D2D" if is_dark else "#E0E0E0"}; padding: 5px 10px; font-size: 12px; color: {"#999" if is_dark else "#666"}; font-family: monospace;">{lang}</div>
+                <pre style="padding: 10px; margin: 0; overflow-x: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; line-height: 1.5;"><code>{code}</code></pre>
+            </div>'''
         
-        inline_code_pattern = r'`([^`]+)`'
-        formatted = re.sub(inline_code_pattern, r'<code style="background-color: #e0e0e0; padding: 2px 5px; border-radius: 3px;">\1</code>', formatted)
+        formatted = re.sub(r'```(\w*)\n(.*?)```', replace_code_block, formatted, flags=re.DOTALL)
         
-        bold_pattern = r'\*\*([^*]+)\*\*'
-        formatted = re.sub(bold_pattern, r'<b>\1</b>', formatted)
+        # Inline code
+        formatted = re.sub(
+            r'`([^`]+)`',
+            rf'<code style="background-color: {code_bg}; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 90%;">\1</code>',
+            formatted
+        )
         
+        # Bold
+        formatted = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', formatted)
+        
+        # Italic
+        formatted = re.sub(r'\*([^*]+)\*', r'<em>\1</em>', formatted)
+        
+        # Headers
+        formatted = re.sub(r'^### (.+)$', r'<h3 style="margin: 10px 0; color: #2196F3;">\1</h3>', formatted, flags=re.MULTILINE)
+        formatted = re.sub(r'^## (.+)$', r'<h2 style="margin: 12px 0; color: #2196F3;">\1</h2>', formatted, flags=re.MULTILINE)
+        formatted = re.sub(r'^# (.+)$', r'<h1 style="margin: 15px 0; color: #2196F3;">\1</h1>', formatted, flags=re.MULTILINE)
+        
+        # Lists
+        formatted = re.sub(r'^- (.+)$', r'<li style="margin: 5px 0;">\1</li>', formatted, flags=re.MULTILINE)
+        formatted = re.sub(r'(<li>.*</li>\n)+', r'<ul style="margin: 10px 0; padding-left: 20px;">\g<0></ul>', formatted, flags=re.DOTALL)
+        
+        # Links
+        formatted = re.sub(
+            r'\[([^\]]+)\]\(([^)]+)\)',
+            r'<a href="\2" style="color: #2196F3; text-decoration: none;">\1</a>',
+            formatted
+        )
+        
+        # Line breaks
         formatted = formatted.replace('\n', '<br>')
         
-        return f'<div style="font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;">{formatted}</div>'
+        font_family = self._style_manager.get_font_family()
+        return f'<div style="font-family: {font_family}; color: {text_color}; line-height: 1.6;">{formatted}</div>'
     
     def _adjust_height(self):
         """Adjust height to fit content."""
@@ -124,14 +242,37 @@ class ChatMessageWidget(QFrame):
     def __init__(self, role: str, content: str, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.StyledPanel)
+        self._role = role
+        self._style_manager = get_style_manager()
         
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 5, 10, 5)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
+        
+        # Header
+        header_layout = QHBoxLayout()
         
         avatar_label = QLabel("🤖" if role == "agent" else "👤")
         avatar_label.setStyleSheet("font-size: 20px;")
-        layout.addWidget(avatar_label)
+        header_layout.addWidget(avatar_label)
         
+        role_text = "Assistant" if role == "agent" else "You"
+        role_label = QLabel(role_text)
+        role_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        header_layout.addWidget(role_label)
+        
+        header_layout.addStretch()
+        
+        # Timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M")
+        time_label = QLabel(timestamp)
+        time_label.setStyleSheet("color: #999; font-size: 11px;")
+        header_layout.addWidget(time_label)
+        
+        layout.addLayout(header_layout)
+        
+        # Content
         self.content_label = QLabel(content)
         self.content_label.setWordWrap(True)
         self.content_label.setTextFormat(Qt.TextFormat.PlainText)
@@ -139,25 +280,29 @@ class ChatMessageWidget(QFrame):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Preferred
         )
-        
-        if role == "agent":
-            self.setStyleSheet("""
-                ChatMessageWidget {
-                    background-color: #e3f2fd;
-                    border-radius: 10px;
-                    margin: 5px 50px 5px 5px;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                ChatMessageWidget {
-                    background-color: #f5f5f5;
-                    border-radius: 10px;
-                    margin: 5px 5px 5px 50px;
-                }
-            """)
-        
         layout.addWidget(self.content_label, stretch=1)
+        
+        self._apply_theme_style()
+    
+    def _apply_theme_style(self):
+        """Apply theme-based styles."""
+        is_dark = self._style_manager.current_theme == "dark"
+        
+        if self._role == "agent":
+            bg_color = "#1E3A5F" if is_dark else "#E3F2FD"
+            border_color = "#2196F3"
+        else:
+            bg_color = "#2D2D2D" if is_dark else "#F5F5F5"
+            border_color = "#9E9E9E"
+        
+        self.setStyleSheet(f"""
+            ChatMessageWidget {{
+                background-color: {bg_color};
+                border-radius: 12px;
+                border-left: 3px solid {border_color};
+                margin: 5px 40px 5px 5px;
+            }}
+        """)
     
     def update_content(self, content: str):
         """Update message content."""

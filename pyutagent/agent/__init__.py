@@ -11,7 +11,7 @@ from .integration_manager import (
     ComponentStatus
 )
 from .actions import Action, ActionRegistry
-from .prompts import PromptBuilder
+from .prompts import PromptBuilder, ToolUsagePromptBuilder
 from ..core.protocols import AgentState, AgentResult
 from ..core.error_recovery import (
     ErrorRecoveryManager,
@@ -111,6 +111,7 @@ __all__ = [
     "Action",
     "ActionRegistry",
     "PromptBuilder",
+    "ToolUsagePromptBuilder",
     "ErrorRecoveryManager",
     "ErrorCategory",
     "RecoveryStrategy",

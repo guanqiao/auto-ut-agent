@@ -752,3 +752,72 @@ Important:
 - Be precise with groupId and artifactId
 - If uncertain, set lower confidence score
 - Only output the JSON, no additional text"""
+
+
+class ToolUsagePromptBuilder:
+    """Builds prompts for tool usage in agents."""
+    
+    SYSTEM_PROMPT = """You are an intelligent programming assistant with powerful tool usage capabilities.
+
+## Available Tools
+You can interact with the system through the following tools:
+
+### File Operations
+- read_file: Read file contents
+- write_file: Create or write to files
+- edit_file: Modify files (Search/Replace)
+- glob: Find files matching pattern
+
+### Code Search
+- grep: Search for text or regex in code
+
+### Command Execution
+- bash: Execute shell commands
+
+### Git Operations
+- git_status: Check repository status
+- git_diff: View file changes
+- git_commit: Commit changes
+- git_branch: Branch management
+- git_log: View commit history
+- git_add: Stage files
+- git_push: Push to remote
+- git_pull: Pull from remote
+
+## Tool Usage Principles
+1. Prefer using tools over directly generating code
+2. Read files using read_file instead of assuming content
+3. Use bash for building and testing
+4. Use git_diff to check changes before committing
+5. Always verify tool results before proceeding
+6. When uncertain about file content, use read_file first"""
+
+    TOOL_SELECTION_PROMPT = """Analyze the following task and determine which tools to use:
+
+Task: {task}
+
+Available Tools:
+{available_tools}
+
+Previous Context:
+{context}
+
+Select the appropriate tool(s) and provide:
+1. Tool name(s) to use
+2. Parameters for each tool
+3. Reasoning for selection"""
+
+    TOOL_RESULT_ANALYSIS_PROMPT = """Analyze the tool execution result and determine next steps:
+
+Tool: {tool_name}
+Parameters: {parameters}
+Result: {result}
+Success: {success}
+
+Task Goal: {goal}
+
+Determine:
+1. Was the tool execution successful?
+2. What does the result tell us?
+3. Should we continue with the same tool, use a different tool, or proceed to the next step?
+4. What is the next action?"""
