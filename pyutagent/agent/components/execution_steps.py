@@ -1368,17 +1368,58 @@ class StepExecutor:
     async def generate_additional_tests(self, coverage_data: Dict[str, Any]) -> StepResult:
         """Generate additional tests for uncovered code.
         
+        Enhanced with P4 intelligent features:
+        - Boundary analysis for edge cases
+        - Pattern library for test templates
+        - Knowledge graph for code relationships
+        
         Args:
             coverage_data: Coverage analysis data
             
         Returns:
             StepResult with generation results
         """
-        logger.info("[StepExecutor] Generating additional tests with P0 enhancements")
+        logger.info("[StepExecutor] Generating additional tests with P0 and P4 enhancements")
         
         try:
             report = coverage_data.get("report")
             uncovered_info = self._get_uncovered_info(report)
+            
+            # P4: Use boundary analyzer to identify edge cases
+            boundary_suggestions = []
+            if hasattr(self.agent_core, 'boundary_analyzer') and self.agent_core.boundary_analyzer:
+                try:
+                    source_code = self.agent_core.target_class_info.get("source", "")
+                    class_analysis = self.agent_core.boundary_analyzer.analyze_class(source_code)
+                    for method_name, analysis in class_analysis.items():
+                        if analysis.parameters:
+                            boundary_suggestions.append({
+                                "method": method_name,
+                                "parameters": [
+                                    {"name": p.parameter_name, "boundaries": [str(b.value) for b in p.boundaries[:3]]}
+                                    for p in analysis.parameters[:2]
+                                ]
+                            })
+                    logger.info(f"[StepExecutor] 🧠 P4 Boundary analysis found {len(boundary_suggestions)} method suggestions")
+                except Exception as e:
+                    logger.warning(f"[StepExecutor] Boundary analysis failed: {e}")
+            
+            # P4: Get test patterns for additional tests
+            test_patterns = []
+            if hasattr(self.agent_core, 'pattern_library') and self.agent_core.pattern_library:
+                try:
+                    from ...memory.pattern_library import PatternCategory
+                    patterns = self.agent_core.pattern_library.find_patterns(
+                        category=PatternCategory.BOUNDARY,
+                        min_confidence=0.6
+                    )
+                    test_patterns = [
+                        {"name": p.name, "template": p.template[:200]}
+                        for p in patterns[:3]
+                    ]
+                    logger.info(f"[StepExecutor] 🧠 P4 Found {len(test_patterns)} applicable patterns")
+                except Exception as e:
+                    logger.warning(f"[StepExecutor] Pattern lookup failed: {e}")
             
             logger.debug(f"[StepExecutor] Uncovered info - Lines: {len(uncovered_info.get('lines', []))}")
             
@@ -1386,10 +1427,17 @@ class StepExecutor:
             with open(test_file_path, 'r', encoding='utf-8') as f:
                 current_test_code = f.read()
             
+            # Add P4 insights to prompt context
+            enhanced_uncovered_info = {
+                **uncovered_info,
+                "boundary_suggestions": boundary_suggestions,
+                "test_patterns": test_patterns
+            }
+            
             prompt = self.components["prompt_builder"].build_additional_tests_prompt(
                 class_info=self.agent_core.target_class_info,
                 existing_tests=current_test_code,
-                uncovered_info=uncovered_info,
+                uncovered_info=enhanced_uncovered_info,
                 current_coverage=coverage_data.get("line_coverage", 0.0)
             )
             
@@ -1402,13 +1450,33 @@ class StepExecutor:
             
             self._append_tests_to_file(test_file_path, additional_tests)
             
+            # P4: Record coverage improvement attempt
+            if hasattr(self.agent_core, 'feedback_loop') and self.agent_core.feedback_loop:
+                try:
+                    from ...core.enhanced_feedback_loop import FeedbackType
+                    self.agent_core.feedback_loop.record_feedback(
+                        feedback_type=FeedbackType.COVERAGE_IMPROVEMENT,
+                        context={
+                            "test_file": self.agent_core.current_test_file,
+                            "class_name": self.agent_core.target_class_info.get("name", "Unknown")
+                        },
+                        outcome="additional_tests_generated",
+                        details={
+                            "current_coverage": coverage_data.get("line_coverage", 0.0),
+                            "uncovered_lines": len(uncovered_info.get("lines", [])),
+                            "boundary_suggestions": len(boundary_suggestions)
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"[StepExecutor] Feedback recording failed: {e}")
+            
             logger.info("[StepExecutor] Additional test generation complete")
             
             return StepResult(
                 success=True,
                 state=AgentState.OPTIMIZING,
                 message="Generated additional tests for uncovered code",
-                data={"additional_tests": additional_tests}
+                data={"additional_tests": additional_tests, "boundary_suggestions": boundary_suggestions}
             )
         except Exception as e:
             logger.exception(f"[StepExecutor] Failed to generate additional tests: {e}")
