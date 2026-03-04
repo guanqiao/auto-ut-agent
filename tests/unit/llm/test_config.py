@@ -39,7 +39,7 @@ class TestLLMConfig:
         assert config.endpoint == "https://api.openai.com/v1"
         assert config.model == "gpt-4"
         assert config.timeout == 300
-        assert config.max_retries == 5
+        assert config.max_retries == 2
         assert config.temperature == 0.7
         assert config.max_tokens == 4096
         assert config.ca_cert is None

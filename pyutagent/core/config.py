@@ -88,7 +88,7 @@ class LLMConfig(BaseModel):
         description="Request timeout (seconds)"
     )
     max_retries: int = Field(
-        default=5,
+        default=2,
         ge=0,
         le=10,
         description="Maximum retries"
@@ -417,9 +417,9 @@ class CoverageSettings:
     """
     target_coverage: float = 0.8
     min_coverage: float = 0.5
-    max_iterations: int = 10
-    max_compilation_attempts: int = 3
-    max_test_attempts: int = 3
+    max_iterations: int = 2
+    max_compilation_attempts: int = 2
+    max_test_attempts: int = 2
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

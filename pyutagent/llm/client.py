@@ -29,7 +29,7 @@ class LLMClient:
         model: str,
         ca_cert: Optional[str] = None,
         timeout: int = 300,
-        max_retries: int = 5,
+        max_retries: int = 2,
         temperature: float = 0.7,
         max_tokens: int = 4096,
         provider: str = "openai",
@@ -228,8 +228,7 @@ class LLMClient:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
         
-        # Default timeout: 180 seconds (3 minutes) - reasonable for most LLM calls
-        operation_timeout = timeout if timeout is not None else 180.0
+        operation_timeout = timeout if timeout is not None else float(self.timeout)
         
         prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
         self._report_progress(f"🚀 正在调用 LLM - Model: {self.model}, Prompt 长度：{len(prompt)} 字符")
@@ -418,16 +417,15 @@ class LLMClient:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
         
-        timeout = timeout or 600.0  # Default 10 minutes
-        logger.info(f"[LLM] Starting async stream generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)}, Timeout: {timeout}s")
+        operation_timeout = timeout if timeout is not None else float(self.timeout)
+        logger.info(f"[LLM] Starting async stream generation - Model: {self.model}, Endpoint: {self.endpoint}, Provider: {self.provider}, PromptLength: {len(prompt)}, Timeout: {operation_timeout}s")
         
         start_time = time.time()
         last_progress_time = start_time
         chunk_count = 0
         
         try:
-            # Wrap the stream with timeout
-            async with asyncio.timeout(timeout):
+            async with asyncio.timeout(operation_timeout):
                 async for chunk in client.astream(messages):
                     if chunk.content:
                         chunk_count += 1
