@@ -27,7 +27,7 @@ class TestRetryConfig:
         config = RetryConfig()
         
         assert config.max_total_attempts == 50
-        assert config.max_step_attempts == 5
+        assert config.max_step_attempts == 2
         assert config.max_compilation_attempts == 2
         assert config.max_test_attempts == 2
         assert config.backoff_base == 2.0
@@ -112,11 +112,11 @@ class TestRetryConfig:
         assert config.get_max_attempts() == 3
     
     def test_with_overrides(self):
-        original = RetryConfig(max_total_attempts=50, max_step_attempts=5)
+        original = RetryConfig(max_total_attempts=50, max_step_attempts=2)
         modified = original.with_overrides(max_total_attempts=100, max_step_attempts=10)
         
         assert original.max_total_attempts == 50
-        assert original.max_step_attempts == 5
+        assert original.max_step_attempts == 2
         assert modified.max_total_attempts == 100
         assert modified.max_step_attempts == 10
 

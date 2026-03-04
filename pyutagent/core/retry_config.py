@@ -36,7 +36,7 @@ class RetryConfig:
     """
     
     max_total_attempts: int = 50
-    max_step_attempts: int = 5
+    max_step_attempts: int = 2
     max_compilation_attempts: int = 2
     max_test_attempts: int = 2
     
@@ -170,7 +170,7 @@ def get_default_retry_config() -> RetryConfig:
 
 def create_retry_config(
     max_total_attempts: int = 50,
-    max_step_attempts: int = 5,
+    max_step_attempts: int = 2,
     backoff_base: float = 2.0,
     **kwargs
 ) -> RetryConfig:

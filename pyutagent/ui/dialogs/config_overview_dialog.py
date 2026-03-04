@@ -219,6 +219,7 @@ class ConfigOverviewDialog(QDialog):
             lines.append(f"  Target Coverage: {settings.coverage.target_coverage:.1%}")
             lines.append(f"  Min Coverage: {settings.coverage.min_coverage:.1%}")
             lines.append(f"  Max Iterations: {settings.coverage.max_iterations}")
+            lines.append(f"  Max Step Attempts: {settings.coverage.max_step_attempts}")
             lines.append(f"  Max Compilation Attempts: {settings.coverage.max_compilation_attempts}")
             lines.append(f"  Max Test Attempts: {settings.coverage.max_test_attempts}")
             lines.append("")

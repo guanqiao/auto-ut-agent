@@ -37,7 +37,16 @@ class StepExecutor:
         """
         self.agent_core = agent_core
         self.components = components
-        self.retry_config = retry_config or DEFAULT_RETRY_CONFIG
+        
+        if retry_config is None:
+            settings = get_settings()
+            retry_config = RetryConfig(
+                max_step_attempts=settings.coverage.max_step_attempts,
+                max_compilation_attempts=settings.coverage.max_compilation_attempts,
+                max_test_attempts=settings.coverage.max_test_attempts,
+            )
+        
+        self.retry_config = retry_config
         self.error_classifier = get_error_classification_service()
         
         logger.debug("[StepExecutor] Initialized")
@@ -525,6 +534,201 @@ class StepExecutor:
                     "target": f"{self.agent_core.working_memory.target_coverage:.1%}"
                 }
             })
+    
+    async def generate_incremental_tests(
+        self,
+        incremental_context: Any,
+        use_streaming: bool = True,
+        max_retries: int = 2
+    ) -> StepResult:
+        """Generate tests in incremental mode, preserving existing passing tests.
+        
+        Args:
+            incremental_context: IncrementalContext with existing test analysis
+            use_streaming: Whether to use streaming generation
+            max_retries: Maximum number of retries on timeout
+            
+        Returns:
+            StepResult with generation results
+        """
+        class_name = incremental_context.class_info.get('name', 'Unknown')
+        logger.info(f"[StepExecutor] 🔄 Starting INCREMENTAL test generation for class: {class_name}")
+        logger.info(f"[StepExecutor] ⚙️ Preserved tests: {len(incremental_context.preserved_test_names)}, "
+                   f"Tests to fix: {len(incremental_context.tests_to_fix)}")
+        
+        self.agent_core._update_state(
+            AgentState.GENERATING, 
+            f"🔄 增量模式: 保留 {len(incremental_context.preserved_test_names)} 个通过的测试..."
+        )
+        
+        if hasattr(self.agent_core.llm_client, 'set_progress_callback'):
+            self.agent_core.llm_client.set_progress_callback(self._llm_progress_callback)
+            self.agent_core.llm_client.reset_cancel()
+        
+        try:
+            source_code = incremental_context.source_code
+            
+            uncovered_info = {
+                "lines": [item.get("line") for item in incremental_context.uncovered_code if item.get("type") == "line"],
+                "methods": [],
+            }
+            
+            base_prompt = self.components["prompt_builder"].build_incremental_preserve_prompt(
+                class_info=incremental_context.class_info,
+                source_code=source_code,
+                preserved_tests=incremental_context.preserved_test_names,
+                preserved_test_code=incremental_context.preserved_test_code,
+                tests_to_fix=incremental_context.tests_to_fix,
+                uncovered_info=uncovered_info,
+                current_coverage=1.0 - incremental_context.target_coverage_gap,
+                target_coverage=self.agent_core.target_coverage
+            )
+            
+            prompt = self._optimize_prompt(base_prompt, "incremental_test_generation")
+            
+            logger.debug(f"[StepExecutor] Incremental test prompt - Length: {len(prompt)}")
+            
+            test_code = None
+            last_error = None
+            
+            for attempt in range(max_retries + 1):
+                if self.agent_core._terminated or self.agent_core._stop_requested:
+                    logger.warning(f"[StepExecutor] ⏹️ Incremental generation cancelled by user")
+                    return StepResult(
+                        success=False,
+                        state=AgentState.PAUSED,
+                        message="⏹️ 增量测试生成已被用户取消"
+                    )
+                
+                if attempt > 0:
+                    logger.warning(f"[StepExecutor] 🔄 Retry attempt {attempt}/{max_retries}")
+                    self.agent_core._update_state(AgentState.GENERATING, f"🔄 重试 {attempt}/{max_retries}...")
+                    await asyncio.sleep(2.0 * attempt)
+                
+                try:
+                    if use_streaming:
+                        logger.info("[StepExecutor] Using streaming generation for incremental mode")
+                        self.agent_core._update_state(AgentState.GENERATING, "🚀 正在生成增量测试代码...")
+                        
+                        streaming_start_time = time.time()
+                        
+                        def on_chunk(chunk: str):
+                            pass
+                        
+                        streaming_result = None
+                        streaming_task = asyncio.create_task(
+                            self.components["streaming_generator"].generate_with_streaming(
+                                prompt=prompt,
+                                on_chunk=on_chunk,
+                                on_progress=lambda p: logger.debug(f"[StepExecutor] Streaming progress: {p:.1%}")
+                            )
+                        )
+                        
+                        try:
+                            while not streaming_task.done():
+                                if self.agent_core._terminated or self.agent_core._stop_requested:
+                                    streaming_task.cancel()
+                                    raise asyncio.CancelledError("User terminated")
+                                
+                                try:
+                                    streaming_result = await asyncio.wait_for(
+                                        asyncio.shield(streaming_task),
+                                        timeout=1.0
+                                    )
+                                    break
+                                except asyncio.TimeoutError:
+                                    continue
+                            
+                            if streaming_result and streaming_result.success:
+                                test_code = self.agent_core._extract_java_code(streaming_result.complete_code)
+                                logger.info(f"[StepExecutor] Streaming incremental generation complete")
+                            else:
+                                response = await self.agent_core.llm_client.agenerate(prompt, timeout=180.0)
+                                test_code = self.agent_core._extract_java_code(response)
+                        except asyncio.TimeoutError:
+                            logger.warning("[StepExecutor] Streaming timeout, falling back")
+                            response = await self.agent_core.llm_client.agenerate(prompt, timeout=180.0)
+                            test_code = self.agent_core._extract_java_code(response)
+                    else:
+                        self.agent_core._update_state(AgentState.GENERATING, "🚀 正在调用 LLM 生成增量测试代码...")
+                        response = await self.agent_core.llm_client.agenerate(prompt, timeout=180.0)
+                        test_code = self.agent_core._extract_java_code(response)
+                    
+                    if test_code and len(test_code) > 0:
+                        logger.info(f"[StepExecutor] ✅ Incremental test code generated successfully")
+                        break
+                    else:
+                        logger.warning(f"[StepExecutor] ⚠️ Generated test code is empty")
+                        last_error = Exception("Empty test code generated")
+                        
+                except asyncio.TimeoutError as e:
+                    logger.error(f"[StepExecutor] ⏰ Timeout on attempt {attempt + 1}")
+                    last_error = e
+                    if attempt < max_retries:
+                        continue
+                    raise
+                except Exception as e:
+                    logger.exception(f"[StepExecutor] ❌ Error on attempt {attempt + 1}: {e}")
+                    last_error = e
+                    if attempt < max_retries:
+                        continue
+                    raise
+            
+            if not test_code or len(test_code) == 0:
+                logger.error(f"[StepExecutor] ❌ Failed to generate incremental test code")
+                raise last_error or Exception("Failed to generate incremental test code")
+            
+            settings = get_settings()
+            test_file_name = f"{class_name}Test.java"
+            test_dir = Path(self.agent_core.project_path) / settings.project_paths.src_test_java
+            package_path = incremental_context.class_info.get("package", "").replace(".", "/")
+            if package_path:
+                test_dir = test_dir / package_path
+            
+            test_dir.mkdir(parents=True, exist_ok=True)
+            test_file_path = test_dir / test_file_name
+            
+            with open(test_file_path, 'w', encoding='utf-8') as f:
+                f.write(test_code)
+            
+            self.agent_core.current_test_file = str(test_file_path.relative_to(self.agent_core.project_path))
+            self.agent_core.working_memory.add_generated_test(
+                file=self.agent_core.current_test_file,
+                method="incremental",
+                code=test_code
+            )
+            
+            logger.info(f"[StepExecutor] Incremental test generation complete - "
+                       f"TestFile: {self.agent_core.current_test_file}, "
+                       f"Preserved: {len(incremental_context.preserved_test_names)}")
+            
+            return StepResult(
+                success=True,
+                state=AgentState.GENERATING,
+                message=f"Generated incremental tests (preserved {len(incremental_context.preserved_test_names)} tests): {self.agent_core.current_test_file}",
+                data={
+                    "test_file": self.agent_core.current_test_file,
+                    "test_code": test_code,
+                    "preserved_count": len(incremental_context.preserved_test_names),
+                }
+            )
+        except asyncio.CancelledError:
+            logger.warning("[StepExecutor] ⚠️ Incremental test generation was cancelled")
+            return StepResult(
+                success=False,
+                state=AgentState.PAUSED,
+                message="⏹️ 增量测试生成已被用户取消"
+            )
+        except Exception as e:
+            logger.exception(f"[StepExecutor] Failed to generate incremental tests: {e}")
+            return StepResult(
+                success=False,
+                state=AgentState.FAILED,
+                message=f"Error generating incremental tests: {str(e)}"
+            )
+        finally:
+            if hasattr(self.agent_core.llm_client, 'set_progress_callback'):
+                self.agent_core.llm_client.set_progress_callback(None)
     
     async def compile_tests(self) -> StepResult:
         """Compile the generated tests asynchronously with validation.

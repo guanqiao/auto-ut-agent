@@ -65,6 +65,12 @@ class CoverageConfigDialog(QDialog):
         attempts_group = QGroupBox("尝试次数限制")
         attempts_layout = QFormLayout()
 
+        self.max_step_attempts_spin = QSpinBox()
+        self.max_step_attempts_spin.setRange(1, 10)
+        self.max_step_attempts_spin.setValue(2)
+        self.max_step_attempts_spin.setSuffix(" 次")
+        attempts_layout.addRow("最大步骤尝试次数:", self.max_step_attempts_spin)
+
         self.max_compilation_attempts_spin = QSpinBox()
         self.max_compilation_attempts_spin.setRange(1, 10)
         self.max_compilation_attempts_spin.setValue(2)
@@ -90,6 +96,7 @@ class CoverageConfigDialog(QDialog):
             "• 最低覆盖率：可接受的最低覆盖率阈值\n"
             "• 最大迭代次数：覆盖率优化的最大迭代轮数\n\n"
             "🔄 尝试次数限制说明:\n\n"
+            "• 最大步骤尝试次数：生成测试等通用步骤的最大尝试次数\n"
             "• 最大编译尝试次数：编译失败时的最大修复尝试次数，超过后需要人工干预\n"
             "• 最大测试尝试次数：测试失败时的最大修复尝试次数，超过后需要人工干预\n\n"
             "💡 建议：较小的尝试次数可以更快失败，避免长时间等待；较大的尝试次数可以提高成功率。"
@@ -124,11 +131,13 @@ class CoverageConfigDialog(QDialog):
         self.target_coverage_spin.setValue(coverage.target_coverage)
         self.min_coverage_spin.setValue(coverage.min_coverage)
         self.max_iterations_spin.setValue(coverage.max_iterations)
+        self.max_step_attempts_spin.setValue(coverage.max_step_attempts)
         self.max_compilation_attempts_spin.setValue(coverage.max_compilation_attempts)
         self.max_test_attempts_spin.setValue(coverage.max_test_attempts)
 
         logger.debug(f"Loaded coverage settings: target={coverage.target_coverage}, "
                     f"min={coverage.min_coverage}, max_iter={coverage.max_iterations}, "
+                    f"max_step={coverage.max_step_attempts}, "
                     f"max_comp={coverage.max_compilation_attempts}, "
                     f"max_test={coverage.max_test_attempts}")
 
@@ -139,6 +148,7 @@ class CoverageConfigDialog(QDialog):
             coverage.target_coverage = self.target_coverage_spin.value()
             coverage.min_coverage = self.min_coverage_spin.value()
             coverage.max_iterations = self.max_iterations_spin.value()
+            coverage.max_step_attempts = self.max_step_attempts_spin.value()
             coverage.max_compilation_attempts = self.max_compilation_attempts_spin.value()
             coverage.max_test_attempts = self.max_test_attempts_spin.value()
 
@@ -146,6 +156,7 @@ class CoverageConfigDialog(QDialog):
             
             logger.info(f"Saved coverage settings: target={coverage.target_coverage}, "
                        f"min={coverage.min_coverage}, max_iter={coverage.max_iterations}, "
+                       f"max_step={coverage.max_step_attempts}, "
                        f"max_comp={coverage.max_compilation_attempts}, "
                        f"max_test={coverage.max_test_attempts}")
             return True
