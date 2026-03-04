@@ -551,9 +551,20 @@ class StepExecutor:
 
         try:
             logger.debug("[StepExecutor] Getting Maven dependency classpath")
-
+            
+            from pyutagent.tools.maven_tools import find_maven_executable
+            from pyutagent.tools.java_tools import find_javac_executable
+            
+            mvn_exe = find_maven_executable()
+            if not mvn_exe:
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message="Maven executable not found. Please configure Maven path in settings."
+                )
+            
             maven_process = await asyncio.create_subprocess_exec(
-                "mvn", "dependency:build-classpath", "-Dmdep.outputFile=cp.txt", "-q",
+                mvn_exe, "dependency:build-classpath", "-Dmdep.outputFile=cp.txt", "-q",
                 cwd=self.agent_core.project_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
@@ -570,9 +581,17 @@ class StepExecutor:
             classpath = f"{self.agent_core.project_path}/{settings.project_paths.target_classes};{self.agent_core.project_path}/{settings.project_paths.target_test_classes};{classpath}"
 
             test_file_path = Path(self.agent_core.project_path) / self.agent_core.current_test_file
+            
+            javac_exe = find_javac_executable()
+            if not javac_exe:
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message="Java compiler (javac) not found. Please configure JDK path in settings."
+                )
 
             compile_process = await asyncio.create_subprocess_exec(
-                "javac", "-cp", classpath,
+                javac_exe, "-cp", classpath,
                 "-d", str(Path(self.agent_core.project_path) / "target" / "test-classes"),
                 str(test_file_path),
                 stdout=asyncio.subprocess.PIPE,
