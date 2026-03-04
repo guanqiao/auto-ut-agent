@@ -39,7 +39,7 @@ class BatchGenerateWorker(QThread):
         parallel_workers: int = 1,
         timeout: int = 300,
         coverage_target: int = 80,
-        max_iterations: int = 10,
+        max_iterations: int = 2,
         continue_on_error: bool = True,
         defer_compilation: bool = False,
         compile_only_at_end: bool = False

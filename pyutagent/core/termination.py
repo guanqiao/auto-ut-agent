@@ -57,7 +57,7 @@ class TerminationChecker:
     
     def __init__(
         self,
-        max_iterations: int = 10,
+        max_iterations: int = 2,
         target_coverage: float = 0.8,
         max_total_attempts: int = 50,
         max_error_count: int = 10,
@@ -307,7 +307,7 @@ class TerminationChecker:
 
 
 def create_termination_checker(
-    max_iterations: int = 10,
+    max_iterations: int = 2,
     target_coverage: float = 0.8,
     **kwargs
 ) -> TerminationChecker:

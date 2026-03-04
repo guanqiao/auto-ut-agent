@@ -254,7 +254,7 @@ class StepExecutor:
         """
         class_name = self.agent_core.target_class_info.get('name', 'Unknown')
         logger.info(f"[StepExecutor] 🎯 Starting test generation for class: {class_name}")
-        logger.info(f"[StepExecutor] ⚙️ Configuration - Streaming: {use_streaming}, MaxRetries: {max_retries}, Timeout: 180s")
+        logger.info(f"[StepExecutor] ⚙️ Configuration - Streaming: {use_streaming}, MaxRetries: {max_retries}")
         
         self.agent_core._update_state(AgentState.GENERATING, f"🚀 正在为 {class_name} 生成测试代码...")
         
@@ -342,8 +342,7 @@ class StepExecutor:
                                 logger.info(f"[StepExecutor] 📥 已接收 {chunk_count} 个数据块，累计 {total_chars} 字符")
                                 last_update_time = current_time
                         
-                        # Reduced timeout from 300s to 180s (3 minutes) for streaming
-                        streaming_timeout = 180.0
+                        streaming_timeout = float(self.agent_core.llm_client.timeout)
                         
                         # Create streaming task for cancellation support
                         streaming_task = asyncio.create_task(
@@ -390,13 +389,11 @@ class StepExecutor:
                             if streaming_result:
                                 logger.warning(f"[StepExecutor] Streaming generation failed: {streaming_result.state}")
                             self.agent_core._update_state(AgentState.GENERATING, "⚠️ 切换到普通生成模式...")
-                            # Use the new timeout parameter (180 seconds default)
-                            response = await self.agent_core.llm_client.agenerate(prompt, timeout=180.0)
+                            response = await self.agent_core.llm_client.agenerate(prompt)
                             test_code = self.agent_core._extract_java_code(response)
                     else:
                         self.agent_core._update_state(AgentState.GENERATING, "🚀 正在调用 LLM 生成测试代码...")
-                        # Use the new timeout parameter (180 seconds default)
-                        response = await self.agent_core.llm_client.agenerate(prompt, timeout=180.0)
+                        response = await self.agent_core.llm_client.agenerate(prompt)
                         test_code = self.agent_core._extract_java_code(response)
                     
                     # If we got test code, break out of retry loop

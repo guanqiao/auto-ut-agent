@@ -54,7 +54,7 @@ class CoverageConfigDialog(QDialog):
 
         self.max_iterations_spin = QSpinBox()
         self.max_iterations_spin.setRange(1, 20)
-        self.max_iterations_spin.setValue(10)
+        self.max_iterations_spin.setValue(2)
         self.max_iterations_spin.setSuffix(" 次")
         coverage_layout.addRow("最大迭代次数:", self.max_iterations_spin)
 
@@ -67,13 +67,13 @@ class CoverageConfigDialog(QDialog):
 
         self.max_compilation_attempts_spin = QSpinBox()
         self.max_compilation_attempts_spin.setRange(1, 10)
-        self.max_compilation_attempts_spin.setValue(3)
+        self.max_compilation_attempts_spin.setValue(2)
         self.max_compilation_attempts_spin.setSuffix(" 次")
         attempts_layout.addRow("最大编译尝试次数:", self.max_compilation_attempts_spin)
 
         self.max_test_attempts_spin = QSpinBox()
         self.max_test_attempts_spin.setRange(1, 10)
-        self.max_test_attempts_spin.setValue(3)
+        self.max_test_attempts_spin.setValue(2)
         self.max_test_attempts_spin.setSuffix(" 次")
         attempts_layout.addRow("最大测试尝试次数:", self.max_test_attempts_spin)
 
@@ -171,9 +171,9 @@ class CoverageConfigDialog(QDialog):
         if reply == QMessageBox.StandardButton.Yes:
             self.target_coverage_spin.setValue(0.8)
             self.min_coverage_spin.setValue(0.5)
-            self.max_iterations_spin.setValue(10)
-            self.max_compilation_attempts_spin.setValue(3)
-            self.max_test_attempts_spin.setValue(3)
+            self.max_iterations_spin.setValue(2)
+            self.max_compilation_attempts_spin.setValue(2)
+            self.max_test_attempts_spin.setValue(2)
             logger.info("Coverage settings reset to defaults")
 
     def accept(self):

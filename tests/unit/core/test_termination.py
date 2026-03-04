@@ -55,7 +55,7 @@ class TestTerminationChecker:
     def test_default_values(self):
         checker = TerminationChecker()
         
-        assert checker.max_iterations == 10
+        assert checker.max_iterations == 2
         assert checker.target_coverage == 0.8
         assert checker.max_total_attempts == 50
         assert checker.max_error_count == 10
@@ -247,7 +247,7 @@ class TestCreateTerminationChecker:
     def test_create_with_defaults(self):
         checker = create_termination_checker()
         
-        assert checker.max_iterations == 10
+        assert checker.max_iterations == 2
         assert checker.target_coverage == 0.8
     
     def test_create_with_custom_values(self):

@@ -28,8 +28,8 @@ class TestRetryConfig:
         
         assert config.max_total_attempts == 50
         assert config.max_step_attempts == 5
-        assert config.max_compilation_attempts == 5
-        assert config.max_test_attempts == 5
+        assert config.max_compilation_attempts == 2
+        assert config.max_test_attempts == 2
         assert config.backoff_base == 2.0
         assert config.backoff_max == 60.0
         assert config.backoff_strategy == RetryStrategy.EXPONENTIAL_BACKOFF

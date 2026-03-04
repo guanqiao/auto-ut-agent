@@ -61,7 +61,7 @@ class AgentWorker(QThread):
         project_path: str,
         target_file: str,
         target_coverage: float = 0.8,
-        max_iterations: int = 10
+        max_iterations: int = 2
     ):
         super().__init__()
         self.llm_client = llm_client
