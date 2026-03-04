@@ -94,6 +94,8 @@ class StrategyOptimizer:
         """Initialize default strategy preferences per category."""
         self._category_preferences = {
             ErrorCategory.COMPILATION_ERROR: [
+                RecoveryStrategy.INSTALL_DEPENDENCIES,
+                RecoveryStrategy.RESOLVE_DEPENDENCIES,
                 RecoveryStrategy.ANALYZE_AND_FIX,
                 RecoveryStrategy.FALLBACK_ALTERNATIVE,
                 RecoveryStrategy.RESET_AND_REGENERATE,
@@ -119,6 +121,8 @@ class StrategyOptimizer:
                 RecoveryStrategy.SKIP_AND_CONTINUE,
             ],
             ErrorCategory.TOOL_EXECUTION_ERROR: [
+                RecoveryStrategy.FIX_ENVIRONMENT,
+                RecoveryStrategy.RESOLVE_DEPENDENCIES,
                 RecoveryStrategy.ANALYZE_AND_FIX,
                 RecoveryStrategy.FALLBACK_ALTERNATIVE,
                 RecoveryStrategy.SKIP_AND_CONTINUE,

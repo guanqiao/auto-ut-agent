@@ -423,6 +423,22 @@ class ErrorPatternLearner:
             if match:
                 keywords.append(f'symbol_{match.group(1).lower()}')
         
+        if re.search(r"package\s+[\w.]+\s+does not exist", error_message):
+            keywords.append("missing_dependency")
+            
+            packages = re.findall(r"package\s+([\w.]+)\s+does not exist", error_message)
+            for pkg in packages:
+                if "junit" in pkg.lower():
+                    keywords.append("missing_junit")
+                elif "mockito" in pkg.lower():
+                    keywords.append("missing_mockito")
+                elif "assertj" in pkg.lower():
+                    keywords.append("missing_assertj")
+                elif "hamcrest" in pkg.lower():
+                    keywords.append("missing_hamcrest")
+                else:
+                    keywords.append(f"missing_pkg_{pkg.split('.')[-1].lower()}")
+        
         return keywords
     
     def _extract_test_failure_keywords(

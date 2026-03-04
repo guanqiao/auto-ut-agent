@@ -1483,6 +1483,7 @@ class StepExecutor:
         """Try to recover from an error with learning and optimization.
         
         Uses unified error classification service for consistent categorization.
+        Includes smart detection of dependency issues for targeted recovery.
         
         Args:
             error: The error that occurred
@@ -1504,7 +1505,16 @@ class StepExecutor:
         
         logger.info(f"[StepExecutor] Attempting recovery - Error: {error}, Context: {context}")
         
+        detailed_error_info = self.error_classifier.get_detailed_error_info(error, context)
         error_category = self.error_classifier.classify(error, context)
+        
+        if detailed_error_info.get("needs_dependency_resolution"):
+            logger.info("[StepExecutor] Detected dependency issue, using INSTALL_DEPENDENCIES strategy")
+            return await self._recover_from_dependency_issue(error, context, detailed_error_info)
+        
+        if detailed_error_info.get("is_environment_issue"):
+            logger.info("[StepExecutor] Detected environment issue, using FIX_ENVIRONMENT strategy")
+            return await self._recover_from_environment_issue(error, context, detailed_error_info)
         
         suggested_strategy = self.components["error_learner"].suggest_strategy(error, error_category, context)
         if suggested_strategy:
@@ -1541,6 +1551,10 @@ class StepExecutor:
             strategy_used = RecoveryStrategy.RESET_AND_REGENERATE
         elif recovery_result.get("action") == "retry":
             strategy_used = RecoveryStrategy.RETRY_IMMEDIATE
+        elif recovery_result.get("action") == "install_dependencies":
+            strategy_used = RecoveryStrategy.INSTALL_DEPENDENCIES
+        elif recovery_result.get("action") == "resolve_dependencies":
+            strategy_used = RecoveryStrategy.RESOLVE_DEPENDENCIES
         
         self.components["error_learner"].learn_from_recovery(
             error=error,
@@ -1563,6 +1577,113 @@ class StepExecutor:
         logger.info(f"[StepExecutor] Recovery result - Action: {recovery_result.get('action')}, ShouldContinue: {recovery_result.get('should_continue')}")
         
         return recovery_result
+    
+    async def _recover_from_dependency_issue(
+        self, 
+        error: Exception, 
+        context: Dict[str, Any],
+        error_info: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """从依赖问题中恢复
+        
+        Args:
+            error: 错误对象
+            context: 错误上下文
+            error_info: 详细错误信息
+            
+        Returns:
+            恢复结果
+        """
+        from pyutagent.core.error_recovery import DependencyRecoveryHandler, RecoveryStrategy
+        
+        logger.info("[StepExecutor] 🔧 Starting dependency recovery...")
+        
+        dependency_info = error_info.get("dependency_info", {})
+        missing_packages = dependency_info.get("missing_packages", [])
+        is_test_dependency = dependency_info.get("is_test_dependency", False)
+        
+        if not missing_packages:
+            compiler_output = context.get("compiler_output", str(error))
+            from pyutagent.core.error_classification import detect_missing_dependencies
+            dependency_info = detect_missing_dependencies(compiler_output)
+            missing_packages = dependency_info.get("missing_packages", [])
+            is_test_dependency = dependency_info.get("is_test_dependency", False)
+        
+        handler = DependencyRecoveryHandler(
+            project_path=self.agent_core.project_path,
+            maven_runner=self.components.get("maven_runner"),
+            progress_callback=self.agent_core.progress_callback
+        )
+        
+        result = await handler.install_missing_dependencies(
+            missing_packages=missing_packages,
+            is_test_dependency=is_test_dependency
+        )
+        
+        if result.success:
+            logger.info(f"[StepExecutor] ✅ Dependencies installed successfully: {missing_packages}")
+            return {
+                "success": True,
+                "action": "retry",
+                "message": f"Dependencies installed: {missing_packages}",
+                "should_continue": True,
+                "strategy": "install_dependencies",
+                "installed_packages": missing_packages
+            }
+        else:
+            suggestions = handler.suggest_pom_additions(missing_packages)
+            logger.warning(f"[StepExecutor] ❌ Failed to install dependencies: {result.error_message}")
+            
+            if suggestions:
+                suggestion_text = "\n".join(suggestions)
+                logger.info(f"[StepExecutor] 💡 Suggested pom.xml additions:\n{suggestion_text}")
+            
+            return {
+                "success": False,
+                "action": "escalate",
+                "message": f"Failed to install dependencies. Please add the following to pom.xml:\n{suggestion_text}" if suggestions else "Failed to install dependencies",
+                "should_continue": False,
+                "strategy": "install_dependencies",
+                "suggested_pom_additions": suggestions,
+                "missing_packages": missing_packages
+            }
+    
+    async def _recover_from_environment_issue(
+        self,
+        error: Exception,
+        context: Dict[str, Any],
+        error_info: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """从环境问题中恢复
+        
+        Args:
+            error: 错误对象
+            context: 错误上下文
+            error_info: 详细错误信息
+            
+        Returns:
+            恢复结果
+        """
+        from pyutagent.core.error_classification import ErrorSubCategory
+        
+        logger.info("[StepExecutor] 🔧 Starting environment recovery...")
+        
+        sub_category_str = error_info.get("sub_category", "")
+        try:
+            sub_category = ErrorSubCategory[sub_category_str] if sub_category_str else ErrorSubCategory.UNKNOWN
+        except KeyError:
+            sub_category = ErrorSubCategory.UNKNOWN
+        
+        if sub_category in (ErrorSubCategory.MISSING_DEPENDENCY, ErrorSubCategory.MAVEN_DEPENDENCY_ERROR):
+            return await self._recover_from_dependency_issue(error, context, error_info)
+        
+        return {
+            "success": False,
+            "action": "escalate",
+            "message": "Environment issue cannot be fixed automatically. Please check your environment configuration.",
+            "should_continue": False,
+            "strategy": "fix_environment"
+        }
     
     def _optimize_prompt(self, base_prompt: str, task_type: str) -> str:
         """Optimize prompt for the configured model.

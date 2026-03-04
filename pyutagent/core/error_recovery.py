@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
+from pathlib import Path
 from typing import (
     Dict,
     List,
@@ -30,6 +31,7 @@ from typing import (
     Union,
     Generic,
     TypeVar,
+    Tuple,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,6 +77,9 @@ class RecoveryStrategy(Enum):
     RESET_AND_REGENERATE = auto()
     FALLBACK_ALTERNATIVE = auto()
     ESCALATE_TO_USER = auto()
+    INSTALL_DEPENDENCIES = auto()
+    RESOLVE_DEPENDENCIES = auto()
+    FIX_ENVIRONMENT = auto()
 
 
 @dataclass
@@ -869,6 +874,15 @@ class ErrorRecoveryManager:
                 }
             }
 
+        elif strategy == RecoveryStrategy.INSTALL_DEPENDENCIES:
+            return await self._install_dependencies(context, llm_analysis)
+
+        elif strategy == RecoveryStrategy.RESOLVE_DEPENDENCIES:
+            return await self._resolve_dependencies(context, llm_analysis)
+
+        elif strategy == RecoveryStrategy.FIX_ENVIRONMENT:
+            return await self._fix_environment(context, llm_analysis)
+
         return {
             "success": False,
             "action": "unknown_strategy",
@@ -1005,6 +1019,152 @@ class ErrorRecoveryManager:
             "alternative": alternative
         }
 
+    async def _install_dependencies(
+        self,
+        context: RecoveryContext,
+        llm_analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """安装缺失的依赖
+        
+        Args:
+            context: 恢复上下文
+            llm_analysis: LLM 分析结果
+            
+        Returns:
+            恢复结果字典
+        """
+        if self.progress_callback:
+            self.progress_callback("INSTALLING_DEPS", "正在安装缺失的依赖...")
+        
+        logger.info("[ErrorRecoveryManager] Installing missing dependencies")
+        
+        dependency_info = context.error_details.get("dependency_info", {})
+        missing_packages = dependency_info.get("missing_packages", [])
+        is_test_dependency = dependency_info.get("is_test_dependency", False)
+        
+        if not missing_packages:
+            compiler_output = context.error_details.get("compiler_output", context.error_message)
+            from .error_classification import detect_missing_dependencies
+            dependency_info = detect_missing_dependencies(compiler_output)
+            missing_packages = dependency_info.get("missing_packages", [])
+            is_test_dependency = dependency_info.get("is_test_dependency", False)
+        
+        if not missing_packages:
+            logger.warning("[ErrorRecoveryManager] No missing packages detected, falling back to resolve all")
+            return await self._resolve_dependencies(context, llm_analysis)
+        
+        handler = DependencyRecoveryHandler(
+            project_path=self.project_path,
+            progress_callback=self.progress_callback
+        )
+        
+        result = await handler.install_missing_dependencies(
+            missing_packages=missing_packages,
+            is_test_dependency=is_test_dependency
+        )
+        
+        if result.success:
+            return {
+                "success": True,
+                "action": "retry",
+                "message": f"Dependencies installed: {missing_packages}",
+                "should_continue": True,
+                "strategy": "install_dependencies",
+                "installed_packages": missing_packages
+            }
+        else:
+            suggestions = handler.suggest_pom_additions(missing_packages)
+            return {
+                "success": False,
+                "action": "escalate",
+                "message": f"Failed to install dependencies: {result.error_message}",
+                "should_continue": False,
+                "strategy": "install_dependencies",
+                "suggested_pom_additions": suggestions,
+                "missing_packages": missing_packages
+            }
+
+    async def _resolve_dependencies(
+        self,
+        context: RecoveryContext,
+        llm_analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """解析 Maven 依赖
+        
+        Args:
+            context: 恢复上下文
+            llm_analysis: LLM 分析结果
+            
+        Returns:
+            恢复结果字典
+        """
+        if self.progress_callback:
+            self.progress_callback("RESOLVING_DEPS", "正在解析 Maven 依赖...")
+        
+        logger.info("[ErrorRecoveryManager] Resolving Maven dependencies")
+        
+        handler = DependencyRecoveryHandler(
+            project_path=self.project_path,
+            progress_callback=self.progress_callback
+        )
+        
+        result = await handler.resolve_dependencies()
+        
+        if result.success:
+            return {
+                "success": True,
+                "action": "retry",
+                "message": "Dependencies resolved successfully",
+                "should_continue": True,
+                "strategy": "resolve_dependencies"
+            }
+        else:
+            return {
+                "success": False,
+                "action": "escalate",
+                "message": f"Failed to resolve dependencies: {result.error_message}",
+                "should_continue": False,
+                "strategy": "resolve_dependencies"
+            }
+
+    async def _fix_environment(
+        self,
+        context: RecoveryContext,
+        llm_analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """修复环境问题
+        
+        Args:
+            context: 恢复上下文
+            llm_analysis: LLM 分析结果
+            
+        Returns:
+            恢复结果字典
+        """
+        if self.progress_callback:
+            self.progress_callback("FIXING_ENV", "正在修复环境问题...")
+        
+        logger.info("[ErrorRecoveryManager] Attempting to fix environment issues")
+        
+        from .error_classification import ErrorSubCategory
+        sub_category_str = context.error_details.get("sub_category", "")
+        
+        try:
+            sub_category = ErrorSubCategory[sub_category_str] if sub_category_str else ErrorSubCategory.UNKNOWN
+        except KeyError:
+            sub_category = ErrorSubCategory.UNKNOWN
+        
+        if sub_category in (ErrorSubCategory.MISSING_DEPENDENCY, ErrorSubCategory.MAVEN_DEPENDENCY_ERROR):
+            return await self._resolve_dependencies(context, llm_analysis)
+        
+        return {
+            "success": False,
+            "action": "escalate",
+            "message": "Environment issue cannot be fixed automatically",
+            "should_continue": False,
+            "strategy": "fix_environment"
+        }
+
     def _extract_java_code(self, response: str) -> str:
         return CodeExtractor.extract_java_code(response)
 
@@ -1086,3 +1246,287 @@ def classify_error(error: Exception) -> ErrorCategory:
 def is_retryable_error(error: Exception) -> bool:
     """Check if an error is retryable."""
     return ErrorClassifier.is_retryable(error)
+
+
+class DependencyRecoveryHandler:
+    """依赖问题恢复处理器
+    
+    处理 Maven 依赖缺失、解析失败等问题。
+    """
+    
+    def __init__(
+        self,
+        project_path: str,
+        maven_runner: Optional[Any] = None,
+        timeout: int = 300,
+        progress_callback: Optional[Callable[[str, str], None]] = None
+    ):
+        """初始化依赖恢复处理器
+        
+        Args:
+            project_path: 项目路径
+            maven_runner: MavenRunner 实例（可选）
+            timeout: 超时时间（秒）
+            progress_callback: 进度回调函数
+        """
+        self.project_path = project_path
+        self.maven_runner = maven_runner
+        self.timeout = timeout
+        self.progress_callback = progress_callback
+        
+        self._resolution_attempts = 0
+        self._max_resolution_attempts = 3
+    
+    async def resolve_dependencies(self) -> RecoveryResult:
+        """解析并下载所有依赖
+        
+        Returns:
+            RecoveryResult 对象
+        """
+        self._resolution_attempts += 1
+        
+        if self.progress_callback:
+            self.progress_callback("RESOLVING_DEPS", "正在解析 Maven 依赖...")
+        
+        logger.info(f"[DependencyRecovery] Resolving dependencies - Attempt: {self._resolution_attempts}")
+        
+        try:
+            if self.maven_runner:
+                success, output = await self.maven_runner.resolve_dependencies_async()
+            else:
+                success, output = await self._run_maven_resolve()
+            
+            if success:
+                logger.info("[DependencyRecovery] Dependencies resolved successfully")
+                return RecoveryResult(
+                    success=True,
+                    strategy_used=RecoveryStrategy.RESOLVE_DEPENDENCIES,
+                    attempts_made=self._resolution_attempts,
+                    recovered_data={"output": output},
+                    action="retry",
+                    should_continue=True
+                )
+            else:
+                logger.warning(f"[DependencyRecovery] Failed to resolve dependencies: {output[:200]}")
+                return RecoveryResult(
+                    success=False,
+                    strategy_used=RecoveryStrategy.RESOLVE_DEPENDENCIES,
+                    attempts_made=self._resolution_attempts,
+                    error_message=f"Failed to resolve dependencies: {output[:200]}",
+                    action="escalate",
+                    should_continue=False
+                )
+                
+        except Exception as e:
+            logger.exception(f"[DependencyRecovery] Exception during dependency resolution: {e}")
+            return RecoveryResult(
+                success=False,
+                strategy_used=RecoveryStrategy.RESOLVE_DEPENDENCIES,
+                attempts_made=self._resolution_attempts,
+                error_message=str(e),
+                action="retry",
+                should_continue=True
+            )
+    
+    async def resolve_test_dependencies(self) -> RecoveryResult:
+        """解析并下载测试依赖
+        
+        运行 mvn test-compile -DskipTests 来下载测试依赖
+        
+        Returns:
+            RecoveryResult 对象
+        """
+        if self.progress_callback:
+            self.progress_callback("RESOLVING_TEST_DEPS", "正在解析测试依赖...")
+        
+        logger.info("[DependencyRecovery] Resolving test dependencies")
+        
+        try:
+            if self.maven_runner:
+                success, output = await self.maven_runner.resolve_test_dependencies_async()
+            else:
+                success, output = await self._run_maven_test_compile()
+            
+            if success:
+                logger.info("[DependencyRecovery] Test dependencies resolved successfully")
+                return RecoveryResult(
+                    success=True,
+                    strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
+                    attempts_made=1,
+                    recovered_data={"output": output},
+                    action="retry",
+                    should_continue=True
+                )
+            else:
+                logger.warning(f"[DependencyRecovery] Failed to resolve test dependencies: {output[:200]}")
+                return RecoveryResult(
+                    success=False,
+                    strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
+                    attempts_made=1,
+                    error_message=f"Failed to resolve test dependencies: {output[:200]}",
+                    action="escalate",
+                    should_continue=False
+                )
+                
+        except Exception as e:
+            logger.exception(f"[DependencyRecovery] Exception during test dependency resolution: {e}")
+            return RecoveryResult(
+                success=False,
+                strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
+                attempts_made=1,
+                error_message=str(e),
+                action="retry",
+                should_continue=True
+            )
+    
+    async def install_missing_dependencies(
+        self,
+        missing_packages: List[str],
+        is_test_dependency: bool = False
+    ) -> RecoveryResult:
+        """安装缺失的依赖
+        
+        Args:
+            missing_packages: 缺失的包名列表
+            is_test_dependency: 是否为测试依赖
+            
+        Returns:
+            RecoveryResult 对象
+        """
+        logger.info(f"[DependencyRecovery] Installing missing dependencies: {missing_packages}")
+        
+        if is_test_dependency:
+            return await self.resolve_test_dependencies()
+        else:
+            return await self.resolve_dependencies()
+    
+    async def _run_maven_resolve(self) -> Tuple[bool, str]:
+        """运行 Maven dependency:resolve 命令
+        
+        Returns:
+            (success, output) 元组
+        """
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "mvn", "dependency:resolve", "-q",
+                cwd=self.project_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.timeout
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                return False, f"Timeout after {self.timeout} seconds"
+            
+            output = stderr.decode() if stderr else stdout.decode() if stdout else ""
+            return process.returncode == 0, output
+            
+        except FileNotFoundError:
+            return False, "Maven executable not found"
+        except Exception as e:
+            return False, str(e)
+    
+    async def _run_maven_test_compile(self) -> Tuple[bool, str]:
+        """运行 Maven test-compile -DskipTests 命令
+        
+        Returns:
+            (success, output) 元组
+        """
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "mvn", "test-compile", "-DskipTests", "-q",
+                cwd=self.project_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.timeout
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                return False, f"Timeout after {self.timeout} seconds"
+            
+            output = stderr.decode() if stderr else stdout.decode() if stdout else ""
+            return process.returncode == 0, output
+            
+        except FileNotFoundError:
+            return False, "Maven executable not found"
+        except Exception as e:
+            return False, str(e)
+    
+    def check_pom_has_test_dependencies(self) -> Dict[str, bool]:
+        """检查 pom.xml 是否包含常见测试依赖
+        
+        Returns:
+            字典，键为依赖名，值为是否包含
+        """
+        pom_path = Path(self.project_path) / "pom.xml"
+        if not pom_path.exists():
+            return {}
+        
+        try:
+            content = pom_path.read_text(encoding='utf-8')
+            return {
+                "junit_jupiter": "junit-jupiter" in content,
+                "mockito": "mockito" in content,
+                "assertj": "assertj" in content,
+                "hamcrest": "hamcrest" in content,
+            }
+        except Exception as e:
+            logger.warning(f"[DependencyRecovery] Failed to read pom.xml: {e}")
+            return {}
+    
+    def suggest_pom_additions(self, missing_packages: List[str]) -> List[str]:
+        """建议添加到 pom.xml 的依赖
+        
+        Args:
+            missing_packages: 缺失的包名列表
+            
+        Returns:
+            建议添加的 Maven 依赖 XML 片段列表
+        """
+        suggestions = []
+        
+        dependency_templates = {
+            "org.junit": '''<dependency>
+    <groupId>org.junit.jupiter</groupId>
+    <artifactId>junit-jupiter</artifactId>
+    <scope>test</scope>
+</dependency>''',
+            "org.mockito": '''<dependency>
+    <groupId>org.mockito</groupId>
+    <artifactId>mockito-core</artifactId>
+    <scope>test</scope>
+</dependency>''',
+            "org.assertj": '''<dependency>
+    <groupId>org.assertj</groupId>
+    <artifactId>assertj-core</artifactId>
+    <scope>test</scope>
+</dependency>''',
+            "org.hamcrest": '''<dependency>
+    <groupId>org.hamcrest</groupId>
+    <artifactId>hamcrest</artifactId>
+    <scope>test</scope>
+</dependency>''',
+        }
+        
+        for pkg in missing_packages:
+            for prefix, template in dependency_templates.items():
+                if pkg.startswith(prefix):
+                    if template not in suggestions:
+                        suggestions.append(template)
+                    break
+        
+        return suggestions
+    
+    def reset_attempts(self):
+        """重置尝试计数"""
+        self._resolution_attempts = 0

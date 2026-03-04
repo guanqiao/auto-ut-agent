@@ -462,6 +462,161 @@ class MavenRunner:
         """Invalidate the classpath cache."""
         self._classpath_cache = None
         logger.debug("[MavenRunner] Classpath cache invalidated")
+    
+    def resolve_dependencies(self) -> Tuple[bool, str]:
+        """解析并下载所有依赖
+        
+        Returns:
+            (success, output) 元组
+        """
+        mvn = self._get_maven_executable()
+        try:
+            result = subprocess.run(
+                [mvn, "dependency:resolve", "-q"],
+                cwd=self.project_path,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=300
+            )
+            output = result.stderr if result.stderr else result.stdout
+            return result.returncode == 0, output
+        except subprocess.TimeoutExpired:
+            return False, "Timeout after 300 seconds"
+        except FileNotFoundError:
+            return False, f"Maven executable not found at {mvn}"
+        except Exception as e:
+            return False, str(e)
+    
+    async def resolve_dependencies_async(self) -> Tuple[bool, str]:
+        """解析并下载所有依赖（异步版本）
+        
+        Returns:
+            (success, output) 元组
+        """
+        mvn = self._get_maven_executable()
+        try:
+            process = await asyncio.create_subprocess_exec(
+                mvn, "dependency:resolve", "-q",
+                cwd=str(self.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=300
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                return False, "Timeout after 300 seconds"
+            
+            output = stderr.decode() if stderr else stdout.decode() if stdout else ""
+            return process.returncode == 0, output
+        except FileNotFoundError:
+            return False, f"Maven executable not found at {mvn}"
+        except Exception as e:
+            return False, str(e)
+    
+    def resolve_test_dependencies(self) -> Tuple[bool, str]:
+        """解析并下载测试依赖
+        
+        运行 mvn test-compile -DskipTests 来下载测试依赖
+        
+        Returns:
+            (success, output) 元组
+        """
+        mvn = self._get_maven_executable()
+        try:
+            result = subprocess.run(
+                [mvn, "test-compile", "-DskipTests", "-q"],
+                cwd=self.project_path,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=300
+            )
+            output = result.stderr if result.stderr else result.stdout
+            return result.returncode == 0, output
+        except subprocess.TimeoutExpired:
+            return False, "Timeout after 300 seconds"
+        except FileNotFoundError:
+            return False, f"Maven executable not found at {mvn}"
+        except Exception as e:
+            return False, str(e)
+    
+    async def resolve_test_dependencies_async(self) -> Tuple[bool, str]:
+        """解析并下载测试依赖（异步版本）
+        
+        Returns:
+            (success, output) 元组
+        """
+        mvn = self._get_maven_executable()
+        try:
+            process = await asyncio.create_subprocess_exec(
+                mvn, "test-compile", "-DskipTests", "-q",
+                cwd=str(self.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=300
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                return False, "Timeout after 300 seconds"
+            
+            output = stderr.decode() if stderr else stdout.decode() if stdout else ""
+            return process.returncode == 0, output
+        except FileNotFoundError:
+            return False, f"Maven executable not found at {mvn}"
+        except Exception as e:
+            return False, str(e)
+    
+    def check_pom_has_test_dependencies(self) -> Dict[str, bool]:
+        """检查 pom.xml 是否包含常见测试依赖
+        
+        Returns:
+            字典，键为依赖名，值为是否包含
+        """
+        pom_path = self.project_path / "pom.xml"
+        if not pom_path.exists():
+            return {}
+        
+        try:
+            content = pom_path.read_text(encoding='utf-8')
+            return {
+                "junit_jupiter": "junit-jupiter" in content,
+                "mockito": "mockito" in content,
+                "assertj": "assertj" in content,
+                "hamcrest": "hamcrest" in content,
+            }
+        except Exception as e:
+            logger.warning(f"[MavenRunner] Failed to read pom.xml: {e}")
+            return {}
+    
+    def download_sources(self) -> bool:
+        """下载依赖源码（可选）
+        
+        Returns:
+            True 如果成功
+        """
+        mvn = self._get_maven_executable()
+        try:
+            result = subprocess.run(
+                [mvn, "dependency:sources", "-q"],
+                cwd=self.project_path,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=300
+            )
+            return result.returncode == 0
+        except Exception as e:
+            logger.warning(f"[MavenRunner] Failed to download sources: {e}")
+            return False
 
 
 class CoverageAnalyzer:
