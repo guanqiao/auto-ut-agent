@@ -18,6 +18,7 @@ from .dialogs.llm_config_dialog import LLMConfigDialog
 from .dialogs.aider_config_dialog import AiderConfigDialog
 from .dialogs.coverage_config_dialog import CoverageConfigDialog
 from .dialogs.maven_config_dialog import MavenConfigDialog
+from .dialogs.jdk_config_dialog import JDKConfigDialog
 from .batch_generate_dialog import BatchGenerateDialog
 from ..core.config import (
     LLMConfig,
@@ -493,6 +494,10 @@ class MainWindow(QMainWindow):
         maven_config_action.triggered.connect(self.on_maven_config)
         settings_menu.addAction(maven_config_action)
 
+        jdk_config_action = QAction("&JDK Configuration...", self)
+        jdk_config_action.triggered.connect(self.on_jdk_config)
+        settings_menu.addAction(jdk_config_action)
+
         coverage_config_action = QAction("&Test Generation Configuration...", self)
         coverage_config_action.triggered.connect(self.on_coverage_config)
         settings_menu.addAction(coverage_config_action)
@@ -757,6 +762,22 @@ class MainWindow(QMainWindow):
                     logger.info("Maven config updated: using auto-detect")
         except Exception as e:
             logger.exception("Failed to open Maven config dialog")
+
+    def on_jdk_config(self):
+        """Handle JDK config action."""
+        try:
+            dialog = JDKConfigDialog(self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                settings = get_settings()
+                java_home = settings.jdk.java_home
+                if java_home:
+                    self.status_bar.showMessage(f"JDK 配置已更新：{java_home}")
+                    logger.info(f"JDK config updated: {java_home}")
+                else:
+                    self.status_bar.showMessage("JDK 配置已更新：使用自动检测")
+                    logger.info("JDK config updated: using auto-detect")
+        except Exception as e:
+            logger.exception("Failed to open JDK config dialog")
 
     def on_coverage_config(self):
         """Handle coverage config action."""

@@ -85,17 +85,28 @@ class EnvironmentDetector:
         Returns:
             JavaEnvironment with detected information
         """
-        java_home = os.environ.get("JAVA_HOME") or shutil.which("java")
-
-        if not java_home:
+        from ..tools.java_tools import get_configured_java_paths, get_java_info
+        
+        java_path, javac_path = get_configured_java_paths()
+        
+        if not java_path:
             return JavaEnvironment(
                 java_home="",
                 java_version="",
                 vendor="",
                 available_jdks=[]
             )
-
-        version_result = await self._run_command("java", ["-version"])
+        
+        java_info = get_java_info()
+        if java_info:
+            return JavaEnvironment(
+                java_home=java_info.java_home,
+                java_version=java_info.java_version,
+                vendor=java_info.vendor,
+                available_jdks=[java_info.java_home] if java_info.java_home else []
+            )
+        
+        version_result = await self._run_command(java_path, ["-version"])
 
         version_match = re.search(r'version "(\d+\.\d+\.\d+)"', version_result.stderr or "")
         version = version_match.group(1) if version_match else "unknown"
@@ -108,11 +119,12 @@ class EnvironmentDetector:
         elif "Eclipse" in version_result.stderr:
             vendor = "Eclipse"
 
+        java_home = os.environ.get("JAVA_HOME") or ""
         return JavaEnvironment(
             java_home=java_home,
             java_version=version,
             vendor=vendor,
-            available_jdks=[java_home]
+            available_jdks=[java_home] if java_home else []
         )
 
     async def check_tool(self, tool_name: str) -> ToolInfo:

@@ -386,6 +386,25 @@ class MavenSettings:
 
 
 @dataclass
+class JDKSettings:
+    """JDK configuration.
+
+    Attributes:
+        java_home: Path to JDK home directory. If empty, auto-detect will be used.
+    """
+    java_home: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "JDKSettings":
+        """Create from dictionary."""
+        return cls(**data)
+
+
+@dataclass
 class CoverageSettings:
     """Coverage configuration.
 
@@ -567,6 +586,11 @@ class Settings(BaseModel):
     maven: MavenSettings = Field(
         default_factory=MavenSettings,
         description="Maven configuration"
+    )
+
+    jdk: JDKSettings = Field(
+        default_factory=JDKSettings,
+        description="JDK configuration"
     )
 
     coverage: CoverageSettings = Field(

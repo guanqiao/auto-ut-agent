@@ -75,8 +75,8 @@ class InterpreterConfig:
         "Files.delete",
         "File.delete",
     ])
-    java_path: str = "java"
-    javac_path: str = "javac"
+    java_path: str = ""
+    javac_path: str = ""
 
 
 class CodeInterpreter:
@@ -93,6 +93,30 @@ class CodeInterpreter:
     def __init__(self, config: Optional[InterpreterConfig] = None):
         self.config = config or InterpreterConfig()
         self._temp_dir: Optional[Path] = None
+        self._resolve_java_paths()
+    
+    def _resolve_java_paths(self):
+        """Resolve java and javac paths from config or auto-detect."""
+        if self.config.java_path and self.config.javac_path:
+            logger.debug(f"[CodeInterpreter] Using provided paths - java: {self.config.java_path}, javac: {self.config.javac_path}")
+            return
+        
+        try:
+            from ..tools.java_tools import get_configured_java_paths
+            java_path, javac_path = get_configured_java_paths()
+            
+            if not self.config.java_path:
+                self.config.java_path = java_path or "java"
+            if not self.config.javac_path:
+                self.config.javac_path = javac_path or "javac"
+            
+            logger.debug(f"[CodeInterpreter] Resolved paths - java: {self.config.java_path}, javac: {self.config.javac_path}")
+        except Exception as e:
+            logger.warning(f"[CodeInterpreter] Failed to resolve Java paths: {e}")
+            if not self.config.java_path:
+                self.config.java_path = "java"
+            if not self.config.javac_path:
+                self.config.javac_path = "javac"
     
     def _create_temp_dir(self) -> Path:
         """Create a temporary directory for execution."""

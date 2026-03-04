@@ -34,6 +34,29 @@ class CompilationHandler:
         self.progress_callback = progress_callback
         self._stop_requested = False
         self._maven_runner = maven_runner or MavenRunner(project_path)
+        self._javac_path: Optional[str] = None
+    
+    def _get_javac_path(self) -> str:
+        """Get javac executable path.
+        
+        Priority:
+        1. User configured java_home from settings
+        2. Auto-detected javac path
+        3. Fallback to "javac"
+        """
+        if self._javac_path is not None:
+            return self._javac_path
+        
+        try:
+            from ...tools.java_tools import get_configured_java_paths
+            _, javac_path = get_configured_java_paths()
+            self._javac_path = javac_path or "javac"
+            logger.debug(f"[CompilationHandler] Using javac: {self._javac_path}")
+        except Exception as e:
+            logger.warning(f"[CompilationHandler] Failed to get javac path: {e}")
+            self._javac_path = "javac"
+        
+        return self._javac_path
     
     def stop(self):
         """Stop compilation."""
@@ -211,14 +234,15 @@ class CompilationHandler:
         output_dir = self.project_path / "target" / "test-classes"
         output_dir.mkdir(parents=True, exist_ok=True)
         
+        javac_path = self._get_javac_path()
         compile_cmd = [
-            "javac",
+            javac_path,
             "-cp", classpath,
             "-d", str(output_dir),
             str(test_file_path)
         ]
         
-        logger.debug(f"[CompilationHandler] Running: javac -cp ... {test_file_path}")
+        logger.debug(f"[CompilationHandler] Running: {javac_path} -cp ... {test_file_path}")
         
         return subprocess.run(
             compile_cmd,
