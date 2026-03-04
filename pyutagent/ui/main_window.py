@@ -8,7 +8,8 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QSplitter, QTreeWidget, QTreeWidgetItem, QMenuBar,
     QMenu, QFileDialog, QLabel, QProgressBar, QTextEdit,
-    QStatusBar, QMessageBox, QDialog, QPushButton, QFrame
+    QStatusBar, QMessageBox, QDialog, QPushButton, QFrame,
+    QLineEdit
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction
@@ -307,8 +308,9 @@ class ProjectTreeWidget(QWidget):
 
     def _get_icon(self, icon_type: str):
         """Get icon for file type (using emoji as fallback)."""
-        # Return None to use default, or we could implement actual icons
-        return None
+        # Return empty QIcon to avoid NoneType error
+        from PyQt6.QtGui import QIcon
+        return QIcon()
 
     def on_item_clicked(self, item: QTreeWidgetItem, column: int):
         """Handle item click."""

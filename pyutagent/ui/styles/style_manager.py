@@ -10,36 +10,34 @@ from PyQt6.QtCore import QObject, pyqtSignal
 logger = logging.getLogger(__name__)
 
 
-class StyleManager(QObject):
+class StyleManager:
     """Manages application-wide styling and theming."""
-    
-    theme_changed = pyqtSignal(str)
-    
+
     _instance: Optional['StyleManager'] = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
-        super().__init__()
         self._initialized = True
         self._current_theme = "light"
         self._themes: Dict[str, Dict[str, Any]] = {}
+        self._callbacks = []
         self._load_themes()
-    
+
     def _load_themes(self):
         """Load all available themes from the themes directory."""
         themes_dir = Path(__file__).parent / "themes"
-        
+
         if not themes_dir.exists():
             logger.warning(f"Themes directory not found: {themes_dir}")
             return
-        
+
         for theme_file in themes_dir.glob("*.json"):
             try:
                 with open(theme_file, 'r', encoding='utf-8') as f:
@@ -49,12 +47,12 @@ class StyleManager(QObject):
                     logger.debug(f"Loaded theme: {theme_name}")
             except Exception as e:
                 logger.error(f"Failed to load theme {theme_file}: {e}")
-        
+
         if not self._themes:
             logger.warning("No themes loaded, using defaults")
             self._themes["light"] = self._get_default_light_theme()
             self._themes["dark"] = self._get_default_dark_theme()
-    
+
     def _get_default_light_theme(self) -> Dict[str, Any]:
         """Get default light theme."""
         return {
@@ -80,7 +78,7 @@ class StyleManager(QObject):
             },
             "border_radius": {"small": "4px", "medium": "8px"},
         }
-    
+
     def _get_default_dark_theme(self) -> Dict[str, Any]:
         """Get default dark theme."""
         return {
@@ -106,56 +104,65 @@ class StyleManager(QObject):
             },
             "border_radius": {"small": "4px", "medium": "8px"},
         }
-    
+
     @property
     def current_theme(self) -> str:
         """Get current theme name."""
         return self._current_theme
-    
+
     @property
     def theme_data(self) -> Dict[str, Any]:
         """Get current theme data."""
         return self._themes.get(self._current_theme, self._themes.get("light", {}))
-    
+
     def set_theme(self, theme_name: str) -> bool:
         """Set the current theme."""
         if theme_name not in self._themes:
             logger.error(f"Theme not found: {theme_name}")
             return False
-        
+
         self._current_theme = theme_name
-        self.theme_changed.emit(theme_name)
+        # Notify callbacks
+        for callback in self._callbacks:
+            try:
+                callback(theme_name)
+            except Exception as e:
+                logger.error(f"Error notifying theme change callback: {e}")
         logger.info(f"Theme changed to: {theme_name}")
         return True
-    
+
+    def on_theme_changed(self, callback):
+        """Register a callback for theme changes."""
+        self._callbacks.append(callback)
+
     def get_available_themes(self) -> list:
         """Get list of available theme names."""
         return list(self._themes.keys())
-    
+
     def get_color(self, color_name: str, default: str = "#000000") -> str:
         """Get a color from the current theme."""
         colors = self.theme_data.get("colors", {})
         return colors.get(color_name, default)
-    
+
     def get_font_family(self) -> str:
         """Get the font family from current theme."""
         fonts = self.theme_data.get("fonts", {})
         return fonts.get("family", "sans-serif")
-    
+
     def get_mono_font_family(self) -> str:
         """Get the monospace font family from current theme."""
         fonts = self.theme_data.get("fonts", {})
         return fonts.get("mono_family", "monospace")
-    
+
     def get_border_radius(self, size: str = "medium") -> str:
         """Get border radius from current theme."""
         radii = self.theme_data.get("border_radius", {})
         return radii.get(size, "4px")
-    
+
     def get_stylesheet(self, widget_type: str) -> str:
         """Get a complete stylesheet for a widget type."""
         c = self.theme_data.get("colors", {})
-        
+
         stylesheets = {
             "main_window": f"""
                 QMainWindow {{
@@ -266,15 +273,15 @@ class StyleManager(QObject):
                 }}
             """,
         }
-        
+
         return stylesheets.get(widget_type, "")
-    
+
     def apply_stylesheet(self, widget: QWidget, widget_type: str):
         """Apply stylesheet to a widget."""
         stylesheet = self.get_stylesheet(widget_type)
         if stylesheet:
             widget.setStyleSheet(stylesheet)
-    
+
     def get_status_color(self, status: str) -> str:
         """Get color for a status type."""
         status_colors = {
