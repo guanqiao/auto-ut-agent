@@ -1,18 +1,15 @@
-"""Git tools for version control operations.
+"""Git tool implementations.
 
-This module provides Git-related tools:
+This module provides:
 - GitStatusTool: Check repository status
 - GitDiffTool: View file changes
 - GitCommitTool: Commit changes
 - GitBranchTool: Branch management
 - GitLogTool: View commit history
-- GitStackTool: Manage git stash
 """
 
 import asyncio
 import logging
-import os
-import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -21,128 +18,40 @@ from .tool import (
     ToolCategory,
     ToolDefinition,
     ToolResult,
-    create_tool_parameter,
+    create_tool_parameter
 )
-from .standard_tools import BaseFileTool
 
 logger = logging.getLogger(__name__)
 
 
-class GitTool(BaseFileTool):
-    """Base class for Git tools."""
-    
+class GitStatusTool(Tool):
+    """Git status - Check repository status."""
+
     def __init__(self, base_path: Optional[str] = None):
-        super().__init__(base_path)
-        self._git_path = self._find_git()
-    
-    def _find_git(self) -> str:
-        """Find git executable."""
-        return "git"
-    
-    async def _run_git_command(
-        self,
-        args: List[str],
-        cwd: Optional[str] = None,
-        timeout: int = 30
-    ) -> ToolResult:
-        """Run a git command.
-        
+        """Initialize Git status tool.
+
         Args:
-            args: Git command arguments
-            cwd: Working directory
-            timeout: Command timeout
-        
-        Returns:
-            ToolResult with command output
+            base_path: Base path for git repository
         """
-        cwd = cwd or str(self._base_path) if self._base_path else None
-        
-        if not cwd or not Path(cwd).exists():
-            return ToolResult(
-                success=False,
-                error=f"Working directory not found: {cwd}"
-            )
-        
-        try:
-            cmd = [self._git_path] + args
-            
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd
-            )
-            
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=timeout
-                )
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                return ToolResult(
-                    success=False,
-                    error=f"Git command timed out after {timeout} seconds"
-                )
-            
-            stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
-            stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
-            
-            if process.returncode == 0:
-                return ToolResult(
-                    success=True,
-                    output=stdout_str,
-                    metadata={
-                        "command": " ".join(cmd),
-                        "exit_code": process.returncode
-                    }
-                )
-            else:
-                return ToolResult(
-                    success=False,
-                    output=stdout_str,
-                    error=stderr_str or f"Git command failed with code {process.returncode}",
-                    metadata={
-                        "command": " ".join(cmd),
-                        "exit_code": process.returncode
-                    }
-                )
-        
-        except FileNotFoundError:
-            return ToolResult(
-                success=False,
-                error="Git executable not found"
-            )
-        except Exception as e:
-            logger.exception(f"[GitTool] Command failed: {e}")
-            return ToolResult(
-                success=False,
-                error=f"Git command failed: {str(e)}"
-            )
-
-
-class GitStatusTool(GitTool):
-    """Tool for checking git repository status."""
-    
-    def __init__(self, base_path: Optional[str] = None):
-        super().__init__(base_path)
+        super().__init__()
+        self._base_path = Path(base_path) if base_path else Path.cwd()
         self._definition = ToolDefinition(
             name="git_status",
-            description="查看Git仓库的当前状态，包括已修改、已暂存、未跟踪的文件。",
+            description="Check the current status of the Git repository. "
+                        "Shows modified files, staged changes, and untracked files.",
             category=ToolCategory.COMMAND,
             parameters=[
                 create_tool_parameter(
-                    name="short",
-                    param_type="boolean",
-                    description="使用简洁格式输出",
+                    name="path",
+                    param_type="string",
+                    description="Path to the git repository. Default: current directory",
                     required=False,
-                    default=False
+                    default=None
                 ),
                 create_tool_parameter(
-                    name="porcelain",
+                    name="short",
                     param_type="boolean",
-                    description="使用机器可读的简洁格式",
+                    description="Show short format output. Default: false",
                     required=False,
                     default=False
                 )
@@ -150,169 +59,310 @@ class GitStatusTool(GitTool):
             examples=[
                 {
                     "params": {},
-                    "description": "查看完整git状态"
+                    "description": "Check git status of current directory"
                 },
                 {
                     "params": {"short": True},
-                    "description": "使用简洁格式查看状态"
+                    "description": "Get short format status"
                 }
             ],
-            tags=["git", "version_control", "status"]
+            tags=["git", "status", "repository"]
         )
-    
+
     @property
     def definition(self) -> ToolDefinition:
         return self._definition
-    
+
     async def execute(self, **kwargs) -> ToolResult:
         """Execute git status."""
+        path = kwargs.get("path")
         short = kwargs.get("short", False)
-        porcelain = kwargs.get("porcelain", False)
+
+        try:
+            cwd = Path(path) if path else self._base_path
+            
+            # Build command
+            cmd = ["git", "status"]
+            if short:
+                cmd.append("--short")
+            else:
+                cmd.append("--porcelain")
+
+            # Execute git status
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd)
+            )
+
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode("utf-8", errors="replace") if stderr else "Unknown error"
+                return ToolResult(
+                    success=False,
+                    error=f"Git status failed: {error_msg}"
+                )
+
+            output = stdout.decode("utf-8", errors="replace") if stdout else ""
+            
+            # Parse status output
+            status_info = self._parse_status(output, short)
+
+            logger.info(f"[GitStatusTool] Status checked in {cwd}")
+
+            return ToolResult(
+                success=True,
+                output=status_info,
+                metadata={
+                    "path": str(cwd),
+                    "short_format": short,
+                    "has_changes": len(status_info.get("modified", [])) > 0 or 
+                                   len(status_info.get("staged", [])) > 0 or
+                                   len(status_info.get("untracked", [])) > 0
+                }
+            )
+
+        except FileNotFoundError:
+            return ToolResult(
+                success=False,
+                error="Git not found. Please ensure git is installed and in PATH."
+            )
+        except Exception as e:
+            logger.exception(f"[GitStatusTool] Failed: {e}")
+            return ToolResult(success=False, error=f"Git status failed: {str(e)}")
+
+    def _parse_status(self, output: str, short: bool) -> Dict[str, Any]:
+        """Parse git status output."""
+        status_info = {
+            "modified": [],
+            "staged": [],
+            "untracked": [],
+            "deleted": [],
+            "renamed": [],
+            "raw_output": output
+        }
+
+        if not output.strip():
+            return status_info
+
+        lines = output.strip().split("\n")
         
-        args = ["status"]
-        
-        if porcelain:
-            args.append("--porcelain")
-        elif short:
-            args.append("--short")
-        
-        return await self._run_git_command(args)
+        for line in lines:
+            if not line.strip():
+                continue
+
+            if short:
+                # Short format: XY filename
+                if len(line) >= 3:
+                    x, y = line[0], line[1]
+                    filename = line[3:]
+                    
+                    if x in "MADRC" or y in "MADRC":
+                        if x != " " and x != "?":
+                            status_info["staged"].append(filename)
+                        if y == "M":
+                            status_info["modified"].append(filename)
+                        elif y == "D":
+                            status_info["deleted"].append(filename)
+                        elif y == "?":
+                            status_info["untracked"].append(filename)
+            else:
+                # Porcelain format: XY filename
+                if len(line) >= 3:
+                    x, y = line[0], line[1]
+                    filename = line[3:]
+                    
+                    if x == "?" and y == "?":
+                        status_info["untracked"].append(filename)
+                    elif x != " ":
+                        status_info["staged"].append(filename)
+                    elif y == "M":
+                        status_info["modified"].append(filename)
+                    elif y == "D":
+                        status_info["deleted"].append(filename)
+
+        return status_info
 
 
-class GitDiffTool(GitTool):
-    """Tool for viewing file changes."""
-    
+class GitDiffTool(Tool):
+    """Git diff - View file changes."""
+
     def __init__(self, base_path: Optional[str] = None):
-        super().__init__(base_path)
+        """Initialize Git diff tool.
+
+        Args:
+            base_path: Base path for git repository
+        """
+        super().__init__()
+        self._base_path = Path(base_path) if base_path else Path.cwd()
         self._definition = ToolDefinition(
             name="git_diff",
-            description="查看文件的更改内容，可以是工作区与索引、索引与HEAD、或两个提交之间的差异。",
+            description="View changes in files. Shows differences between working directory "
+                        "and staging area, or between commits.",
             category=ToolCategory.COMMAND,
             parameters=[
                 create_tool_parameter(
                     name="file_path",
                     param_type="string",
-                    description="要查看差异的文件路径",
-                    required=False
+                    description="Specific file to diff. Default: all changed files",
+                    required=False,
+                    default=None
                 ),
                 create_tool_parameter(
                     name="staged",
                     param_type="boolean",
-                    description="仅显示已暂存的更改",
-                    required=False,
-                    default=False
-                ),
-                create_tool_parameter(
-                    name="cached",
-                    param_type="boolean",
-                    description="仅显示已暂存的更改（staged的别名）",
+                    description="Show staged changes (cached). Default: false",
                     required=False,
                     default=False
                 ),
                 create_tool_parameter(
                     name="commit",
                     param_type="string",
-                    description="比较的提交ID（与HEAD或其他提交）",
-                    required=False
-                ),
-                create_tool_parameter(
-                    name="stat",
-                    param_type="boolean",
-                    description="显示统计信息而非完整差异",
+                    description="Compare against specific commit. Default: HEAD",
                     required=False,
-                    default=False
-                ),
-                create_tool_parameter(
-                    name="no_color",
-                    param_type="boolean",
-                    description="不使用颜色输出",
-                    required=False,
-                    default=False
+                    default=None
                 )
             ],
             examples=[
                 {
                     "params": {},
-                    "description": "查看所有未暂存的更改"
+                    "description": "Show all unstaged changes"
                 },
                 {
                     "params": {"staged": True},
-                    "description": "查看已暂存的更改"
+                    "description": "Show staged changes"
                 },
                 {
                     "params": {"file_path": "src/main/java/App.java"},
-                    "description": "查看特定文件的更改"
+                    "description": "Show changes in specific file"
                 }
             ],
-            tags=["git", "version_control", "diff", "changes"]
+            tags=["git", "diff", "changes"]
         )
-    
+
     @property
     def definition(self) -> ToolDefinition:
         return self._definition
-    
+
     async def execute(self, **kwargs) -> ToolResult:
         """Execute git diff."""
         file_path = kwargs.get("file_path")
         staged = kwargs.get("staged", False)
-        cached = kwargs.get("cached", False)
         commit = kwargs.get("commit")
-        stat = kwargs.get("stat", False)
-        no_color = kwargs.get("no_color", False)
-        
-        args = ["diff"]
-        
-        if cached or staged:
-            args.append("--cached")
-        if stat:
-            args.append("--stat")
-        if no_color:
-            args.append("--no-color")
-        
-        if commit:
-            args.append(commit)
-        
-        if file_path:
-            args.append("--")
-            args.append(file_path)
-        
-        return await self._run_git_command(args)
+
+        try:
+            # Build command
+            cmd = ["git", "diff"]
+            
+            if staged:
+                cmd.append("--cached")
+            
+            if commit:
+                cmd.append(commit)
+            
+            if file_path:
+                cmd.append(file_path)
+
+            # Execute git diff
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self._base_path)
+            )
+
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode("utf-8", errors="replace") if stderr else "Unknown error"
+                return ToolResult(
+                    success=False,
+                    error=f"Git diff failed: {error_msg}"
+                )
+
+            output = stdout.decode("utf-8", errors="replace") if stdout else ""
+
+            # Parse diff stats
+            stats = self._parse_diff_stats(output)
+
+            logger.info(f"[GitDiffTool] Diff generated")
+
+            return ToolResult(
+                success=True,
+                output=output,
+                metadata={
+                    "staged": staged,
+                    "commit": commit,
+                    "file_path": file_path,
+                    "has_changes": len(output) > 0,
+                    "stats": stats
+                }
+            )
+
+        except FileNotFoundError:
+            return ToolResult(
+                success=False,
+                error="Git not found. Please ensure git is installed and in PATH."
+            )
+        except Exception as e:
+            logger.exception(f"[GitDiffTool] Failed: {e}")
+            return ToolResult(success=False, error=f"Git diff failed: {str(e)}")
+
+    def _parse_diff_stats(self, diff_output: str) -> Dict[str, Any]:
+        """Parse diff statistics."""
+        stats = {
+            "files_changed": 0,
+            "insertions": 0,
+            "deletions": 0
+        }
+
+        for line in diff_output.split("\n"):
+            if line.startswith("diff --git"):
+                stats["files_changed"] += 1
+            elif line.startswith("+") and not line.startswith("+++"):
+                stats["insertions"] += 1
+            elif line.startswith("-") and not line.startswith("---"):
+                stats["deletions"] += 1
+
+        return stats
 
 
-class GitCommitTool(GitTool):
-    """Tool for committing changes."""
-    
+class GitCommitTool(Tool):
+    """Git commit - Commit changes."""
+
     def __init__(self, base_path: Optional[str] = None):
-        super().__init__(base_path)
+        """Initialize Git commit tool.
+
+        Args:
+            base_path: Base path for git repository
+        """
+        super().__init__()
+        self._base_path = Path(base_path) if base_path else Path.cwd()
         self._definition = ToolDefinition(
             name="git_commit",
-            description="将暂存的更改提交到Git仓库。",
+            description="Commit changes to the Git repository. "
+                        "Creates a new commit with the specified message.",
             category=ToolCategory.COMMAND,
             parameters=[
                 create_tool_parameter(
                     name="message",
                     param_type="string",
-                    description="提交信息",
+                    description="Commit message",
                     required=True
                 ),
                 create_tool_parameter(
                     name="add_all",
                     param_type="boolean",
-                    description="暂存所有修改的文件",
+                    description="Stage all changes before commit. Default: false",
                     required=False,
                     default=False
                 ),
                 create_tool_parameter(
                     name="amend",
                     param_type="boolean",
-                    description="修改最后一次提交",
-                    required=False,
-                    default=False
-                ),
-                create_tool_parameter(
-                    name="no_edit",
-                    param_type="boolean",
-                    description="不打开编辑器",
+                    description="Amend previous commit. Default: false",
                     required=False,
                     default=False
                 )
@@ -320,518 +370,469 @@ class GitCommitTool(GitTool):
             examples=[
                 {
                     "params": {"message": "Add new feature"},
-                    "description": "提交暂存的更改"
+                    "description": "Commit staged changes"
                 },
                 {
-                    "params": {"message": "Update", "add_all": True},
-                    "description": "暂存所有修改并提交"
+                    "params": {"message": "Fix bug", "add_all": True},
+                    "description": "Stage all and commit"
                 }
             ],
-            tags=["git", "version_control", "commit"]
+            tags=["git", "commit", "version-control"]
         )
-    
+
     @property
     def definition(self) -> ToolDefinition:
         return self._definition
-    
+
     async def execute(self, **kwargs) -> ToolResult:
         """Execute git commit."""
         message = kwargs.get("message")
         add_all = kwargs.get("add_all", False)
         amend = kwargs.get("amend", False)
-        no_edit = kwargs.get("no_edit", False)
-        
+
         if not message:
+            return ToolResult(success=False, error="Commit message is required")
+
+        try:
+            # Stage all if requested
+            if add_all:
+                add_process = await asyncio.create_subprocess_exec(
+                    "git", "add", "-A",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(self._base_path)
+                )
+                await add_process.communicate()
+
+            # Build commit command
+            cmd = ["git", "commit", "-m", message]
+            
+            if amend:
+                cmd.append("--amend")
+
+            # Execute git commit
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self._base_path)
+            )
+
+            stdout, stderr = await process.communicate()
+
+            stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
+            stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+            if process.returncode != 0:
+                return ToolResult(
+                    success=False,
+                    error=f"Git commit failed: {stderr_str}"
+                )
+
+            # Extract commit hash
+            commit_hash = self._extract_commit_hash(stdout_str)
+
+            logger.info(f"[GitCommitTool] Committed: {message[:50]}...")
+
+            return ToolResult(
+                success=True,
+                output=stdout_str,
+                metadata={
+                    "message": message,
+                    "commit_hash": commit_hash,
+                    "amend": amend
+                }
+            )
+
+        except FileNotFoundError:
             return ToolResult(
                 success=False,
-                error="Commit message is required"
+                error="Git not found. Please ensure git is installed and in PATH."
             )
-        
-        if add_all:
-            add_result = await self._run_git_command(["add", "-A"])
-            if not add_result.success:
-                return add_result
-        
-        args = ["commit"]
-        
-        if no_edit:
-            args.append("--no-edit")
-        
-        if amend:
-            args.append("--amend")
-        
-        args.extend(["-m", message])
-        
-        return await self._run_git_command(args)
+        except Exception as e:
+            logger.exception(f"[GitCommitTool] Failed: {e}")
+            return ToolResult(success=False, error=f"Git commit failed: {str(e)}")
+
+    def _extract_commit_hash(self, output: str) -> Optional[str]:
+        """Extract commit hash from git output."""
+        for line in output.split("\n"):
+            if line.startswith("[") and "]" in line:
+                # Format: [branch hash] message
+                parts = line.split("]")[0].split(" ")
+                if len(parts) >= 2:
+                    return parts[-1]
+        return None
 
 
-class GitBranchTool(GitTool):
-    """Tool for branch management."""
-    
+class GitBranchTool(Tool):
+    """Git branch - Branch management."""
+
     def __init__(self, base_path: Optional[str] = None):
-        super().__init__(base_path)
+        """Initialize Git branch tool.
+
+        Args:
+            base_path: Base path for git repository
+        """
+        super().__init__()
+        self._base_path = Path(base_path) if base_path else Path.cwd()
         self._definition = ToolDefinition(
             name="git_branch",
-            description="列出、创建或删除Git分支。",
+            description="Manage Git branches. List, create, or delete branches.",
             category=ToolCategory.COMMAND,
             parameters=[
                 create_tool_parameter(
                     name="action",
                     param_type="string",
-                    description="操作类型: list(列出), create(创建), delete(删除), rename(重命名)",
+                    description="Action: list, create, delete, switch. Default: list",
                     required=False,
                     default="list"
                 ),
                 create_tool_parameter(
                     name="branch_name",
                     param_type="string",
-                    description="分支名称（创建/删除/重命名时使用）",
-                    required=False
+                    description="Branch name (for create/delete/switch)",
+                    required=False,
+                    default=None
                 ),
                 create_tool_parameter(
-                    name="start_point",
+                    name="from_branch",
                     param_type="string",
-                    description="新分支的起始点（创建时使用）",
-                    required=False
-                ),
-                create_tool_parameter(
-                    name="force",
-                    param_type="boolean",
-                    description="强制执行操作",
+                    description="Base branch for creation. Default: current",
                     required=False,
-                    default=False
-                ),
-                create_tool_parameter(
-                    name="all",
-                    param_type="boolean",
-                    description="列出所有分支（包括远程）",
-                    required=False,
-                    default=False
+                    default=None
                 )
             ],
             examples=[
                 {
                     "params": {},
-                    "description": "列出所有本地分支"
+                    "description": "List all branches"
                 },
                 {
-                    "params": {"action": "create", "branch_name": "feature/new-feature"},
-                    "description": "创建新分支"
+                    "params": {"action": "create", "branch_name": "feature-x"},
+                    "description": "Create new branch"
                 },
                 {
-                    "params": {"action": "delete", "branch_name": "old-feature", "force": True},
-                    "description": "强制删除分支"
+                    "params": {"action": "switch", "branch_name": "main"},
+                    "description": "Switch to branch"
                 }
             ],
-            tags=["git", "version_control", "branch"]
+            tags=["git", "branch", "version-control"]
         )
-    
+
     @property
     def definition(self) -> ToolDefinition:
         return self._definition
-    
+
     async def execute(self, **kwargs) -> ToolResult:
-        """Execute git branch."""
+        """Execute git branch command."""
         action = kwargs.get("action", "list")
         branch_name = kwargs.get("branch_name")
-        start_point = kwargs.get("start_point")
-        force = kwargs.get("force", False)
-        all_branches = kwargs.get("all", False)
-        
-        args = ["branch"]
-        
-        if all_branches:
-            args.append("-a")
-        
-        if action == "list":
-            if all_branches:
-                args = ["branch", "-a"]
-            return await self._run_git_command(args)
-        
-        elif action == "create":
-            if not branch_name:
-                return ToolResult(
-                    success=False,
-                    error="branch_name is required for create action"
-                )
-            
-            args.append(branch_name)
-            
-            if start_point:
-                args.append(start_point)
-            
-            return await self._run_git_command(args)
-        
-        elif action == "delete":
-            if not branch_name:
-                return ToolResult(
-                    success=False,
-                    error="branch_name is required for delete action"
-                )
-            
-            if force:
-                args.append("-D")
+        from_branch = kwargs.get("from_branch")
+
+        try:
+            if action == "list":
+                return await self._list_branches()
+            elif action == "create":
+                if not branch_name:
+                    return ToolResult(success=False, error="Branch name required for create")
+                return await self._create_branch(branch_name, from_branch)
+            elif action == "delete":
+                if not branch_name:
+                    return ToolResult(success=False, error="Branch name required for delete")
+                return await self._delete_branch(branch_name)
+            elif action == "switch":
+                if not branch_name:
+                    return ToolResult(success=False, error="Branch name required for switch")
+                return await self._switch_branch(branch_name)
             else:
-                args.append("-d")
-            
-            args.append(branch_name)
-            
-            return await self._run_git_command(args)
-        
-        elif action == "rename":
-            if not branch_name:
-                return ToolResult(
-                    success=False,
-                    error="branch_name is required for rename action"
-                )
-            
-            new_name = kwargs.get("new_name")
-            if not new_name:
-                return ToolResult(
-                    success=False,
-                    error="new_name is required for rename action"
-                )
-            
-            args.extend(["-m", branch_name, new_name])
-            
-            return await self._run_git_command(args)
-        
-        else:
+                return ToolResult(success=False, error=f"Unknown action: {action}")
+
+        except FileNotFoundError:
             return ToolResult(
                 success=False,
-                error=f"Unknown action: {action}"
+                error="Git not found. Please ensure git is installed and in PATH."
             )
+        except Exception as e:
+            logger.exception(f"[GitBranchTool] Failed: {e}")
+            return ToolResult(success=False, error=f"Git branch failed: {str(e)}")
+
+    async def _list_branches(self) -> ToolResult:
+        """List all branches."""
+        process = await asyncio.create_subprocess_exec(
+            "git", "branch", "-a",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(self._base_path)
+        )
+
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_msg = stderr.decode("utf-8", errors="replace") if stderr else "Unknown error"
+            return ToolResult(success=False, error=f"Failed to list branches: {error_msg}")
+
+        output = stdout.decode("utf-8", errors="replace") if stdout else ""
+        
+        # Parse branches
+        branches = []
+        current_branch = None
+        
+        for line in output.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            
+            if line.startswith("*"):
+                current_branch = line[1:].strip()
+                branches.append(current_branch)
+            else:
+                branches.append(line)
+
+        return ToolResult(
+            success=True,
+            output=output,
+            metadata={
+                "branches": branches,
+                "current_branch": current_branch,
+                "count": len(branches)
+            }
+        )
+
+    async def _create_branch(self, branch_name: str, from_branch: Optional[str]) -> ToolResult:
+        """Create a new branch."""
+        cmd = ["git", "checkout", "-b", branch_name]
+        
+        if from_branch:
+            cmd.append(from_branch)
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(self._base_path)
+        )
+
+        stdout, stderr = await process.communicate()
+
+        stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
+        stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+        if process.returncode != 0:
+            return ToolResult(success=False, error=f"Failed to create branch: {stderr_str}")
+
+        logger.info(f"[GitBranchTool] Created branch: {branch_name}")
+
+        return ToolResult(
+            success=True,
+            output=stdout_str,
+            metadata={
+                "action": "create",
+                "branch_name": branch_name,
+                "from_branch": from_branch
+            }
+        )
+
+    async def _delete_branch(self, branch_name: str) -> ToolResult:
+        """Delete a branch."""
+        process = await asyncio.create_subprocess_exec(
+            "git", "branch", "-d", branch_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(self._base_path)
+        )
+
+        stdout, stderr = await process.communicate()
+
+        stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
+        stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+        if process.returncode != 0:
+            # Try force delete
+            process = await asyncio.create_subprocess_exec(
+                "git", "branch", "-D", branch_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self._base_path)
+            )
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                return ToolResult(success=False, error=f"Failed to delete branch: {stderr_str}")
+
+        logger.info(f"[GitBranchTool] Deleted branch: {branch_name}")
+
+        return ToolResult(
+            success=True,
+            output=stdout_str,
+            metadata={
+                "action": "delete",
+                "branch_name": branch_name
+            }
+        )
+
+    async def _switch_branch(self, branch_name: str) -> ToolResult:
+        """Switch to a branch."""
+        process = await asyncio.create_subprocess_exec(
+            "git", "checkout", branch_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(self._base_path)
+        )
+
+        stdout, stderr = await process.communicate()
+
+        stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
+        stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+        if process.returncode != 0:
+            return ToolResult(success=False, error=f"Failed to switch branch: {stderr_str}")
+
+        logger.info(f"[GitBranchTool] Switched to branch: {branch_name}")
+
+        return ToolResult(
+            success=True,
+            output=stdout_str,
+            metadata={
+                "action": "switch",
+                "branch_name": branch_name
+            }
+        )
 
 
-class GitLogTool(GitTool):
-    """Tool for viewing commit history."""
-    
+class GitLogTool(Tool):
+    """Git log - View commit history."""
+
     def __init__(self, base_path: Optional[str] = None):
-        super().__init__(base_path)
+        """Initialize Git log tool.
+
+        Args:
+            base_path: Base path for git repository
+        """
+        super().__init__()
+        self._base_path = Path(base_path) if base_path else Path.cwd()
         self._definition = ToolDefinition(
             name="git_log",
-            description="查看Git提交历史。",
+            description="View commit history. Shows recent commits with messages and hashes.",
             category=ToolCategory.COMMAND,
             parameters=[
                 create_tool_parameter(
                     name="max_count",
                     param_type="integer",
-                    description="限制显示的提交数量",
+                    description="Maximum number of commits to show. Default: 10",
                     required=False,
                     default=10
                 ),
                 create_tool_parameter(
                     name="file_path",
                     param_type="string",
-                    description="查看特定文件的提交历史",
-                    required=False
+                    description="Show commits for specific file only",
+                    required=False,
+                    default=None
                 ),
                 create_tool_parameter(
                     name="oneline",
                     param_type="boolean",
-                    description="使用简洁格式显示",
+                    description="Show one line per commit. Default: true",
                     required=False,
-                    default=False
-                ),
-                create_tool_parameter(
-                    name="author",
-                    param_type="string",
-                    description="按作者过滤",
-                    required=False
-                ),
-                create_tool_parameter(
-                    name="since",
-                    param_type="string",
-                    description="显示自指定日期以来的提交",
-                    required=False
-                ),
-                create_tool_parameter(
-                    name="graph",
-                    param_type="boolean",
-                    description="显示分支合并图",
-                    required=False,
-                    default=False
+                    default=True
                 )
             ],
             examples=[
                 {
                     "params": {},
-                    "description": "查看最近10条提交"
+                    "description": "Show last 10 commits"
                 },
                 {
-                    "params": {"max_count": 5, "oneline": True},
-                    "description": "查看最近5条简洁格式提交"
+                    "params": {"max_count": 5, "file_path": "src/main.java"},
+                    "description": "Show last 5 commits for specific file"
                 }
             ],
-            tags=["git", "version_control", "log", "history"]
+            tags=["git", "log", "history"]
         )
-    
+
     @property
     def definition(self) -> ToolDefinition:
         return self._definition
-    
+
     async def execute(self, **kwargs) -> ToolResult:
         """Execute git log."""
         max_count = kwargs.get("max_count", 10)
         file_path = kwargs.get("file_path")
-        oneline = kwargs.get("oneline", False)
-        author = kwargs.get("author")
-        since = kwargs.get("since")
-        graph = kwargs.get("graph", False)
-        
-        args = ["log"]
-        
-        args.append(f"--max-count={max_count}")
-        
-        if oneline:
-            args.append("--oneline")
-        
-        if graph:
-            args.append("--graph")
-        
-        if author:
-            args.extend(["--author", author])
-        
-        if since:
-            args.extend(["--since", since])
-        
-        if file_path:
-            args.append("--")
-            args.append(file_path)
-        
-        return await self._run_git_command(args)
+        oneline = kwargs.get("oneline", True)
 
+        try:
+            # Build command
+            cmd = ["git", "log"]
+            
+            if oneline:
+                cmd.append("--oneline")
+            
+            cmd.extend(["-n", str(max_count)])
+            
+            if file_path:
+                cmd.append(file_path)
 
-class GitAddTool(GitTool):
-    """Tool for staging files."""
-    
-    def __init__(self, base_path: Optional[str] = None):
-        super().__init__(base_path)
-        self._definition = ToolDefinition(
-            name="git_add",
-            description="将文件添加到Git暂存区。",
-            category=ToolCategory.COMMAND,
-            parameters=[
-                create_tool_parameter(
-                    name="file_path",
-                    param_type="string",
-                    description="要暂存的文件路径（.表示所有文件）",
-                    required=False,
-                    default="."
-                ),
-                create_tool_parameter(
-                    name="patch",
-                    param_type="boolean",
-                    description="交互式暂存",
-                    required=False,
-                    default=False
-                ),
-                create_tool_parameter(
-                    name="all",
-                    param_type="boolean",
-                    description="暂存所有修改（包括未跟踪）",
-                    required=False,
-                    default=False
+            # Execute git log
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self._base_path)
+            )
+
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode("utf-8", errors="replace") if stderr else "Unknown error"
+                return ToolResult(
+                    success=False,
+                    error=f"Git log failed: {error_msg}"
                 )
-            ],
-            examples=[
-                {
-                    "params": {"file_path": "."},
-                    "description": "暂存所有修改"
-                },
-                {
-                    "params": {"file_path": "src/main/java/App.java"},
-                    "description": "暂存特定文件"
+
+            output = stdout.decode("utf-8", errors="replace") if stdout else ""
+
+            # Parse commits
+            commits = self._parse_commits(output, oneline)
+
+            logger.info(f"[GitLogTool] Retrieved {len(commits)} commits")
+
+            return ToolResult(
+                success=True,
+                output=output,
+                metadata={
+                    "commits": commits,
+                    "count": len(commits),
+                    "file_path": file_path
                 }
-            ],
-            tags=["git", "version_control", "add", "stage"]
-        )
-    
-    @property
-    def definition(self) -> ToolDefinition:
-        return self._definition
-    
-    async def execute(self, **kwargs) -> ToolResult:
-        """Execute git add."""
-        file_path = kwargs.get("file_path", ".")
-        patch = kwargs.get("patch", False)
-        all_files = kwargs.get("all", False)
-        
-        args = ["add"]
-        
-        if patch:
-            args.append("-p")
-        elif all_files:
-            args.append("-A")
-        
-        args.append(file_path)
-        
-        return await self._run_git_command(args)
+            )
 
+        except FileNotFoundError:
+            return ToolResult(
+                success=False,
+                error="Git not found. Please ensure git is installed and in PATH."
+            )
+        except Exception as e:
+            logger.exception(f"[GitLogTool] Failed: {e}")
+            return ToolResult(success=False, error=f"Git log failed: {str(e)}")
 
-class GitPushTool(GitTool):
-    """Tool for pushing to remote."""
-    
-    def __init__(self, base_path: Optional[str] = None):
-        super().__init__(base_path)
-        self._definition = ToolDefinition(
-            name="git_push",
-            description="将本地分支推送到远程仓库。",
-            category=ToolCategory.COMMAND,
-            parameters=[
-                create_tool_parameter(
-                    name="remote",
-                    param_type="string",
-                    description="远程仓库名称",
-                    required=False,
-                    default="origin"
-                ),
-                create_tool_parameter(
-                    name="branch",
-                    param_type="string",
-                    description="要推送的分支名",
-                    required=False
-                ),
-                create_tool_parameter(
-                    name="force",
-                    param_type="boolean",
-                    description="强制推送",
-                    required=False,
-                    default=False
-                ),
-                create_tool_parameter(
-                    name="set_upstream",
-                    param_type="boolean",
-                    description="设置上游分支",
-                    required=False,
-                    default=False
-                )
-            ],
-            examples=[
-                {
-                    "params": {},
-                    "description": "推送到默认远程"
-                },
-                {
-                    "params": {"remote": "origin", "branch": "main", "set_upstream": True},
-                    "description": "推送并设置上游"
-                }
-            ],
-            tags=["git", "version_control", "push", "remote"]
-        )
-    
-    @property
-    def definition(self) -> ToolDefinition:
-        return self._definition
-    
-    async def execute(self, **kwargs) -> ToolResult:
-        """Execute git push."""
-        remote = kwargs.get("remote", "origin")
-        branch = kwargs.get("branch")
-        force = kwargs.get("force", False)
-        set_upstream = kwargs.get("set_upstream", False)
+    def _parse_commits(self, output: str, oneline: bool) -> List[Dict[str, str]]:
+        """Parse commit log output."""
+        commits = []
         
-        args = ["push"]
-        
-        if force:
-            args.append("--force")
-        
-        if set_upstream:
-            args.append("-u")
-        
-        if remote:
-            args.append(remote)
-        
-        if branch:
-            args.append(branch)
-        
-        return await self._run_git_command(args)
+        for line in output.strip().split("\n"):
+            if not line.strip():
+                continue
+            
+            if oneline:
+                # Format: hash message
+                parts = line.split(" ", 1)
+                if len(parts) >= 2:
+                    commits.append({
+                        "hash": parts[0],
+                        "message": parts[1]
+                    })
+            else:
+                # Full format parsing would be more complex
+                commits.append({"raw": line})
 
-
-class GitPullTool(GitTool):
-    """Tool for pulling from remote."""
-    
-    def __init__(self, base_path: Optional[str] = None):
-        super().__init__(base_path)
-        self._definition = ToolDefinition(
-            name="git_pull",
-            description="从远程仓库拉取并合并更改。",
-            category=ToolCategory.COMMAND,
-            parameters=[
-                create_tool_parameter(
-                    name="remote",
-                    param_type="string",
-                    description="远程仓库名称",
-                    required=False,
-                    default="origin"
-                ),
-                create_tool_parameter(
-                    name="branch",
-                    param_type="string",
-                    description="要拉取的分支名",
-                    required=False
-                ),
-                create_tool_parameter(
-                    name="rebase",
-                    param_type="boolean",
-                    description="使用rebase代替merge",
-                    required=False,
-                    default=False
-                )
-            ],
-            examples=[
-                {
-                    "params": {},
-                    "description": "从默认远程拉取"
-                },
-                {
-                    "params": {"remote": "origin", "branch": "main"},
-                    "description": "拉取特定分支"
-                }
-            ],
-            tags=["git", "version_control", "pull", "remote"]
-        )
-    
-    @property
-    def definition(self) -> ToolDefinition:
-        return self._definition
-    
-    async def execute(self, **kwargs) -> ToolResult:
-        """Execute git pull."""
-        remote = kwargs.get("remote", "origin")
-        branch = kwargs.get("branch")
-        rebase = kwargs.get("rebase", False)
-        
-        args = ["pull"]
-        
-        if rebase:
-            args.append("--rebase")
-        
-        if remote:
-            args.append(remote)
-        
-        if branch:
-            args.append(branch)
-        
-        return await self._run_git_command(args)
-
-
-def get_all_git_tools(base_path: Optional[str] = None) -> List[Tool]:
-    """Get all Git tools.
-    
-    Args:
-        base_path: Base path for git operations
-    
-    Returns:
-        List of Git tool instances
-    """
-    return [
-        GitStatusTool(base_path),
-        GitDiffTool(base_path),
-        GitCommitTool(base_path),
-        GitBranchTool(base_path),
-        GitLogTool(base_path),
-        GitAddTool(base_path),
-        GitPushTool(base_path),
-        GitPullTool(base_path),
-    ]
+        return commits

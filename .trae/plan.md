@@ -1,673 +1,886 @@
-# LLM 增强测试依赖添加实现计划
+# 对标顶级 Coding Agent - 核心 Gap 分析与填补计划
 
-## 概述
+## 研究背景
 
-本计划旨在利用 LLM 智能分析编译错误，自动识别缺失的测试依赖，生成准确的 Maven 依赖配置，并将其添加到 pom.xml 文件中，最后执行 `mvn clean install` 安装依赖。
+基于对 Cursor、Devin、Cline 等顶级 Coding Agent 的深度分析，结合 PyUT Agent 现有能力，识别关键差距并制定系统性填补方案。
 
-## 当前架构分析
+---
 
-### 现有依赖管理机制
+## 一、顶级 Coding Agent 核心能力模型
 
-1. **依赖检测** ([error_classification.py](pyutagent/core/error_classification.py))
-   - `detect_missing_dependencies()`: 使用正则表达式检测缺失的包
-   - `DEPENDENCY_ERROR_PATTERNS`: 预定义的错误模式
-   - `TEST_DEPENDENCY_PACKAGES`: 硬编码的测试依赖映射
+### 1.1 九大核心能力维度
 
-2. **依赖恢复** ([error_recovery.py](pyutagent/core/error_recovery.py))
-   - `DependencyRecoveryHandler`: 处理依赖问题恢复
-   - `resolve_dependencies()`: 执行 `mvn dependency:resolve`
-   - `resolve_test_dependencies()`: 执行 `mvn test-compile -DskipTests`
-   - `suggest_pom_additions()`: 提供依赖添加建议（但不自动添加）
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    顶级 Coding Agent                         │
+│                      能力金字塔                               │
+├─────────────────────────────────────────────────────────────┤
+│  Layer 3: 认知与决策层                                        │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+│  │ 自主规划     │ │ 知识推理    │ │ 长期记忆    │           │
+│  │ Planning    │ │ Reasoning   │ │ Memory      │           │
+│  └─────────────┘ └─────────────┘ └─────────────┘           │
+├─────────────────────────────────────────────────────────────┤
+│  Layer 2: 执行与控制层                                        │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+│  │ 工具编排     │ │ 错误自愈    │ │ 自主循环    │           │
+│  │ Tools       │ │ Self-Heal   │ │ Autonomous  │           │
+│  └─────────────┘ └─────────────┘ └─────────────┘           │
+├─────────────────────────────────────────────────────────────┤
+│  Layer 1: 基础能力层                                          │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+│  │ 代码理解     │ │ 代码生成    │ │ 用户协作    │           │
+│  │ Understanding│ │ Generation │ │ Collaboration│          │
+│  └─────────────┘ └─────────────┘ └─────────────┘           │
+└─────────────────────────────────────────────────────────────┘
+```
 
-3. **Maven 工具** ([maven_tools.py](pyutagent/tools/maven_tools.py))
-   - `MavenRunner`: Maven 命令执行器
-   - `check_pom_has_test_dependencies()`: 检查 pom.xml 是否包含测试依赖
+### 1.2 各维度详细定义
 
-### 存在的问题
+| 维度 | 定义 | 关键指标 |
+|------|------|----------|
+| **1. 自主规划** | 理解任意编程需求，自动分解为可执行子任务 | 任务分解准确率、计划可行性 |
+| **2. 工具编排** | 熟练使用各种工具（文件、shell、git、浏览器等） | 工具覆盖率、调用准确率 |
+| **3. 代码理解** | 深度理解代码库结构、架构、依赖关系 | 语义理解深度、架构识别率 |
+| **4. 代码生成** | 生成高质量、可运行的代码 | 代码正确率、风格一致性 |
+| **5. 错误自愈** | 自动诊断问题并修复，无需人工干预 | 自愈成功率、修复质量 |
+| **6. 长期记忆** | 跨任务、跨项目保持上下文和知识积累 | 知识检索准确率、复用率 |
+| **7. 用户协作** | 灵活的人机交互模式（确认/建议/拒绝） | 用户满意度、交互效率 |
+| **8. IDE集成** | 深度嵌入主流开发环境 | 集成深度、响应速度 |
+| **9. 知识推理** | 基于已有知识进行推理和决策 | 推理准确率、创新度 |
 
-1. **依赖检测不够智能**
-   - 基于简单正则表达式，可能误判或漏判
-   - 无法识别复杂的依赖关系
+---
 
-2. **依赖信息不完整**
-   - 只有包名，缺少 groupId、artifactId、version
-   - 无法处理版本冲突
+## 二、PyUT Agent 当前能力评估
 
-3. **无法自动添加依赖**
-   - 只能提供建议，需要用户手动添加
-   - 无法修改 pom.xml 文件
+### 2.1 已具备的核心能力（优势领域）
 
-4. **缺少验证机制**
-   - 添加依赖后无法验证是否正确
-   - 无法处理依赖下载失败的情况
+#### ✅ P0/P1/P2/P3 能力全面实现
 
-## 实现方案
+| 能力领域 | 实现状态 | 关键组件 | 成熟度 |
+|----------|----------|----------|--------|
+| **Agent架构** | ✅ 完整 | ReAct Agent, EnhancedAgent, Multi-Agent | ⭐⭐⭐⭐⭐ |
+| **记忆系统** | ✅ 完整 | WorkingMemory, ShortTermMemory, VectorStore | ⭐⭐⭐⭐⭐ |
+| **流式生成** | ✅ 完整 | Streaming, Real-time output | ⭐⭐⭐⭐⭐ |
+| **上下文管理** | ✅ 完整 | ContextManager, Smart compression | ⭐⭐⭐⭐⭐ |
+| **代码质量评估** | ✅ 完整 | GenerationEvaluator, 6维度评估 | ⭐⭐⭐⭐⭐ |
+| **错误知识库** | ✅ 完整 | ErrorKnowledgeBase, SQLite持久化 | ⭐⭐⭐⭐⭐ |
+| **多智能体** | ✅ 完整 | AgentCoordinator, SpecializedAgent | ⭐⭐⭐⭐⭐ |
+| **智能聚类** | ✅ 完整 | SmartClusterer, 减少60-80% LLM调用 | ⭐⭐⭐⭐⭐ |
+| **错误预测** | ✅ 完整 | 编译前预测12种错误类型 | ⭐⭐⭐⭐⭐ |
+| **自适应策略** | ✅ 完整 | ε-贪婪算法动态调整 | ⭐⭐⭐⭐⭐ |
+| **代码解释器** | ✅ 完整 | SandboxExecutor, 安全执行 | ⭐⭐⭐⭐⭐ |
+| **测试质量分析** | ✅ 完整 | TestQualityAnalyzer, 8维度评估 | ⭐⭐⭐⭐⭐ |
 
-### 1. LLM 增强的依赖分析器
+#### ✅ 核心架构重构完成（2026-03-04）
 
-#### 1.1 创建 `DependencyAnalyzer` 类
+| 架构组件 | 实现状态 | 测试覆盖 | 性能提升 |
+|----------|----------|----------|----------|
+| **事件驱动架构** | ✅ EventBus | 10个测试 | 组件完全解耦 |
+| **状态管理** | ✅ StateStore + Action | 18个测试 | Redux风格 |
+| **多级缓存** | ✅ L1内存+L2磁盘 | 30个测试 | 5-10倍性能 |
+| **组件化系统** | ✅ ComponentRegistry | 17个测试 | 装饰器注册 |
+| **性能监控** | ✅ MetricsCollector | 27个测试 | 全面指标 |
 
-**位置**: `pyutagent/tools/dependency_analyzer.py`
+### 2.2 当前架构优势
 
-**职责**:
-- 利用 LLM 分析编译错误
-- 识别缺失的依赖包
-- 生成完整的 Maven 依赖坐标 (groupId, artifactId, version, scope)
-- 处理传递依赖和版本冲突
+```
+PyUT Agent 现有架构优势
+├── 事件驱动：EventBus 实现组件完全解耦
+├── 状态管理：Redux风格，Action模式保证可预测性
+├── 记忆系统：四层记忆架构（工作/短期/长期/向量）
+├── 工具框架：Tool基类 + ToolRegistry + ToolOrchestrator
+├── 错误处理：统一分类 + 自动恢复 + 知识库学习
+├── 多智能体：专业化分工 + 消息总线 + 共享知识
+└── 质量保障：290+测试，100%通过率
+```
 
-**核心方法**:
+---
+
+## 三、核心 Gap 识别与分析
+
+### 3.1 Gap 总览矩阵
+
+| Gap维度 | 顶级Coding Agent | PyUT Agent | 差距程度 | 优先级 |
+|---------|------------------|------------|----------|--------|
+| **1. 任务自主规划** | 理解任意编程需求，自动分解 | 仅限于UT生成任务 | 🔴 重大 | P0 |
+| **2. 通用工具编排** | 文件、shell、git、浏览器全栈 | 测试相关工具为主 | 🔴 重大 | P0 |
+| **3. 自主纠错循环** | 自主诊断-修复-验证闭环 | 预设流程为主 | 🟡 中等 | P1 |
+| **4. 长期记忆系统** | 跨项目、跨任务知识积累 | 单项目记忆 | 🟡 中等 | P1 |
+| **5. MCP协议支持** | Model Context Protocol标准化 | 基础实现 | 🟡 中等 | P1 |
+| **6. 代码理解深度** | 全项目语义理解、架构分析 | Java测试相关理解 | 🟡 中等 | P2 |
+| **7. IDE深度集成** | 无缝嵌入VS Code等 | 独立GUI应用 | 🟢 轻微 | P2 |
+| **8. 用户协作模式** | 灵活人机交互 | 基础对话交互 | 🟢 轻微 | P2 |
+| **9. 知识库推理** | 基于文档和知识推理 | 规则+LLM | 🟡 中等 | P3 |
+
+### 3.2 详细 Gap 分析
+
+#### Gap 1: 任务自主规划（🔴 重大差距）
+
+**顶级 Agent 表现：**
+```
+用户输入: "为这个项目添加用户认证功能"
+
+顶级 Agent 自动分解:
+1. 分析现有代码结构 → 识别技术栈（Spring Boot）
+2. 设计用户模型 → User实体、Repository、Service
+3. 实现认证API → Login/Register/Logout端点
+4. 添加安全控制 → JWT Token、权限验证
+5. 编写单元测试 → 覆盖主要场景
+6. 集成到现有系统 → 配置SecurityFilter
+```
+
+**PyUT Agent 现状：**
+```
+用户输入: "为UserService生成测试"
+
+PyUT Agent 执行:
+1. 解析UserService.java → 提取方法签名
+2. 生成测试代码 → 基于模板
+3. 编译测试 → 检查语法错误
+4. 运行测试 → 验证通过率
+5. 分析覆盖率 → 检查是否达标
+
+限制: 仅限于"生成测试"这一单一任务类型
+```
+
+**核心差距：**
+- ❌ 无法处理通用编程任务
+- ❌ 缺乏任务分解能力
+- ❌ 无法动态调整计划
+- ❌ 预设流程过于僵化
+
+---
+
+#### Gap 2: 通用工具编排（🔴 重大差距）
+
+**顶级 Agent 工具集（Cline/Cursor）：**
 ```python
-class DependencyAnalyzer:
-    def __init__(self, llm_client, prompt_builder):
-        self.llm_client = llm_client
-        self.prompt_builder = prompt_builder
+tools = [
+    # 文件操作
+    "read_file",      # 读取任意文件
+    "write_file",     # 写入任意文件
+    "edit_file",      # 编辑文件（Search/Replace）
+    "glob",           # 文件模式匹配
+    "grep",           # 代码搜索
     
-    async def analyze_missing_dependencies(
-        self, 
-        compiler_output: str,
-        current_pom_content: str
-    ) -> Dict[str, Any]:
-        """分析编译错误，识别缺失的依赖
-        
-        Returns:
-            {
-                "missing_dependencies": [
-                    {
-                        "group_id": "org.junit.jupiter",
-                        "artifact_id": "junit-jupiter",
-                        "version": "5.9.3",
-                        "scope": "test",
-                        "reason": "Used for unit testing"
-                    }
-                ],
-                "confidence": 0.95,
-                "analysis": "..."
-            }
-        }
-        """
+    # 命令执行
+    "run_command",    # 运行任意shell命令
+    "bash",           # Bash命令
     
-    def build_dependency_analysis_prompt(
+    # Git操作
+    "git_status",     # 查看仓库状态
+    "git_diff",       # 查看更改
+    "git_commit",     # 提交更改
+    "git_branch",     # 分支管理
+    
+    # 浏览器/搜索
+    "search_web",     # 网络搜索
+    "browse",         # 浏览器访问
+    
+    # MCP协议
+    "mcp_*",          # MCP标准工具
+]
+```
+
+**PyUT Agent 工具集：**
+```python
+tools = [
+    # 测试相关（已有）
+    "parse_java",         # 解析Java文件
+    "generate_test",      # 生成测试
+    "compile_test",       # 编译测试
+    "run_test",           # 运行测试
+    "analyze_coverage",   # 覆盖率分析
+    
+    # 标准工具（已有）
+    "read_file",          # ✅ 读取文件
+    "write_file",         # ✅ 写入文件
+    "edit_file",          # ✅ 编辑文件
+    "glob",               # ✅ 文件匹配
+    "grep",               # ✅ 代码搜索
+    "bash",               # ✅ 命令执行
+    
+    # 缺失工具
+    # "git_status",       # ❌ Git状态
+    # "git_diff",         # ❌ Git差异
+    # "git_commit",       # ❌ Git提交
+    # "search_web",       # ❌ 网络搜索
+    # "browse",           # ❌ 浏览器
+]
+```
+
+**核心差距：**
+- ❌ Git工具不完整（缺少status/diff/commit）
+- ❌ 无网络搜索能力
+- ❌ 无浏览器访问能力
+- ❌ MCP协议未深度集成
+
+---
+
+#### Gap 3: 自主纠错循环（🟡 中等差距）
+
+**顶级 Agent 的 Autonomous Loop：**
+```
+┌─────────────────────────────────────────┐
+│         Autonomous Loop                 │
+│     （完全自主决策）                     │
+├─────────────────────────────────────────┤
+│  1. Observe（观察）                      │
+│     ↓ 收集当前状态                       │
+│  2. Think（思考）                        │
+│     ↓ 分析问题，制定计划                 │
+│  3. Decide（决策）                       │
+│     ↓ 选择下一步行动                     │
+│  4. Act（行动）                          │
+│     ↓ 执行工具调用                       │
+│  5. Verify（验证）                       │
+│     ↓ 检查结果是否满足目标               │
+│  6. Learn（学习）                        │
+│     ↓ 更新记忆，优化策略                 │
+│     ↓ 回到1，自主决定继续或停止          │
+└─────────────────────────────────────────┘
+
+特点: 无预设流程，完全自主决策
+```
+
+**PyUT Agent 的反馈循环：**
+```
+┌─────────────────────────────────────────┐
+│         Feedback Loop                   │
+│     （预设流程执行）                     │
+├─────────────────────────────────────────┤
+│  1. Parse（解析）                        │
+│     ↓ 解析目标类                         │
+│  2. Generate（生成）                     │
+│     ↓ 生成测试代码                       │
+│  3. Compile（编译）                      │
+│     ↓ 编译测试（失败→修复）              │
+│  4. Test（测试）                         │
+│     ↓ 运行测试（失败→修复）              │
+│  5. Analyze（分析）                      │
+│     ↓ 分析覆盖率                         │
+│  6. Complete（完成）                     │
+│     ↓ 预设终止条件                       │
+└─────────────────────────────────────────┘
+
+特点: 按预设流程执行，灵活性有限
+```
+
+**核心差距：**
+- 🟡 已有 AutonomousLoop 框架，但逻辑较简单
+- 🟡 决策主要基于规则，缺乏LLM深度参与
+- 🟡 学习机制不完善
+
+---
+
+#### Gap 4: 长期记忆系统（🟡 中等差距）
+
+**顶级 Agent 记忆层次：**
+```
+┌─────────────────────────────────────────┐
+│     Episodic Memory（情景记忆）          │
+│     - 过去的任务执行历史                 │
+│     - 成功/失败案例                      │
+│     - 跨项目经验                         │
+└─────────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────┐
+│     Semantic Memory（语义记忆）          │
+│     - 编程知识                           │
+│     - 设计模式                           │
+│     - 最佳实践                           │
+│     - 技术栈特性                         │
+└─────────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────┐
+│     Procedural Memory（程序记忆）        │
+│     - 工具使用技能                       │
+│     - 问题解决策略                       │
+│     - 调试技巧                           │
+└─────────────────────────────────────────┘
+```
+
+**PyUT Agent 记忆系统：**
+```
+┌─────────────────────────────────────────┐
+│     Working Memory（工作记忆）           │
+│     - 当前任务上下文                     │
+│     - 临时数据                           │
+└─────────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────┐
+│     Short-Term Memory（短期记忆）        │
+│     - 最近生成的测试                     │
+│     - 近期错误模式                       │
+└─────────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────┐
+│     Vector Store（向量存储）             │
+│     - 相似测试模式检索                   │
+│     - 代码片段嵌入                       │
+└─────────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────┐
+│     Error Knowledge Base（错误知识库）   │
+│     - 错误模式和解决方案                 │
+│     - 持久化存储                         │
+└─────────────────────────────────────────┘
+
+缺失: 跨项目知识、编程知识图谱、技能学习
+```
+
+**核心差距：**
+- 🟡 缺乏跨项目知识积累
+- 🟡 无编程知识图谱
+- 🟡 技能学习和进化不完善
+
+---
+
+#### Gap 5: MCP协议支持（🟡 中等差距）
+
+**MCP（Model Context Protocol）标准：**
+```
+MCP 协议架构
+├── Server（服务提供方）
+│   ├── Resources（资源）
+│   ├── Tools（工具）
+│   └── Prompts（提示词）
+├── Client（客户端）
+│   ├── 连接管理
+│   ├── 工具发现
+│   └── 调用执行
+└── Transport（传输层）
+    ├── stdio
+    ├── SSE
+    └── HTTP
+```
+
+**PyUT Agent MCP 现状：**
+```python
+# 已有基础实现
+pyutagent/tools/mcp_integration.py
+├── MCPClient          # 基础客户端
+├── MCPToolAdapter     # 工具适配器
+└── MCPManager         # 管理器
+
+# 但缺少
+❌ 自动发现MCP服务器
+❌ 动态工具加载
+❌ 完整的MCP协议支持
+```
+
+**核心差距：**
+- 🟡 基础实现存在，但未深度集成
+- 🟡 无法自动发现和连接MCP服务器
+- 🟡 工具生态受限
+
+---
+
+### 3.3 Gap 优先级矩阵
+
+```
+影响程度
+    高 │  ┌─────────────┐  ┌─────────────┐
+       │  │ 任务自主规划 │  │ 通用工具编排 │
+       │  │   (P0)      │  │   (P0)      │
+       │  └─────────────┘  └─────────────┘
+       │  ┌─────────────┐  ┌─────────────┐
+       │  │ 自主纠错循环 │  │ 长期记忆    │
+       │  │   (P1)      │  │   (P1)      │
+       │  └─────────────┘  └─────────────┘
+       │  ┌─────────────┐  ┌─────────────┐
+    低 │  │ IDE集成     │  │ 用户协作    │
+       │  │   (P2)      │  │   (P2)      │
+       │  └─────────────┘  └─────────────┘
+       └────────────────────────────────────
+            低                    高
+                   实施难度
+```
+
+---
+
+## 四、Gap 填补路线图
+
+### 4.1 总体架构演进
+
+```
+当前架构                    目标架构
+┌──────────────┐           ┌──────────────────────────┐
+│ PyUT Agent   │           │   PyUT Agent 2.0         │
+│ (UT专用)     │    →      │  (通用Coding Agent)      │
+├──────────────┤           ├──────────────────────────┤
+│ 测试生成     │           │  ┌────────────────────┐  │
+│ 预设流程     │           │  │  通用Agent Core    │  │
+│ 单项目记忆   │           │  │  - 自主规划器       │  │
+│ 测试工具集   │           │  │  - 通用工具编排     │  │
+│              │           │  │  - 自主纠错循环     │  │
+│              │           │  │  - 长期记忆系统     │  │
+│              │           │  └────────────────────┘  │
+│              │           │           ↓              │
+│              │           │  ┌────────┴────────┐     │
+│              │           │  ↓                 ↓     │
+│              │           │ ┌──────┐      ┌────────┐ │
+│              │           │ │UT生成│      │通用编程│ │
+│              │           │ │能力  │      │能力    │ │
+│              │           │ └──────┘      └────────┘ │
+└──────────────┘           └──────────────────────────┘
+```
+
+### 4.2 Phase 1: 核心闭环能力（P0 - 1-2个月）
+
+#### 目标：实现通用任务处理能力
+
+**Task 1.1: 自主规划器（Autonomous Planner）**
+
+```python
+# 新文件: pyutagent/agent/autonomous_planner.py
+
+class AutonomousPlanner:
+    """自主规划器 - 理解任意编程需求并分解"""
+    
+    async def understand_task(
         self,
-        compiler_output: str,
-        current_pom_content: str
-    ) -> str:
-        """构建依赖分析提示词"""
+        user_request: str,
+        project_context: ProjectContext
+    ) -> TaskUnderstanding:
+        """理解用户任务"""
+        # 使用LLM分析任务类型和意图
+        pass
+    
+    async def decompose_task(
+        self,
+        understanding: TaskUnderstanding
+    ) -> List[Subtask]:
+        """分解为子任务"""
+        # 生成可执行的子任务列表
+        pass
+    
+    async def refine_plan(
+        self,
+        current_plan: List[Subtask],
+        execution_feedback: ExecutionFeedback
+    ) -> List[Subtask]:
+        """根据反馈调整计划"""
+        pass
 ```
 
-#### 1.2 Prompt 设计
+**关键能力：**
+- 任务分类：UT生成、代码重构、功能添加、Bug修复等
+- 计划验证：检查计划的可行性
+- 回退机制：计划失败时的备选方案
 
-**依赖分析 Prompt**:
-```
-You are a Maven dependency expert. Analyze the following compilation errors and identify missing dependencies.
+---
 
-Compilation Errors:
-```
-{compiler_output}
-```
+**Task 1.2: 通用工具编排器（Universal Tool Orchestrator）**
 
-Current pom.xml dependencies section:
-```
-{current_pom_dependencies}
-```
-
-Task:
-1. Identify all missing dependencies from the compilation errors
-2. For each missing dependency, provide:
-   - groupId: Maven group ID
-   - artifactId: Maven artifact ID
-   - version: Recommended version (use latest stable if unsure)
-   - scope: Dependency scope (compile, test, provided, runtime)
-   - reason: Why this dependency is needed
-
-Output in JSON format:
-{
-  "missing_dependencies": [
-    {
-      "group_id": "...",
-      "artifact_id": "...",
-      "version": "...",
-      "scope": "...",
-      "reason": "..."
-    }
-  ],
-  "confidence": 0.0-1.0,
-  "analysis": "Brief analysis of the errors"
-}
-```
-
-### 2. POM 文件编辑器
-
-#### 2.1 创建 `PomEditor` 类
-
-**位置**: `pyutagent/tools/pom_editor.py`
-
-**职责**:
-- 解析 pom.xml 文件
-- 添加依赖到 pom.xml
-- 处理依赖冲突
-- 备份和恢复 pom.xml
-
-**核心方法**:
 ```python
-class PomEditor:
-    def __init__(self, project_path: str):
-        self.project_path = Path(project_path)
-        self.pom_path = self.project_path / "pom.xml"
-        self.backup_dir = self.project_path / ".pyutagent" / "pom_backups"
+# 扩展: pyutagent/tools/ 添加通用工具
+
+class UniversalToolkit:
+    """通用工具集"""
     
-    def read_pom(self) -> str:
-        """读取 pom.xml 内容"""
+    # 文件操作（已有）
+    async def read_file(self, path: str) -> str: ...
+    async def write_file(self, path: str, content: str) -> bool: ...
+    async def edit_file(self, path: str, old: str, new: str) -> bool: ...
     
-    def backup_pom(self) -> str:
-        """备份 pom.xml，返回备份路径"""
+    # Git操作（新增）
+    async def git_status(self) -> GitStatus: ...
+    async def git_diff(self, file_path: Optional[str] = None) -> str: ...
+    async def git_commit(self, message: str) -> bool: ...
+    async def git_branch(self, action: str, name: Optional[str] = None) -> List[str]: ...
     
-    def restore_pom(self, backup_path: str) -> bool:
-        """从备份恢复 pom.xml"""
+    # 网络搜索（新增）
+    async def search_web(self, query: str) -> List[SearchResult]: ...
     
-    def add_dependency(
-        self, 
-        dependency: Dict[str, str],
-        position: str = "end"  # "end" or "after_existing"
-    ) -> Tuple[bool, str]:
-        """添加依赖到 pom.xml
+    # MCP工具（增强）
+    async def call_mcp_tool(self, server: str, tool: str, args: Dict) -> Any: ...
+```
+
+**新增工具清单：**
+| 工具 | 类别 | 优先级 | 状态 |
+|------|------|--------|------|
+| git_status | Git | P0 | 新增 |
+| git_diff | Git | P0 | 新增 |
+| git_commit | Git | P0 | 新增 |
+| git_branch | Git | P1 | 新增 |
+| search_web | Web | P1 | 新增 |
+| browse | Web | P2 | 新增 |
+
+---
+
+**Task 1.3: 增强自主纠错循环**
+
+```python
+# 增强: pyutagent/agent/autonomous_loop.py
+
+class EnhancedAutonomousLoop:
+    """增强版自主循环"""
+    
+    async def run(self, task: str, context: Dict) -> LoopResult:
+        """运行自主循环"""
         
-        Args:
-            dependency: {
-                "group_id": "...",
-                "artifact_id": "...",
-                "version": "...",
-                "scope": "..."
-            }
-            position: 添加位置
+        while not self._should_stop():
+            # 1. 观察（Observe）
+            observation = await self._observe()
             
-        Returns:
-            (success, message)
-        """
-    
-    def add_dependencies(
-        self, 
-        dependencies: List[Dict[str, str]]
-    ) -> Tuple[bool, List[str]]:
-        """批量添加依赖"""
-    
-    def has_dependency(self, group_id: str, artifact_id: str) -> bool:
-        """检查是否已存在依赖"""
-    
-    def get_dependencies_section(self) -> str:
-        """获取 dependencies 部分的内容"""
-    
-    def find_dependencies_section(self, content: str) -> Tuple[int, int]:
-        """找到 <dependencies> 标签的位置"""
-    
-    def format_dependency_xml(self, dependency: Dict[str, str]) -> str:
-        """格式化依赖为 XML"""
+            # 2. 思考（Think）- 使用LLM深度推理
+            thought = await self._think_with_llm(observation)
+            
+            # 3. 决策（Decide）
+            decision = await self._decide(thought)
+            
+            # 4. 行动（Act）
+            result = await self._act(decision)
+            
+            # 5. 验证（Verify）
+            verification = await self._verify(result)
+            
+            # 6. 学习（Learn）
+            await self._learn(observation, thought, decision, result)
+            
+            # 7. 检查完成
+            if self._is_complete(verification):
+                break
 ```
 
-#### 2.2 XML 处理策略
+**增强点：**
+- 使用LLM进行深度推理（不仅是规则）
+- 动态决策（不依赖预设流程）
+- 强化学习机制
 
-使用 `xml.etree.ElementTree` 进行安全的 XML 操作：
+---
+
+### 4.3 Phase 2: 记忆与学习增强（P1 - 2-3个月）
+
+#### 目标：实现跨项目知识积累
+
+**Task 2.1: 长期记忆系统**
 
 ```python
-def add_dependency_safe(self, dependency: Dict[str, str]) -> bool:
-    """使用 XML 解析器安全添加依赖"""
-    try:
-        tree = ET.parse(self.pom_path)
-        root = tree.getroot()
-        
-        # Maven POM namespace
-        ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
-        
-        # Find or create dependencies section
-        dependencies = root.find('m:dependencies', ns)
-        if dependencies is None:
-            dependencies = ET.SubElement(root, '{%s}dependencies' % ns['m'])
-        
-        # Check if dependency already exists
-        for dep in dependencies.findall('m:dependency', ns):
-            if (dep.find('m:groupId', ns).text == dependency['group_id'] and
-                dep.find('m:artifactId', ns).text == dependency['artifact_id']):
-                return False  # Already exists
-        
-        # Add new dependency
-        new_dep = ET.SubElement(dependencies, '{%s}dependency' % ns['m'])
-        ET.SubElement(new_dep, '{%s}groupId' % ns['m']).text = dependency['group_id']
-        ET.SubElement(new_dep, '{%s}artifactId' % ns['m']).text = dependency['artifact_id']
-        ET.SubElement(new_dep, '{%s}version' % ns['m']).text = dependency['version']
-        if dependency.get('scope'):
-            ET.SubElement(new_dep, '{%s}scope' % ns['m']).text = dependency['scope']
-        
-        # Write back with proper formatting
-        tree.write(self.pom_path, encoding='utf-8', xml_declaration=True)
-        return True
-    except Exception as e:
-        logger.error(f"Failed to add dependency: {e}")
-        return False
+# 新文件: pyutagent/memory/long_term_memory.py
+
+class LongTermMemory:
+    """长期记忆系统 - 三层记忆架构"""
+    
+    def __init__(self):
+        self.episodic_memory = EpisodicMemory()    # 情景记忆
+        self.semantic_memory = SemanticMemory()    # 语义记忆
+        self.procedural_memory = ProceduralMemory() # 程序记忆
+        self.knowledge_graph = KnowledgeGraph()    # 知识图谱
+    
+    # 情景记忆：记录任务执行历史
+    async def record_episode(self, episode: Episode) -> None: ...
+    async def recall_episodes(self, query: str, limit: int = 10) -> List[Episode]: ...
+    
+    # 语义记忆：存储编程知识
+    async def learn_concept(self, concept: Concept) -> None: ...
+    async def query_concepts(self, topic: str) -> List[Concept]: ...
+    
+    # 程序记忆：存储技能
+    async def learn_skill(self, skill: Skill) -> None: ...
+    async def retrieve_skill(self, task_type: str) -> Optional[Skill]: ...
 ```
 
-### 3. 依赖安装验证器
-
-#### 3.1 创建 `DependencyInstaller` 类
-
-**位置**: `pyutagent/tools/dependency_installer.py`
-
-**职责**:
-- 执行 `mvn clean install`
-- 验证依赖是否成功安装
-- 处理安装失败的情况
-- 提供回滚机制
-
-**核心方法**:
+**数据模型：**
 ```python
-class DependencyInstaller:
-    def __init__(self, project_path: str, maven_runner: MavenRunner):
-        self.project_path = project_path
-        self.maven_runner = maven_runner
-        self.pom_editor = PomEditor(project_path)
+@dataclass
+class Episode:
+    """情景记忆：一次任务执行记录"""
+    episode_id: str
+    task: str                    # 任务描述
+    project: str                 # 项目标识
+    timestamp: datetime
+    success: bool
+    steps: List[Step]            # 执行步骤
+    outcome: str                 # 结果
+    lessons_learned: List[str]   # 经验教训
+
+@dataclass
+class Concept:
+    """语义记忆：编程概念"""
+    concept_id: str
+    name: str
+    category: str               # design_pattern, best_practice, technology
+    description: str
+    examples: List[str]
+    related_concepts: List[str]
+
+@dataclass
+class Skill:
+    """程序记忆：技能"""
+    skill_id: str
+    name: str
+    task_type: str              # 适用任务类型
+    steps: List[str]            # 执行步骤
+    success_rate: float
+    usage_count: int
+    last_used: datetime
+```
+
+---
+
+**Task 2.2: 自进化机制**
+
+```python
+# 新文件: pyutagent/agent/self_improving.py
+
+class SelfImprovingEngine:
+    """自进化引擎 - 从经验中学习"""
     
-    async def install_dependencies(
+    async def learn_from_episode(self, episode: Episode) -> None:
+        """从一次任务执行中学习"""
+        # 1. 提取经验教训
+        lessons = await self._extract_lessons(episode)
+        
+        # 2. 更新策略
+        await self._update_strategies(lessons)
+        
+        # 3. 优化提示词
+        await self._optimize_prompts(lessons)
+        
+        # 4. 记录到记忆
+        await self.memory.record_lessons(lessons)
+    
+    async def run_ab_test(self, experiment: Experiment) -> ExperimentResult:
+        """运行A/B测试优化"""
+        pass
+    
+    async def optimize_strategy(self, task_type: str) -> Strategy:
+        """优化特定任务的策略"""
+        pass
+```
+
+---
+
+### 4.4 Phase 3: 集成与体验优化（P2/P3 - 3-4个月）
+
+#### 目标：完善生态集成和用户体验
+
+**Task 3.1: MCP协议深度集成**
+
+```python
+# 增强: pyutagent/tools/mcp_integration.py
+
+class EnhancedMCPClient:
+    """增强版MCP客户端"""
+    
+    async def discover_servers(self) -> List[MCPServerInfo]:
+        """自动发现可用的MCP服务器"""
+        # 扫描常见位置
+        # 检查环境变量
+        # 读取配置文件
+        pass
+    
+    async def connect_server(self, config: MCPServerConfig) -> bool:
+        """连接MCP服务器"""
+        pass
+    
+    async def list_tools(self, server_name: str) -> List[MCPTool]:
+        """列出服务器提供的工具"""
+        pass
+    
+    async def call_tool(self, server: str, tool: str, args: Dict) -> Any:
+        """调用MCP工具"""
+        pass
+```
+
+---
+
+**Task 3.2: 灵活用户协作模式**
+
+```python
+# 新文件: pyutagent/agent/collaboration.py
+
+class CollaborationMode(Enum):
+    FULL_AUTONOMOUS = "full_autonomous"          # 完全自主
+    SUGGEST_AND_CONFIRM = "suggest_and_confirm"  # 建议后确认
+    STEP_BY_STEP = "step_by_step"                # 每步确认
+    MANUAL_REVIEW = "manual_review"              # 人工审查
+
+class UserInteractionHandler:
+    """用户交互处理器"""
+    
+    async def suggest_action(
         self,
-        dependencies: List[Dict[str, str]],
-        skip_tests: bool = True
-    ) -> InstallResult:
-        """安装依赖
-        
-        流程:
-        1. 备份 pom.xml
-        2. 添加依赖到 pom.xml
-        3. 执行 mvn clean install
-        4. 验证安装结果
-        5. 如果失败，恢复备份
-        
-        Returns:
-            InstallResult(success, message, installed_deps, failed_deps)
-        """
+        action: ProposedAction,
+        context: ActionContext
+    ) -> UserResponse:
+        """建议动作，等待用户确认"""
+        pass
     
-    async def verify_dependencies(
-        self,
-        dependencies: List[Dict[str, str]]
-    ) -> Tuple[bool, List[str]]:
-        """验证依赖是否可用"""
+    async def ask_question(self, question: str, options: List[str]) -> str:
+        """向用户提问"""
+        pass
     
-    async def rollback(self, backup_path: str) -> bool:
-        """回滚到之前的 pom.xml"""
+    async def show_preview(self, preview: ContentPreview) -> None:
+        """显示内容预览"""
+        pass
 ```
 
-### 4. 集成到错误恢复流程
+---
 
-#### 4.1 增强 `DependencyRecoveryHandler`
+## 五、实施计划
 
-**位置**: `pyutagent/core/error_recovery.py`
+### 5.1 时间线
 
-**修改内容**:
-```python
-class DependencyRecoveryHandler:
-    def __init__(
-        self,
-        project_path: str,
-        llm_client: Optional[Any] = None,
-        prompt_builder: Optional[Any] = None,
-        maven_runner: Optional[Any] = None,
-        timeout: int = 300,
-        progress_callback: Optional[Callable[[str, str], None]] = None
-    ):
-        self.project_path = project_path
-        self.llm_client = llm_client
-        self.prompt_builder = prompt_builder
-        self.maven_runner = maven_runner
-        self.timeout = timeout
-        self.progress_callback = progress_callback
-        
-        # 新增组件
-        self.dependency_analyzer = DependencyAnalyzer(llm_client, prompt_builder)
-        self.pom_editor = PomEditor(project_path)
-        self.dependency_installer = DependencyInstaller(project_path, maven_runner)
-    
-    async def install_missing_dependencies_enhanced(
-        self,
-        compiler_output: str
-    ) -> RecoveryResult:
-        """增强的依赖安装流程
-        
-        流程:
-        1. 使用 LLM 分析编译错误
-        2. 识别缺失的依赖
-        3. 添加依赖到 pom.xml
-        4. 执行 mvn clean install
-        5. 验证安装结果
-        """
-        if self.progress_callback:
-            self.progress_callback("ANALYZING_DEPS", "正在分析缺失的依赖...")
-        
-        # 1. LLM 分析
-        analysis_result = await self.dependency_analyzer.analyze_missing_dependencies(
-            compiler_output,
-            self.pom_editor.read_pom()
-        )
-        
-        missing_deps = analysis_result.get("missing_dependencies", [])
-        if not missing_deps:
-            return RecoveryResult(
-                success=False,
-                strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
-                attempts_made=1,
-                error_message="No missing dependencies detected",
-                action="skip",
-                should_continue=True
-            )
-        
-        if self.progress_callback:
-            self.progress_callback(
-                "INSTALLING_DEPS", 
-                f"正在安装 {len(missing_deps)} 个依赖..."
-            )
-        
-        # 2. 安装依赖
-        install_result = await self.dependency_installer.install_dependencies(
-            missing_deps,
-            skip_tests=True
-        )
-        
-        if install_result.success:
-            return RecoveryResult(
-                success=True,
-                strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
-                attempts_made=1,
-                recovered_data={
-                    "installed_dependencies": install_result.installed_deps,
-                    "analysis": analysis_result.get("analysis", "")
-                },
-                action="retry",
-                should_continue=True
-            )
-        else:
-            return RecoveryResult(
-                success=False,
-                strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
-                attempts_made=1,
-                error_message=install_result.message,
-                action="escalate",
-                should_continue=False,
-                details={
-                    "failed_dependencies": install_result.failed_deps,
-                    "suggested_fixes": analysis_result.get("suggested_fixes", [])
-                }
-            )
+```
+2026-03
+├── Week 1-2: Phase 1 启动
+│   ├── Task 1.1: 自主规划器设计
+│   └── Task 1.2: Git工具实现
+│
+├── Week 3-4: Phase 1 继续
+│   ├── Task 1.2: 通用工具完善
+│   └── Task 1.3: 自主循环增强
+│
+2026-04
+├── Week 1-2: Phase 1 完成
+│   ├── 集成测试
+│   └── 文档编写
+│
+├── Week 3-4: Phase 2 启动
+│   ├── Task 2.1: 长期记忆系统
+│   └── Task 2.2: 自进化机制
+│
+2026-05
+├── Week 1-2: Phase 2 完成
+│   └── 性能优化
+│
+├── Week 3-4: Phase 3 启动
+│   ├── Task 3.1: MCP深度集成
+│   └── Task 3.2: 用户协作模式
+│
+2026-06
+└── Week 1-2: Phase 3 完成
+    └── 全面测试和发布
 ```
 
-#### 4.2 更新错误恢复策略
+### 5.2 关键里程碑
 
-**位置**: `pyutagent/core/error_recovery.py`
+| 里程碑 | 日期 | 交付物 |
+|--------|------|--------|
+| M1: 自主规划器 | 2026-03-15 | 任务分解能力 |
+| M2: 通用工具集 | 2026-03-31 | Git工具 + 搜索工具 |
+| M3: 增强自主循环 | 2026-04-15 | 完全自主决策 |
+| M4: 长期记忆 | 2026-04-30 | 跨项目知识积累 |
+| M5: MCP集成 | 2026-05-15 | 标准协议支持 |
+| M6: 完整发布 | 2026-06-01 | PyUT Agent 2.0 |
 
-**修改 `_install_dependencies` 方法**:
-```python
-async def _install_dependencies(
-    self,
-    context: RecoveryContext,
-    llm_analysis: Dict[str, Any]
-) -> Dict[str, Any]:
-    """安装缺失的依赖（增强版）"""
-    if self.progress_callback:
-        self.progress_callback("INSTALLING_DEPS", "正在安装缺失的依赖...")
-    
-    logger.info("[ErrorRecoveryManager] Installing missing dependencies")
-    
-    compiler_output = context.error_details.get("compiler_output", context.error_message)
-    
-    # 使用增强的依赖恢复处理器
-    handler = DependencyRecoveryHandler(
-        project_path=self.project_path,
-        llm_client=self.llm_client,
-        prompt_builder=self.prompt_builder,
-        progress_callback=self.progress_callback
-    )
-    
-    result = await handler.install_missing_dependencies_enhanced(compiler_output)
-    
-    if result.success:
-        return {
-            "success": True,
-            "action": "retry",
-            "message": f"Dependencies installed: {result.details.get('installed_dependencies', [])}",
-            "should_continue": True,
-            "strategy": "install_dependencies",
-            "installed_packages": result.details.get('installed_dependencies', [])
-        }
-    else:
-        return {
-            "success": False,
-            "action": "escalate",
-            "message": f"Failed to install dependencies: {result.error_message}",
-            "should_continue": False,
-            "strategy": "install_dependencies",
-            "details": result.details
-        }
+### 5.3 文件修改清单
+
+#### 新建文件
+| 文件路径 | 说明 | 优先级 |
+|----------|------|--------|
+| `pyutagent/agent/autonomous_planner.py` | 自主规划器 | P0 |
+| `pyutagent/tools/git_tools.py` | Git工具集 | P0 |
+| `pyutagent/tools/web_tools.py` | 网络搜索工具 | P1 |
+| `pyutagent/memory/long_term_memory.py` | 长期记忆系统 | P1 |
+| `pyutagent/agent/self_improving.py` | 自进化引擎 | P1 |
+| `pyutagent/agent/collaboration.py` | 用户协作模式 | P2 |
+
+#### 修改文件
+| 文件路径 | 说明 | 优先级 |
+|----------|------|--------|
+| `pyutagent/agent/autonomous_loop.py` | 增强自主循环 | P0 |
+| `pyutagent/tools/mcp_integration.py` | 深度MCP集成 | P1 |
+| `pyutagent/agent/prompts.py` | 更新提示词 | P0 |
+
+---
+
+## 六、成功指标
+
+### 6.1 定量指标
+
+| 指标 | 当前 | 目标 | 测量方式 |
+|------|------|------|----------|
+| 任务类型覆盖 | 1种(UT生成) | 5种+ | 支持的任务类型数 |
+| 工具数量 | 10个 | 20个+ | 可用工具数 |
+| 自主决策率 | 30% | 80%+ | LLM决策占比 |
+| 跨项目知识复用 | 0% | 40%+ | 知识复用率 |
+| MCP服务器接入 | 0个 | 5个+ | 接入的MCP服务器 |
+
+### 6.2 定性指标
+
+- ✅ 从"专用UT Agent"升级为"通用Coding Agent"
+- ✅ 保持测试领域的专业优势
+- ✅ 达到或接近顶级Coding Agent水平
+- ✅ 用户体验显著提升
+
+---
+
+## 七、风险评估
+
+### 7.1 技术风险
+
+| 风险 | 概率 | 影响 | 应对策略 |
+|------|------|------|----------|
+| LLM不按预期使用工具 | 中 | 高 | 优化提示词，增加示例 |
+| 自主循环陷入死循环 | 低 | 高 | 严格迭代限制，安全边界 |
+| 性能下降 | 中 | 中 | 持续性能测试，优化关键路径 |
+| 向后兼容问题 | 低 | 中 | 保持UT生成能力不变 |
+
+### 7.2 项目风险
+
+| 风险 | 概率 | 影响 | 应对策略 |
+|------|------|------|----------|
+| 开发周期延长 | 中 | 中 | 分阶段交付，MVP优先 |
+| 复杂度失控 | 中 | 高 | 模块化设计，增量开发 |
+| 测试覆盖不足 | 低 | 高 | TDD开发，持续测试 |
+
+---
+
+## 八、总结
+
+### 8.1 核心Gap总结
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    核心Gap优先级                         │
+├─────────────────────────────────────────────────────────┤
+│ 🔴 P0 - 必须解决（重大差距）                              │
+│    1. 任务自主规划 - 从专用到通用                         │
+│    2. 通用工具编排 - 扩展工具生态                         │
+├─────────────────────────────────────────────────────────┤
+│ 🟡 P1 - 重要解决（中等差距）                              │
+│    3. 自主纠错循环 - 增强自主性                           │
+│    4. 长期记忆系统 - 跨项目学习                           │
+│    5. MCP协议支持 - 标准化集成                            │
+├─────────────────────────────────────────────────────────┤
+│ 🟢 P2/P3 - 优化提升（轻微差距）                           │
+│    6. 代码理解深度                                       │
+│    7. IDE深度集成                                        │
+│    8. 用户协作模式                                       │
+│    9. 知识库推理                                         │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### 5. Prompt 模板扩展
+### 8.2 关键转变
 
-#### 5.1 添加依赖分析 Prompt
+1. **从专用到通用**：保留测试专长，同时获得通用编程能力
+2. **从预设到自主**：从按流程执行到自主决策
+3. **从单任务到持续学习**：从单次任务到跨项目知识积累
+4. **从封闭到开放**：从专用工具到MCP生态
 
-**位置**: `pyutagent/agent/prompts.py`
+### 8.3 保持优势
 
-**新增方法**:
-```python
-def build_dependency_analysis_prompt(
-    self,
-    compiler_output: str,
-    current_pom_content: str
-) -> str:
-    """构建依赖分析提示词"""
-    return f"""You are a Maven dependency expert. Analyze the following compilation errors and identify missing dependencies.
+- ✅ 测试生成领域的专业能力
+- ✅ 现有的完善架构（事件驱动、组件化）
+- ✅ 290+测试的质量保障
+- ✅ 多层记忆系统
 
-Compilation Errors:
-```
-{compiler_output}
-```
+### 8.4 未来愿景
 
-Current pom.xml:
-```
-{current_pom_content}
-```
+PyUT Agent 2.0 将成为：
+- ✅ 测试生成领域最专业的Agent
+- ✅ 同时具备通用编程能力
+- ✅ 自主学习，持续进化
+- ✅ 安全可控，用户友好
+- ✅ 达到顶级Coding Agent水平
 
-Task:
-1. Identify all missing dependencies from the compilation errors
-2. For each missing dependency, provide complete Maven coordinates
-3. Determine the appropriate scope (test, compile, provided, runtime)
-4. Recommend stable versions
+---
 
-Output in JSON format:
-{{
-  "missing_dependencies": [
-    {{
-      "group_id": "org.junit.jupiter",
-      "artifact_id": "junit-jupiter",
-      "version": "5.10.0",
-      "scope": "test",
-      "reason": "JUnit 5 testing framework"
-    }}
-  ],
-  "confidence": 0.95,
-  "analysis": "Brief analysis of missing dependencies"
-}}
-
-Important:
-- Use latest stable versions for common libraries
-- Test dependencies should have scope "test"
-- Be precise with groupId and artifactId
-- If uncertain, set lower confidence score"""
-
-def build_comprehensive_fix_prompt(
-    self,
-    error_category: str,
-    error_message: str,
-    error_details: Dict[str, Any],
-    local_analysis: Dict[str, Any],
-    llm_insights: str,
-    specific_fixes: List[str],
-    current_test_code: Optional[str] = None,
-    target_class_info: Optional[Dict[str, Any]] = None,
-    attempt_history: List[Dict[str, Any]] = None
-) -> str:
-    """构建综合修复提示词（已存在，可能需要增强）"""
-    # ... 现有实现
-```
-
-## 实现步骤
-
-### Phase 1: 核心组件开发 (2-3 天)
-
-1. **创建 `DependencyAnalyzer`** (0.5 天)
-   - 实现 LLM 分析逻辑
-   - 设计 Prompt 模板
-   - 编写单元测试
-
-2. **创建 `PomEditor`** (1 天)
-   - 实现 XML 解析和编辑
-   - 实现备份和恢复机制
-   - 处理边界情况（无 dependencies 标签等）
-   - 编写单元测试
-
-3. **创建 `DependencyInstaller`** (0.5 天)
-   - 集成 Maven 命令执行
-   - 实现验证逻辑
-   - 编写单元测试
-
-### Phase 2: 集成和测试 (1-2 天)
-
-4. **增强 `DependencyRecoveryHandler`** (0.5 天)
-   - 集成新组件
-   - 更新恢复流程
-
-5. **更新错误恢复流程** (0.5 天)
-   - 修改 `_install_dependencies` 方法
-   - 测试集成
-
-6. **端到端测试** (1 天)
-   - 创建测试 Maven 项目
-   - 测试各种依赖缺失场景
-   - 验证完整流程
-
-### Phase 3: 优化和文档 (1 天)
-
-7. **性能优化**
-   - 缓存常用依赖信息
-   - 优化 LLM 调用次数
-
-8. **错误处理增强**
-   - 处理网络超时
-   - 处理 Maven 仓库不可用
-   - 处理版本冲突
-
-9. **文档和示例**
-   - 更新 README
-   - 添加使用示例
-   - 编写最佳实践
-
-## 测试计划
-
-### 单元测试
-
-1. **DependencyAnalyzer 测试**
-   - 测试 LLM 响应解析
-   - 测试各种编译错误格式
-   - 测试边界情况
-
-2. **PomEditor 测试**
-   - 测试 XML 解析
-   - 测试依赖添加
-   - 测试备份和恢复
-   - 测试重复依赖检测
-
-3. **DependencyInstaller 测试**
-   - 测试安装流程
-   - 测试验证逻辑
-   - 测试回滚机制
-
-### 集成测试
-
-1. **完整流程测试**
-   - 创建缺少 JUnit 依赖的项目
-   - 创建缺少 Mockito 依赖的项目
-   - 创建缺少多个依赖的项目
-
-2. **错误场景测试**
-   - Maven 仓库不可用
-   - 版本冲突
-   - 无效的依赖坐标
-
-### 端到端测试
-
-1. **真实项目测试**
-   - 在实际项目中测试
-   - 验证覆盖率提升
-   - 验证测试通过率
-
-## 风险和缓解措施
-
-### 风险 1: LLM 分析不准确
-
-**缓解措施**:
-- 使用结构化输出（JSON）
-- 设置置信度阈值
-- 提供用户确认机制
-- 回退到传统正则表达式方法
-
-### 风险 2: Maven 仓库不可用
-
-**缓解措施**:
-- 实现重试机制
-- 支持配置镜像仓库
-- 提供离线模式建议
-
-### 风险 3: 版本冲突
-
-**缓解措施**:
-- 使用 `mvn dependency:tree` 分析
-- 提供版本冲突检测
-- 建议使用 dependencyManagement
-
-### 风险 4: pom.xml 损坏
-
-**缓解措施**:
-- 自动备份机制
-- 提供回滚功能
-- XML 格式验证
-
-## 成功指标
-
-1. **功能指标**
-   - 依赖识别准确率 > 90%
-   - 自动安装成功率 > 85%
-   - 平均安装时间 < 60 秒
-
-2. **质量指标**
-   - 单元测试覆盖率 > 80%
-   - 集成测试覆盖率 > 70%
-   - 零 pom.xml 损坏案例
-
-3. **用户体验指标**
-   - 减少手动添加依赖的次数
-   - 提高测试生成成功率
-   - 降低错误恢复时间
-
-## 后续优化方向
-
-1. **智能版本推荐**
-   - 基于项目其他依赖推荐兼容版本
-   - 支持版本范围指定
-
-2. **依赖冲突自动解决**
-   - 自动检测版本冲突
-   - 提供解决方案建议
-
-3. **依赖缓存和预加载**
-   - 缓存常用依赖信息
-   - 预加载常见测试依赖
-
-4. **多构建工具支持**
-   - 支持 Gradle
-   - 支持 Bazel
-
-## 总结
-
-本计划通过引入 LLM 智能分析、自动编辑 pom.xml、验证安装结果等机制，实现了测试依赖的自动添加和安装。该方案能够显著提升用户体验，减少手动配置工作，提高测试生成的成功率。
+**计划创建日期**: 2026-03-04  
+**版本**: v1.0  
+**状态**: Plan Mode - 等待确认

@@ -116,6 +116,31 @@ from .tool_use_agent import (
 )
 from .intelligence_enhancer import IntelligenceEnhancer
 
+# Universal Agent Components (P0 Gap Fill)
+from .task_understanding import (
+    TaskType,
+    TaskPriority,
+    TaskComplexity,
+    TargetScope,
+    Constraint,
+    SuccessCriterion,
+    TaskUnderstanding,
+    TaskClassifier,
+)
+from .task_planner import (
+    SubTaskStatus,
+    SubTaskType,
+    SubTask,
+    ExecutionPlan,
+    TaskPlanner,
+    PlanExecutor,
+)
+from .universal_agent import (
+    AgentMode,
+    TaskResult,
+    UniversalCodingAgent,
+)
+
 __all__ = [
     # Base Components
     "BaseAgent",
@@ -215,4 +240,23 @@ __all__ = [
     "ToolUseResult",
     "create_tool_use_agent",
     "IntelligenceEnhancer",
+    
+    # Universal Agent Components (P0 Gap Fill)
+    "TaskType",
+    "TaskPriority",
+    "TaskComplexity",
+    "TargetScope",
+    "Constraint",
+    "SuccessCriterion",
+    "TaskUnderstanding",
+    "TaskClassifier",
+    "SubTaskStatus",
+    "SubTaskType",
+    "SubTask",
+    "ExecutionPlan",
+    "TaskPlanner",
+    "PlanExecutor",
+    "AgentMode",
+    "TaskResult",
+    "UniversalCodingAgent",
 ]
