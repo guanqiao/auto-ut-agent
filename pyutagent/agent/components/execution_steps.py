@@ -772,59 +772,48 @@ class StepExecutor:
         return False
     
     async def analyze_coverage(self) -> StepResult:
-        """Analyze test coverage.
+        """Analyze test coverage with enhanced error handling and diagnostics.
         
         Returns:
             StepResult with coverage analysis results
         """
-        logger.info("[StepExecutor] Analyzing coverage")
+        logger.info("[StepExecutor] Analyzing coverage with enhanced diagnostics")
         
         try:
-            jacoco_xml_path = self.components["coverage_analyzer"].jacoco_xml_path
-            if not jacoco_xml_path.exists():
-                logger.warning(f"[StepExecutor] JaCoCo report not found at {jacoco_xml_path}, skipping coverage analysis")
-                self.agent_core._update_state(
-                    AgentState.ANALYZING,
-                    "⚠️ No coverage report found (JaCoCo not configured or tests didn't run)"
-                )
-                return StepResult(
-                    success=True,
-                    state=AgentState.ANALYZING,
-                    message="Coverage analysis skipped - no JaCoCo report found",
-                    data={
-                        "line_coverage": 0.0,
-                        "branch_coverage": 0.0,
-                        "method_coverage": 0.0,
-                        "report": None,
-                        "skipped": True,
-                        "reason": "jacoco_report_not_found"
-                    }
-                )
-            
             logger.debug("[StepExecutor] Generating coverage report")
-            self.components["maven_runner"].generate_coverage()
+            coverage_success = self.components["maven_runner"].generate_coverage()
+            
+            if not coverage_success:
+                logger.warning("[StepExecutor] Maven coverage generation returned false, but continuing to parse")
             
             report = self.components["coverage_analyzer"].parse_report()
             
             if report:
                 logger.info(f"[StepExecutor] Coverage analysis complete - Line: {report.line_coverage:.1%}, Branch: {report.branch_coverage:.1%}, Method: {report.method_coverage:.1%}")
+                
+                coverage_data = {
+                    "line_coverage": report.line_coverage,
+                    "branch_coverage": report.branch_coverage,
+                    "method_coverage": report.method_coverage,
+                    "report": report
+                }
+                
+                if report.line_coverage < 0.3:
+                    logger.warning(f"[StepExecutor] Low coverage detected: {report.line_coverage:.1%}")
+                    coverage_data["low_coverage_warning"] = True
+                
                 return StepResult(
                     success=True,
                     state=AgentState.ANALYZING,
                     message=f"Coverage: {report.line_coverage:.1%}",
-                    data={
-                        "line_coverage": report.line_coverage,
-                        "branch_coverage": report.branch_coverage,
-                        "method_coverage": report.method_coverage,
-                        "report": report
-                    }
+                    data=coverage_data
                 )
             else:
-                logger.warning("[StepExecutor] Failed to parse coverage report")
+                logger.warning("[StepExecutor] Failed to parse coverage report - report not found or invalid")
                 return StepResult(
                     success=False,
                     state=AgentState.FAILED,
-                    message="Failed to parse coverage report"
+                    message="Failed to parse coverage report - please ensure JaCoCo is configured and tests have run"
                 )
         except Exception as e:
             logger.exception(f"[StepExecutor] Coverage analysis exception: {e}")

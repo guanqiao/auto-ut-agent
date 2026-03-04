@@ -244,19 +244,45 @@ class ReActAgent(BaseAgent):
         self._core.target_class_info = value
     
     @property
-    def project_path(self) -> str:
+    def project_path(self) -> Path:
         """Get project path."""
-        return self._core.project_path
+        if hasattr(self, '_project_path'):
+            return self._project_path
+        # Fallback to base_agent's project_path if available
+        return Path('.')
+    
+    @project_path.setter
+    def project_path(self, value: str | Path):
+        """Set project path."""
+        self._project_path = Path(value) if isinstance(value, str) else value
     
     @property
     def max_iterations(self) -> int:
         """Get maximum iterations."""
-        return self.working_memory.max_iterations
+        if hasattr(self, '_max_iterations'):
+            return self._max_iterations
+        if hasattr(self, 'working_memory') and self.working_memory:
+            return self.working_memory.max_iterations
+        return 10
+    
+    @max_iterations.setter
+    def max_iterations(self, value: int):
+        """Set maximum iterations."""
+        self._max_iterations = value
     
     @property
     def target_coverage(self) -> float:
         """Get target coverage."""
-        return self.working_memory.target_coverage
+        if hasattr(self, '_target_coverage'):
+            return self._target_coverage
+        if hasattr(self, 'working_memory') and self.working_memory:
+            return self.working_memory.target_coverage
+        return 0.8
+    
+    @target_coverage.setter
+    def target_coverage(self, value: float):
+        """Set target coverage."""
+        self._target_coverage = value
     
     @property
     def current_iteration(self) -> int:

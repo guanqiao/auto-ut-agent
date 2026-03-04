@@ -311,6 +311,14 @@ class FeedbackLoopExecutor:
             self.agent_core._update_state(AgentState.FIXING, "Coverage analysis failed, retrying...")
             return None
         
+        if coverage_result.data.get("skipped", False):
+            logger.info(f"[FeedbackLoopExecutor] ⏭️ Coverage analysis skipped: {coverage_result.data.get('reason', 'unknown reason')}")
+            self.agent_core._update_state(
+                AgentState.ANALYZING,
+                f"⏭️ Coverage analysis skipped - {coverage_result.message}"
+            )
+            return coverage_result
+        
         current_coverage = coverage_result.data.get("line_coverage", 0.0)
         self.agent_core.working_memory.update_coverage(current_coverage)
         logger.info(f"[FeedbackLoopExecutor] 📈 Current coverage: {current_coverage:.1%} (Target: {self.agent_core.target_coverage:.1%})")
