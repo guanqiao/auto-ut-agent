@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { PyUTAgentAPI } from '../backend/apiClient';
 
 /**
  * Chat View Provider - 侧边栏聊天面板
@@ -8,7 +9,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     
     private _view?: vscode.WebviewView;
     
-    constructor(private readonly _extensionUri: vscode.Uri) {}
+    constructor(
+        private readonly _extensionUri: vscode.Uri,
+        private readonly _api: PyUTAgentAPI
+    ) {}
     
     public resolveWebviewView(
         webviewView: vscode.WebviewView,

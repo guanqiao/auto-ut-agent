@@ -5,12 +5,45 @@ allowing the agent to handle various types of programming tasks beyond UT genera
 """
 
 import logging
+import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+class Intent(Enum):
+    """User intents."""
+    GENERATE = "generate"
+    MODIFY = "modify"
+    FIX = "fix"
+    ANALYZE = "analyze"
+    EXPLAIN = "explain"
+    OPTIMIZE = "optimize"
+    QUERY = "query"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class ExtractedEntity:
+    """An entity extracted from user request."""
+    type: str
+    value: str
+    confidence: float
+    position: Tuple[int, int]
+
+
+@dataclass
+class EntityExtractionResult:
+    """Result of entity extraction."""
+    files: List[str] = field(default_factory=list)
+    classes: List[str] = field(default_factory=list)
+    methods: List[str] = field(default_factory=list)
+    packages: List[str] = field(default_factory=list)
+    commands: List[str] = field(default_factory=list)
+    parameters: Dict[str, Any] = field(default_factory=dict)
 
 
 class TaskType(Enum):

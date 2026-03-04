@@ -660,6 +660,61 @@ class UniversalPlanner:
 
 **报告完成日期**：2026-03-04
 
+---
+
+## 十一、已实现改进（2026-03-04）
+
+### 11.1 Phase 1: 真正自主决策能力
+
+#### ✅ LLM驱动的增强自主循环
+- **文件**: `pyutagent/agent/llm_driven_autonomous_loop.py`
+- **实现**:
+  - `LLMActionDecider`: LLM驱动的动作决策器，使用prompt让LLM自主决定下一步
+  - `DynamicToolSelector`: 动态工具选择器，根据任务类型选择合适工具
+  - `LLMDrivenAutonomousLoop`: 真正的自主循环，摆脱预设流程
+- **创新点**:
+  - 决策策略支持（目标导向/探索/保守）
+  - 置信度阈值判断任务完成
+  - 动态工具组合选择
+
+#### ✅ 测试覆盖
+- **文件**: `tests/unit/agent/test_llm_driven_autonomous_loop.py`
+- **覆盖**: DecisionContext, LLMDecision, LLMActionDecider, DynamicToolSelector, LLMDrivenAutonomousLoop
+
+### 11.2 Phase 2: 长期记忆增强
+
+#### ✅ 情景记忆 (Episodic Memory)
+- **文件**: `pyutagent/memory/episodic_memory.py`
+- **实现**:
+  - `Episode`: 任务执行记录数据结构
+  - `ProjectSummary`: 项目执行摘要
+  - `EpisodicMemory`: 情景记忆存储和检索
+- **功能**:
+  - 跨项目经验记录和搜索
+  - 项目执行摘要统计
+  - 经验教训提取
+
+#### ✅ 程序记忆 (Procedural Memory)
+- **文件**: `pyutagent/memory/procedural_memory.py`
+- **实现**:
+  - `Skill`: 技能/策略数据结构
+  - `ProceduralMemory`: 程序记忆存储和学习
+- **功能**:
+  - 成功策略学习和复用
+  - 技能成功率跟踪
+  - 最优技能推荐
+
+### 11.3 改进效果
+
+| 改进项 | 改进前 | 改进后 |
+|--------|--------|--------|
+| 自主决策 | 预设流程执行 | LLM驱动，真正自主选择 |
+| 工具选择 | 固定工具集 | 动态工具组合 |
+| 经验积累 | 单项目记忆 | 跨项目情景记忆 |
+| 策略学习 | 无 | 成功策略学习和复用 |
+
+---
+
 **参考资料**：
 - [1] 编程进入「对讲机」时代!Claude抢发语音写代码
 - [2] Remote MCP support in Claude Code
