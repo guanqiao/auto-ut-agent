@@ -1,122 +1,106 @@
-# 计划：默认迭代次数设置为3 + LLM覆盖率评估
+# 修复计划：批量生成测试日志在GUI上不显示
 
-## 背景
+## 问题分析
 
-当前系统：
-- 默认迭代次数 `max_iterations = 10`（在 `working_memory.py` 中）
-- 覆盖率统计依赖 JaCoCo（Maven 项目）
-- 已有 `GenerationEvaluator` 可以预估覆盖率潜力
+### 根本原因
+日志系统存在断层：
+- **后端**：Agent 使用 Python `logging` 模块输出日志到控制台/文件
+- **前端**：GUI 依赖 Qt 信号机制接收日志
+- **断层**：两者之间没有建立有效的桥接机制
 
-## 目标
+### 具体问题
 
-1. **修改默认迭代次数**：从 10 改为 3
-2. **添加 LLM 覆盖率评估**：当 JaCoCo 等工具不可用时，通过 LLM 评估覆盖率
+#### 1. 单文件生成模式
+- `AgentWorker` 有 `log_message` 信号定义，但从未被触发
+- `_on_progress()` 只发送 `state_changed` 信号，不发送详细日志
+- Agent 内部日志通过 `logger.info()` 输出，无法传递到 GUI
 
-## 实现方案
+#### 2. 批量生成模式
+- `BatchGenerateWorker` 没有 `log_message` 信号
+- `BatchProgress` 数据结构不包含日志字段
+- `BatchGenerateDialog` 没有日志显示区域
+- Agent 执行过程中的日志完全丢失
 
-### 任务 1：修改默认迭代次数
+## 修复方案
 
-**文件**: `pyutagent/memory/working_memory.py`
+### 方案：创建日志桥接机制
 
-**修改内容**:
+#### 步骤 1：创建 QtLogHandler
+创建一个自定义的 logging Handler，将日志转发到 Qt 信号。
+
+**文件**：`pyutagent/ui/log_handler.py`
+
 ```python
-# 修改前
-max_iterations: int = 10
-
-# 修改后
-max_iterations: int = 3
+class QtLogHandler(logging.Handler):
+    """Custom logging handler that emits Qt signals."""
+    
+    log_signal = pyqtSignal(str, str)  # message, level
+    
+    def emit(self, record):
+        # 将日志记录转换为信号
 ```
 
-### 任务 2：创建 LLM 覆盖率评估器
+#### 步骤 2：修改 BatchGenerateWorker
+添加 `log_message` 信号，并在 Worker 中安装 QtLogHandler。
 
-**新文件**: `pyutagent/agent/llm_coverage_evaluator.py`
+**修改文件**：`pyutagent/ui/batch_generate_dialog.py`
 
-**功能**:
-- 分析源代码和测试代码
-- 使用 LLM 评估测试覆盖率
-- 返回覆盖率评估结果（行覆盖率、分支覆盖率、方法覆盖率）
-
-**核心逻辑**:
-1. 解析源代码，提取方法、分支等信息
-2. 解析测试代码，识别测试的方法和场景
-3. 调用 LLM 进行覆盖率评估
-4. 返回结构化的覆盖率报告
-
-### 任务 3：集成 LLM 覆盖率评估到现有流程
-
-**修改文件**: `pyutagent/agent/handlers/coverage_handler.py`
-
-**修改内容**:
-- 在 `analyze_coverage` 方法中添加 fallback 机制
-- 当 JaCoCo 失败时，使用 LLM 评估器
-
-**修改文件**: `pyutagent/tools/maven_tools.py`
-
-**修改内容**:
-- 在 `CoverageAnalyzer.parse_report()` 中添加 fallback 逻辑
-
-### 任务 4：更新配置
-
-**修改文件**: `pyutagent/core/config.py`（如果需要）
-
-**修改内容**:
-- 添加 LLM 覆盖率评估的配置选项
-
-## 技术细节
-
-### LLM 覆盖率评估 Prompt 设计
-
-```
-你是一个代码覆盖率分析专家。请分析以下源代码和测试代码，评估测试覆盖率。
-
-## 源代码
-{source_code}
-
-## 测试代码
-{test_code}
-
-## 类信息
-{class_info}
-
-请评估：
-1. 行覆盖率：测试覆盖了多少行代码（0.0-1.0）
-2. 分支覆盖率：测试覆盖了多少分支（0.0-1.0）
-3. 方法覆盖率：测试覆盖了多少方法（0.0-1.0）
-4. 未覆盖的方法列表
-5. 未覆盖的分支列表
-
-返回 JSON 格式的评估结果。
+```python
+class BatchGenerateWorker(QThread):
+    # 新增信号
+    log_message = pyqtSignal(str, str)  # message, level
+    
+    def run(self):
+        # 安装日志处理器
+        self.log_handler = QtLogHandler()
+        self.log_handler.log_signal.connect(self._emit_log)
+        logging.getLogger('pyutagent').addHandler(self.log_handler)
+        
+        # ... 原有逻辑
 ```
 
-### Fallback 策略
+#### 步骤 3：修改 BatchGenerateDialog
+添加日志显示区域，连接日志信号。
 
-1. 首先尝试使用 JaCoCo 获取精确覆盖率
-2. 如果 JaCoCo 不可用（非 Maven 项目、报告解析失败等），使用 LLM 评估
-3. LLM 评估结果标记为 "estimated"，与精确覆盖率区分
+**修改文件**：`pyutagent/ui/batch_generate_dialog.py`
 
-## 文件变更清单
+```python
+class BatchGenerateDialog(QDialog):
+    def setup_ui(self):
+        # 在 Progress Group 下方添加日志区域
+        # 类似 ProgressWidget 的 log_area
+        
+    def on_log_message(self, message: str, level: str):
+        # 显示日志
+```
 
-| 文件 | 操作 | 说明 |
-|------|------|------|
-| `pyutagent/memory/working_memory.py` | 修改 | max_iterations: 10 → 3 |
-| `pyutagent/agent/llm_coverage_evaluator.py` | 新增 | LLM 覆盖率评估器 |
-| `pyutagent/agent/handlers/coverage_handler.py` | 修改 | 添加 LLM fallback |
-| `pyutagent/tools/maven_tools.py` | 修改 | 添加 fallback 逻辑 |
+#### 步骤 4：修改 AgentWorker（单文件模式）
+在 AgentWorker 中也安装 QtLogHandler，触发 log_message 信号。
 
-## 测试计划
+**修改文件**：`pyutagent/ui/main_window.py`
 
-1. 单元测试：LLM 覆盖率评估器
-2. 集成测试：覆盖率分析流程（JaCoCo 可用/不可用场景）
-3. 端到端测试：完整测试生成流程
+```python
+class AgentWorker(QThread):
+    def run(self):
+        # 安装日志处理器
+        self.log_handler = QtLogHandler()
+        self.log_handler.log_signal.connect(self._emit_log)
+        logging.getLogger('pyutagent').addHandler(self.log_handler)
+        
+    def _emit_log(self, message: str, level: str):
+        self.log_message.emit(message, level)
+```
 
-## 风险评估
+## 实施顺序
 
-- **LLM 评估准确性**：LLM 评估的覆盖率不如 JaCoCo 精确，需要标记为 "estimated"
-- **API 成本**：LLM 评估会增加 API 调用成本
-- **性能影响**：LLM 评估比本地分析慢
+1. ✅ 创建 `QtLogHandler` 类
+2. ✅ 修改 `BatchGenerateWorker` - 添加日志信号和处理
+3. ✅ 修改 `BatchGenerateDialog` - 添加日志显示区域
+4. ✅ 修改 `AgentWorker` - 添加日志桥接
+5. ✅ 测试验证
 
-## 预期结果
+## 预期效果
 
-1. 默认迭代次数减少到 3，减少不必要的迭代
-2. 非 Maven 项目或 JaCoCo 不可用时，仍能获得覆盖率评估
-3. 覆盖率评估结果包含来源标识（精确/估算）
+- 批量生成时，GUI 上显示详细的执行日志
+- 单文件生成时，GUI 上显示更完整的日志
+- 日志按级别着色显示（DEBUG/INFO/WARNING/ERROR）
