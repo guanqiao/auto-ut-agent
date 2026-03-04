@@ -77,6 +77,10 @@ class LLMClient:
         self._cancel_event.set()  # Not cancelled by default
         self._progress_callback: Optional[Callable[[str], None]] = None
         
+        # Task management for active cancellation
+        self._current_task: Optional[asyncio.Task] = None
+        self._task_lock = asyncio.Lock()
+        
         logger.info(f"[LLMClient] Initializing - Model: {model}, Provider: {provider}, Endpoint: {endpoint}")
         logger.debug(f"[LLMClient] Configuration - Timeout: {timeout}s, MaxRetries: {max_retries}, Temperature: {temperature}")
         if ca_cert:
@@ -237,42 +241,49 @@ class LLMClient:
         last_progress_time = start_time
         
         try:
-            # Create a task for the LLM call with timeout
-            llm_task = asyncio.create_task(client.ainvoke(messages))
+            # Create a task for the LLM call with timeout and save reference
+            async with self._task_lock:
+                self._current_task = asyncio.create_task(client.ainvoke(messages))
+                llm_task = self._current_task
             
-            # Wait for completion with timeout and periodic progress updates
-            while not llm_task.done():
-                # Check for cancellation
-                await self._check_cancelled()
+            try:
+                # Wait for completion with timeout and periodic progress updates
+                while not llm_task.done():
+                    # Check for cancellation
+                    await self._check_cancelled()
+                    
+                    # Check for timeout
+                    elapsed = time.time() - start_time
+                    if elapsed > operation_timeout:
+                        llm_task.cancel()
+                        raise asyncio.TimeoutError(f"LLM generation timed out after {elapsed:.0f} seconds (timeout: {operation_timeout:.0f}s)")
+                    
+                    # Report progress every 5 seconds
+                    current_time = time.time()
+                    if current_time - last_progress_time >= 5:
+                        remaining = operation_timeout - elapsed
+                        self._report_progress(f"⏳ 仍在等待 LLM 响应... 已等待 {elapsed:.0f}秒，剩余 {remaining:.0f}秒")
+                        last_progress_time = current_time
+                    
+                    # Short sleep to allow cancellation checking (with shorter timeout for responsiveness)
+                    try:
+                        await asyncio.wait_for(asyncio.shield(llm_task), timeout=0.5)
+                    except asyncio.TimeoutError:
+                        continue
                 
-                # Check for timeout
+                # Get the result
+                response = llm_task.result()
+                self._total_calls += 1
+                self._total_tokens += len(prompt.split()) + len(response.content.split())
                 elapsed = time.time() - start_time
-                if elapsed > operation_timeout:
-                    llm_task.cancel()
-                    raise asyncio.TimeoutError(f"LLM generation timed out after {elapsed:.0f} seconds (timeout: {operation_timeout:.0f}s)")
-                
-                # Report progress every 5 seconds
-                current_time = time.time()
-                if current_time - last_progress_time >= 5:
-                    remaining = operation_timeout - elapsed
-                    self._report_progress(f"⏳ 仍在等待 LLM 响应... 已等待 {elapsed:.0f}秒，剩余 {remaining:.0f}秒")
-                    last_progress_time = current_time
-                
-                # Short sleep to allow cancellation checking (with shorter timeout for responsiveness)
-                try:
-                    await asyncio.wait_for(asyncio.shield(llm_task), timeout=0.5)
-                except asyncio.TimeoutError:
-                    continue
-            
-            # Get the result
-            response = llm_task.result()
-            self._total_calls += 1
-            self._total_tokens += len(prompt.split()) + len(response.content.split())
-            elapsed = time.time() - start_time
-            self._call_stats["agenerate"].append(elapsed)
-            self._report_progress(f"✅ LLM 响应完成 - 生成 {len(response.content)} 字符，耗时 {elapsed:.1f} 秒")
-            logger.info(f"[LLM] ✅ Async generation complete - Model: {self.model}, Endpoint: {self.endpoint}, ResponseLength: {len(response.content)} chars, Elapsed: {elapsed:.2f}s")
-            return response.content
+                self._call_stats["agenerate"].append(elapsed)
+                self._report_progress(f"✅ LLM 响应完成 - 生成 {len(response.content)} 字符，耗时 {elapsed:.1f} 秒")
+                logger.info(f"[LLM] ✅ Async generation complete - Model: {self.model}, Endpoint: {self.endpoint}, ResponseLength: {len(response.content)} chars, Elapsed: {elapsed:.2f}s")
+                return response.content
+            finally:
+                # Clear task reference
+                async with self._task_lock:
+                    self._current_task = None
         except asyncio.TimeoutError:
             elapsed = time.time() - start_time
             self._call_stats["agenerate"].append(elapsed)
@@ -581,9 +592,21 @@ class LLMClient:
                 logger.debug(f"[LLM] Progress callback error: {e}")
     
     def cancel(self):
-        """Cancel current operation."""
+        """Cancel current operation and any running task."""
         logger.warning("[LLM] Cancellation requested")
         self._cancel_event.clear()
+        
+        # Actively cancel the running task if exists
+        if self._current_task and not self._current_task.done():
+            logger.info(f"[LLM] Actively cancelling current LLM task: {self._current_task.get_name()}")
+            self._current_task.cancel()
+    
+    def cancel_current_task(self):
+        """Cancel the current running LLM task immediately."""
+        logger.warning("[LLM] Force cancelling current task")
+        if self._current_task and not self._current_task.done():
+            self._current_task.cancel()
+            logger.info(f"[LLM] Task {self._current_task.get_name()} has been cancelled")
     
     def reset_cancel(self):
         """Reset cancellation state."""

@@ -151,11 +151,28 @@ class ReActAgent(BaseAgent):
     
     def terminate(self):
         """Terminate agent execution immediately."""
+        logger.info("[ReActAgent] Terminating agent execution")
         self._core.terminate()
+        
+        # Cancel LLM client operations
+        if hasattr(self.llm_client, 'cancel'):
+            logger.info("[ReActAgent] Cancelling LLM client")
+            self.llm_client.cancel()
+        
+        # Cancel LLM client current task if available
+        if hasattr(self.llm_client, 'cancel_current_task'):
+            logger.info("[ReActAgent] Force cancelling current LLM task")
+            self.llm_client.cancel_current_task()
+        
+        # Stop retry manager
         if hasattr(self, 'retry_manager'):
             self.retry_manager.stop()
+        
+        # Clear error recovery history
         if hasattr(self, 'error_recovery'):
             self.error_recovery.clear_history()
+        
+        logger.info("[ReActAgent] Agent termination complete")
     
     def reset(self):
         """Reset agent state."""

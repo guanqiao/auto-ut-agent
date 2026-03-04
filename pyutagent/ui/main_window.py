@@ -19,6 +19,7 @@ from .dialogs.aider_config_dialog import AiderConfigDialog
 from .dialogs.coverage_config_dialog import CoverageConfigDialog
 from .dialogs.maven_config_dialog import MavenConfigDialog
 from .dialogs.jdk_config_dialog import JDKConfigDialog
+from .dialogs.project_stats_dialog import ProjectStatsDialog
 from .batch_generate_dialog import BatchGenerateDialog
 from ..core.config import (
     LLMConfig,
@@ -143,12 +144,34 @@ class AgentWorker(QThread):
             logger.info("[AgentWorker] Agent resumed")
 
     def terminate_agent(self):
-        """Terminate the agent immediately."""
+        """Terminate the agent immediately with multiple strategies."""
+        logger.info("[AgentWorker] Starting agent termination")
+        
+        # Strategy 1: Graceful termination via agent's terminate method
         if self.agent:
+            logger.info("[AgentWorker] Calling agent.terminate()")
             self.agent.terminate()
-            self._is_paused = False
-            self.terminated.emit()
-            logger.info("[AgentWorker] Agent terminated")
+        
+        # Strategy 2: Request thread interruption (Qt mechanism)
+        logger.info("[AgentWorker] Requesting thread interruption")
+        self.requestInterruption()
+        
+        # Strategy 3: Wait for graceful shutdown
+        if self.isRunning():
+            logger.info("[AgentWorker] Waiting for graceful shutdown (max 2 seconds)")
+            self.wait(2000)
+        
+        # Strategy 4: Force termination if still running (last resort)
+        if self.isRunning():
+            logger.warning("[AgentWorker] Force terminating worker thread")
+            super().terminate()  # QThread.terminate() - force kill
+            self.wait(500)
+        
+        # Update state
+        self._is_paused = False
+        self._is_running = False
+        self.terminated.emit()
+        logger.info("[AgentWorker] Agent termination complete")
 
     def is_paused(self) -> bool:
         """Check if agent is paused."""
@@ -512,6 +535,12 @@ class MainWindow(QMainWindow):
         scan_action.triggered.connect(self.on_scan_project)
         tools_menu.addAction(scan_action)
 
+        stats_action = QAction("Project &Statistics", self)
+        stats_action.triggered.connect(self.on_project_stats)
+        tools_menu.addAction(stats_action)
+
+        tools_menu.addSeparator()
+
         generate_action = QAction("&Generate Tests", self)
         generate_action.setShortcut("Ctrl+G")
         generate_action.triggered.connect(self.on_generate_tests)
@@ -815,6 +844,23 @@ class MainWindow(QMainWindow):
             logger.info(f"Project rescanned: {self.current_project}")
         except Exception as e:
             logger.exception("Failed to scan project")
+
+    def on_project_stats(self):
+        """Handle project statistics action."""
+        try:
+            if not self.current_project:
+                QMessageBox.information(
+                    self,
+                    "Information",
+                    "Please open a project first"
+                )
+                return
+
+            dialog = ProjectStatsDialog(self.current_project, self)
+            dialog.exec()
+            logger.info(f"Project statistics shown for: {self.current_project}")
+        except Exception as e:
+            logger.exception("Failed to show project statistics")
 
     def on_generate_tests(self):
         """Handle generate tests action."""

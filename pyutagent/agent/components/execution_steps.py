@@ -266,11 +266,29 @@ class StepExecutor:
             
             # Retry loop for handling timeouts
             for attempt in range(max_retries + 1):
+                # Check for termination before each attempt
+                if self.agent_core._terminated or self.agent_core._stop_requested:
+                    logger.warning(f"[StepExecutor] ⏹️ Generation cancelled by user before attempt {attempt + 1}")
+                    return StepResult(
+                        success=False,
+                        state=AgentState.PAUSED,
+                        message="⏹️ 测试生成已被用户取消"
+                    )
+                
                 if attempt > 0:
                     logger.warning(f"[StepExecutor] 🔄 Retry attempt {attempt}/{max_retries} after previous failure")
                     self.agent_core._update_state(AgentState.GENERATING, f"🔄 重试 {attempt}/{max_retries}: 重新生成测试代码...")
                     # Add a small delay before retry to allow any transient issues to resolve
                     await asyncio.sleep(2.0 * attempt)  # Exponential backoff: 2s, 4s, ...
+                    
+                    # Check again after sleep
+                    if self.agent_core._terminated or self.agent_core._stop_requested:
+                        logger.warning(f"[StepExecutor] ⏹️ Generation cancelled by user after sleep")
+                        return StepResult(
+                            success=False,
+                            state=AgentState.PAUSED,
+                            message="⏹️ 测试生成已被用户取消"
+                        )
                 
                 try:
                     if use_streaming:
@@ -300,15 +318,37 @@ class StepExecutor:
                         
                         # Reduced timeout from 300s to 180s (3 minutes) for streaming
                         streaming_timeout = 180.0
-                        try:
-                            streaming_result = await asyncio.wait_for(
-                                self.components["streaming_generator"].generate_with_streaming(
-                                    prompt=prompt,
-                                    on_chunk=on_chunk,
-                                    on_progress=lambda p: logger.debug(f"[StepExecutor] Streaming progress: {p:.1%}")
-                                ),
-                                timeout=streaming_timeout
+                        
+                        # Create streaming task for cancellation support
+                        streaming_task = asyncio.create_task(
+                            self.components["streaming_generator"].generate_with_streaming(
+                                prompt=prompt,
+                                on_chunk=on_chunk,
+                                on_progress=lambda p: logger.debug(f"[StepExecutor] Streaming progress: {p:.1%}")
                             )
+                        )
+                        
+                        try:
+                            # Wait with periodic termination checks
+                            streaming_result = None
+                            while not streaming_task.done():
+                                # Check for termination
+                                if self.agent_core._terminated or self.agent_core._stop_requested:
+                                    logger.warning("[StepExecutor] ⏹️ Cancelling streaming task due to user request")
+                                    streaming_task.cancel()
+                                    raise asyncio.CancelledError("User terminated")
+                                
+                                try:
+                                    streaming_result = await asyncio.wait_for(
+                                        asyncio.shield(streaming_task),
+                                        timeout=1.0  # Check every second
+                                    )
+                                    break
+                                except asyncio.TimeoutError:
+                                    continue
+                            
+                            if streaming_result is None:
+                                streaming_result = streaming_task.result()
                         except asyncio.TimeoutError:
                             logger.warning(f"[StepExecutor] ⏰ Streaming generation timeout ({streaming_timeout/60:.0f} minutes), falling back to normal generation")
                             self.agent_core._update_state(AgentState.GENERATING, f"⏰ 流式生成超时 (>{streaming_timeout/60:.0f}分钟),切换到普通模式...")
