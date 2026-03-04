@@ -14,6 +14,9 @@ from enum import Enum, auto
 from typing import Dict, List, Optional, Any, Set, Type, Tuple, get_type_hints
 from collections import defaultdict
 
+from .component_registry import SimpleComponent, component
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,7 +75,12 @@ class MockSetup:
     test_data: Dict[str, Any]
 
 
-class SmartMockGenerator:
+@component(
+    component_id="smart_mock_generator",
+    dependencies=[],
+    description="Smart mock data generator for intelligent test data creation"
+)
+class SmartMockGenerator(SimpleComponent):
     """Intelligent mock data generator.
     
     Features:
@@ -89,6 +97,7 @@ class SmartMockGenerator:
         Args:
             seed: Optional random seed for reproducible generation
         """
+        super().__init__()
         self._random = random.Random(seed)
         self._type_handlers = self._initialize_type_handlers()
         self._field_patterns = self._initialize_field_patterns()

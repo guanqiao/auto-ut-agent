@@ -33,6 +33,17 @@ from ..memory.working_memory import WorkingMemory
 from ..llm.client import LLMClient
 from ..core.container import Container
 
+# P4 Intelligent Enhancement Components
+from .self_reflection import SelfReflection
+from ..memory.project_knowledge_graph import ProjectKnowledgeGraph
+from ..memory.pattern_library import PatternLibrary
+from ..core.test_strategy_selector import TestStrategySelector
+from ..core.boundary_analyzer import BoundaryAnalyzer
+from ..core.enhanced_feedback_loop import EnhancedFeedbackLoop
+from ..llm.chain_of_thought import ChainOfThoughtEngine
+from ..memory.domain_knowledge import DomainKnowledgeBase
+from ..core.smart_mock_generator import SmartMockGenerator
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +72,23 @@ class EnhancedAgentConfig:
     enable_user_interaction: bool = True
     enable_smart_analysis: bool = True
     sandbox_security_level: SecurityLevel = SecurityLevel.MODERATE
+    
+    # P4 Intelligent Enhancement Configuration
+    enable_self_reflection: bool = True
+    enable_knowledge_graph: bool = True
+    enable_pattern_library: bool = True
+    enable_strategy_selector: bool = True
+    enable_boundary_analyzer: bool = True
+    enable_enhanced_feedback: bool = True
+    enable_chain_of_thought: bool = True
+    enable_domain_knowledge: bool = True
+    enable_smart_mock_generator: bool = True
+    
+    # P4 Parameters
+    self_reflection_threshold: float = 0.7
+    knowledge_graph_db_path: Optional[str] = None
+    pattern_library_db_path: Optional[str] = None
+    feedback_loop_db_path: Optional[str] = None
     
     # Performance
     enable_metrics: bool = True
@@ -122,6 +150,7 @@ class EnhancedAgent(ReActAgent):
         self.smart_analyzer: Optional[SmartCodeAnalyzer] = None
         
         self._init_p3_components()
+        self._init_p4_components()
         
         # Call parent init with model name for P1 prompt optimization
         super().__init__(
@@ -185,6 +214,73 @@ class EnhancedAgent(ReActAgent):
         if self.config.enable_smart_analysis:
             self.smart_analyzer = SmartCodeAnalyzer()
             logger.info("[EnhancedAgent] Smart code analyzer initialized")
+    
+    def _init_p4_components(self):
+        """Initialize P4 intelligent enhancement components."""
+        # Self-Reflection
+        self.self_reflection: Optional[SelfReflection] = None
+        if self.config.enable_self_reflection:
+            self.self_reflection = SelfReflection(
+                quality_threshold=self.config.self_reflection_threshold
+            )
+            logger.info("[EnhancedAgent] Self-reflection initialized")
+        
+        # Knowledge Graph
+        self.knowledge_graph: Optional[ProjectKnowledgeGraph] = None
+        if self.config.enable_knowledge_graph:
+            self.knowledge_graph = ProjectKnowledgeGraph(
+                db_path=self.config.knowledge_graph_db_path,
+                project_root=self.project_path
+            )
+            logger.info("[EnhancedAgent] Knowledge graph initialized")
+        
+        # Pattern Library
+        self.pattern_library: Optional[PatternLibrary] = None
+        if self.config.enable_pattern_library:
+            self.pattern_library = PatternLibrary(
+                db_path=self.config.pattern_library_db_path
+            )
+            logger.info("[EnhancedAgent] Pattern library initialized")
+        
+        # Strategy Selector
+        self.strategy_selector: Optional[TestStrategySelector] = None
+        if self.config.enable_strategy_selector:
+            self.strategy_selector = TestStrategySelector()
+            logger.info("[EnhancedAgent] Strategy selector initialized")
+        
+        # Boundary Analyzer
+        self.boundary_analyzer: Optional[BoundaryAnalyzer] = None
+        if self.config.enable_boundary_analyzer:
+            self.boundary_analyzer = BoundaryAnalyzer()
+            logger.info("[EnhancedAgent] Boundary analyzer initialized")
+        
+        # Enhanced Feedback Loop
+        self.feedback_loop: Optional[EnhancedFeedbackLoop] = None
+        if self.config.enable_enhanced_feedback:
+            self.feedback_loop = EnhancedFeedbackLoop(
+                db_path=self.config.feedback_loop_db_path
+            )
+            logger.info("[EnhancedAgent] Enhanced feedback loop initialized")
+        
+        # Chain-of-Thought Engine
+        self.cot_engine: Optional[ChainOfThoughtEngine] = None
+        if self.config.enable_chain_of_thought:
+            self.cot_engine = ChainOfThoughtEngine()
+            logger.info("[EnhancedAgent] Chain-of-thought engine initialized")
+        
+        # Domain Knowledge Base
+        self.domain_knowledge: Optional[DomainKnowledgeBase] = None
+        if self.config.enable_domain_knowledge:
+            self.domain_knowledge = DomainKnowledgeBase()
+            logger.info("[EnhancedAgent] Domain knowledge base initialized")
+        
+        # Smart Mock Generator
+        self.mock_generator: Optional[SmartMockGenerator] = None
+        if self.config.enable_smart_mock_generator:
+            self.mock_generator = SmartMockGenerator()
+            logger.info("[EnhancedAgent] Smart mock generator initialized")
+        
+        logger.info("[EnhancedAgent] P4 intelligent enhancement components initialized")
     
     async def start_multi_agent_system(self):
         """Start the multi-agent collaboration system."""
@@ -787,3 +883,425 @@ class EnhancedAgent(ReActAgent):
         super().stop()
         
         logger.info("[EnhancedAgent] Stopped")
+    
+    # ==================== P4 Intelligent Enhancement Methods ====================
+    
+    async def critique_test_code(
+        self,
+        test_code: str,
+        source_code: Optional[str] = None,
+        class_info: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """P4: Critique generated test code using self-reflection.
+        
+        Args:
+            test_code: Generated test code
+            source_code: Original source code
+            class_info: Class information
+            
+        Returns:
+            Critique result
+        """
+        if not self.self_reflection:
+            return {"enabled": False}
+        
+        with self.metrics.time_operation("self_reflection"):
+            result = await self.self_reflection.critique_generated_test(
+                test_code=test_code,
+                source_code=source_code,
+                class_info=class_info
+            )
+            
+            return {
+                "enabled": True,
+                "overall_quality_score": result.overall_quality_score,
+                "should_regenerate": result.should_regenerate,
+                "quality_metrics": [
+                    {"dimension": m.dimension.value, "score": m.score, "details": m.details}
+                    for m in result.quality_metrics
+                ],
+                "identified_issues": [
+                    {"type": i.issue_type, "severity": i.severity.value, "description": i.description}
+                    for i in result.identified_issues
+                ],
+                "improvement_suggestions": result.improvement_suggestions
+            }
+    
+    async def select_test_strategy(
+        self,
+        source_code: str,
+        class_info: Optional[Dict[str, Any]] = None,
+        preferences: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """P4: Select optimal test strategy.
+        
+        Args:
+            source_code: Source code to test
+            class_info: Class information
+            preferences: User preferences
+            
+        Returns:
+            Strategy recommendation
+        """
+        if not self.strategy_selector:
+            return {"enabled": False, "strategy": "unit_basic"}
+        
+        with self.metrics.time_operation("strategy_selection"):
+            recommendation = self.strategy_selector.select_strategy(
+                source_code=source_code,
+                class_info=class_info,
+                preferences=preferences
+            )
+            
+            return {
+                "enabled": True,
+                "primary_strategy": recommendation.primary_strategy.value,
+                "secondary_strategies": [s.value for s in recommendation.secondary_strategies],
+                "confidence": recommendation.confidence,
+                "reasoning": recommendation.reasoning,
+                "analysis": {
+                    "characteristics": [c.value for c in recommendation.analysis.characteristics],
+                    "complexity_score": recommendation.analysis.complexity_score,
+                    "dependency_count": recommendation.analysis.dependency_count
+                }
+            }
+    
+    async def analyze_boundaries(
+        self,
+        method_signature: str,
+        method_body: Optional[str] = None,
+        annotations: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """P4: Analyze boundary conditions for a method.
+        
+        Args:
+            method_signature: Method signature
+            method_body: Method body
+            annotations: Method annotations
+            
+        Returns:
+            Boundary analysis result
+        """
+        if not self.boundary_analyzer:
+            return {"enabled": False}
+        
+        with self.metrics.time_operation("boundary_analysis"):
+            result = self.boundary_analyzer.analyze_method(
+                method_signature=method_signature,
+                method_body=method_body,
+                annotations=annotations
+            )
+            
+            return {
+                "enabled": True,
+                "method_name": result.method_name,
+                "total_test_cases": result.total_test_cases,
+                "coverage_score": result.coverage_score,
+                "parameters": [
+                    {
+                        "name": p.parameter_name,
+                        "type": p.parameter_type.value,
+                        "boundaries": [
+                            {"value": str(b.value), "type": b.boundary_type.value, "description": b.description}
+                            for b in p.boundaries[:5]
+                        ],
+                        "suggested_tests": p.suggested_tests[:3]
+                    }
+                    for p in result.parameters
+                ],
+                "recommendations": result.recommendations
+            }
+    
+    async def generate_mock_data(
+        self,
+        field_name: str,
+        field_type: str,
+        annotations: Optional[List[str]] = None,
+        context: str = "positive"
+    ) -> Dict[str, Any]:
+        """P4: Generate mock data for a field.
+        
+        Args:
+            field_name: Field name
+            field_type: Field type
+            annotations: Field annotations
+            context: Generation context (positive/negative/boundary)
+            
+        Returns:
+            Generated mock data
+        """
+        if not self.mock_generator:
+            return {"enabled": False}
+        
+        from ..core.smart_mock_generator import GenerationContext
+        
+        ctx = GenerationContext.POSITIVE
+        if context == "negative":
+            ctx = GenerationContext.NEGATIVE
+        elif context == "boundary":
+            ctx = GenerationContext.BOUNDARY
+        
+        result = self.mock_generator.generate_for_field(
+            field_name=field_name,
+            field_type=field_type,
+            annotations=annotations,
+            context=ctx
+        )
+        
+        return {
+            "enabled": True,
+            "value": result.value,
+            "data_type": result.data_type.value,
+            "description": result.description,
+            "constraints_applied": result.constraints_applied
+        }
+    
+    async def get_test_patterns(
+        self,
+        category: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """P4: Get applicable test patterns.
+        
+        Args:
+            category: Pattern category filter
+            tags: Tag filters
+            context: Context for pattern recommendation
+            
+        Returns:
+            Matching patterns
+        """
+        if not self.pattern_library:
+            return {"enabled": False, "patterns": []}
+        
+        from ..memory.pattern_library import PatternCategory
+        
+        cat = None
+        if category:
+            try:
+                cat = PatternCategory(category)
+            except ValueError:
+                pass
+        
+        patterns = self.pattern_library.find_patterns(category=cat, tags=tags)
+        
+        return {
+            "enabled": True,
+            "patterns": [
+                {
+                    "id": p.pattern_id,
+                    "name": p.name,
+                    "category": p.category.value,
+                    "description": p.description,
+                    "complexity": p.complexity.value,
+                    "success_rate": p.success_rate,
+                    "placeholders": p.placeholders
+                }
+                for p in patterns[:10]
+            ]
+        }
+    
+    async def record_feedback(
+        self,
+        feedback_type: str,
+        context: Dict[str, Any],
+        outcome: str,
+        details: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """P4: Record feedback event for learning.
+        
+        Args:
+            feedback_type: Type of feedback
+            context: Context information
+            outcome: Outcome description
+            details: Additional details
+            
+        Returns:
+            Recording result
+        """
+        if not self.feedback_loop:
+            return {"enabled": False}
+        
+        from ..core.enhanced_feedback_loop import FeedbackType
+        
+        try:
+            ft = FeedbackType(feedback_type)
+        except ValueError:
+            ft = FeedbackType.TEST_PASS if "success" in outcome.lower() else FeedbackType.TEST_FAILURE
+        
+        event_id = self.feedback_loop.record_feedback(
+            feedback_type=ft,
+            context=context,
+            outcome=outcome,
+            details=details
+        )
+        
+        return {
+            "enabled": True,
+            "event_id": event_id,
+            "recorded": True
+        }
+    
+    async def get_adaptive_adjustments(
+        self,
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """P4: Get adaptive adjustments based on learning.
+        
+        Args:
+            context: Current context
+            
+        Returns:
+            Recommended adjustments
+        """
+        if not self.feedback_loop:
+            return {"enabled": False, "adjustments": []}
+        
+        adjustments = self.feedback_loop.get_adaptive_adjustments(context)
+        
+        return {
+            "enabled": True,
+            "adjustments": [
+                {
+                    "target": a.target,
+                    "action": a.action,
+                    "reason": a.reason,
+                    "priority": a.priority,
+                    "confidence": a.confidence
+                }
+                for a in adjustments
+            ]
+        }
+    
+    async def render_cot_prompt(
+        self,
+        prompt_name: str,
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """P4: Render chain-of-thought prompt.
+        
+        Args:
+            prompt_name: Name of the prompt template
+            context: Context for rendering
+            
+        Returns:
+            Rendered prompt
+        """
+        if not self.cot_engine:
+            return {"enabled": False, "prompt": ""}
+        
+        prompt = self.cot_engine.render_prompt(prompt_name, context)
+        
+        return {
+            "enabled": True,
+            "prompt": prompt,
+            "prompt_name": prompt_name
+        }
+    
+    async def search_domain_knowledge(
+        self,
+        query: str,
+        domain: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """P4: Search domain knowledge base.
+        
+        Args:
+            query: Search query
+            domain: Domain filter
+            
+        Returns:
+            Matching knowledge entries
+        """
+        if not self.domain_knowledge:
+            return {"enabled": False, "entries": []}
+        
+        from ..memory.domain_knowledge import KnowledgeDomain
+        
+        dom = None
+        if domain:
+            try:
+                dom = KnowledgeDomain(domain)
+            except ValueError:
+                pass
+        
+        entries = self.domain_knowledge.search(query, domain=dom)
+        
+        return {
+            "enabled": True,
+            "entries": [
+                {
+                    "id": e.entry_id,
+                    "title": e.title,
+                    "domain": e.domain.value,
+                    "type": e.knowledge_type.value,
+                    "content": e.content[:200] + "..." if len(e.content) > 200 else e.content,
+                    "tags": e.tags
+                }
+                for e in entries
+            ]
+        }
+    
+    async def update_knowledge_graph(
+        self,
+        source_code: str,
+        file_path: str
+    ) -> Dict[str, Any]:
+        """P4: Update knowledge graph with code analysis.
+        
+        Args:
+            source_code: Source code to analyze
+            file_path: File path
+            
+        Returns:
+            Analysis result
+        """
+        if not self.knowledge_graph:
+            return {"enabled": False}
+        
+        result = self.knowledge_graph.analyze_code_structure(source_code, file_path)
+        
+        return {
+            "enabled": True,
+            "classes": result["classes"],
+            "methods_count": len(result["methods"]),
+            "dependencies": result["dependencies"],
+            "node_ids": result["node_ids"][:10]
+        }
+    
+    def get_p4_stats(self) -> Dict[str, Any]:
+        """Get P4 intelligent enhancement statistics.
+        
+        Returns:
+            P4 statistics
+        """
+        stats = {
+            "enabled": {
+                "self_reflection": self.self_reflection is not None,
+                "knowledge_graph": self.knowledge_graph is not None,
+                "pattern_library": self.pattern_library is not None,
+                "strategy_selector": self.strategy_selector is not None,
+                "boundary_analyzer": self.boundary_analyzer is not None,
+                "feedback_loop": self.feedback_loop is not None,
+                "cot_engine": self.cot_engine is not None,
+                "domain_knowledge": self.domain_knowledge is not None,
+                "mock_generator": self.mock_generator is not None
+            }
+        }
+        
+        if self.self_reflection:
+            stats["self_reflection"] = self.self_reflection.get_critique_stats()
+        
+        if self.knowledge_graph:
+            stats["knowledge_graph"] = self.knowledge_graph.get_statistics()
+        
+        if self.pattern_library:
+            stats["pattern_library"] = self.pattern_library.get_statistics()
+        
+        if self.feedback_loop:
+            stats["feedback_loop"] = self.feedback_loop.get_learning_stats()
+        
+        if self.domain_knowledge:
+            stats["domain_knowledge"] = self.domain_knowledge.get_statistics()
+        
+        return stats

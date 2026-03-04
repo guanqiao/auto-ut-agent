@@ -5,6 +5,7 @@ from .working_memory import WorkingMemory
 from .short_term_memory import ShortTermMemory
 from .project_knowledge_graph import ProjectKnowledgeGraph, GraphNode, GraphEdge, NodeType, RelationType
 from .pattern_library import PatternLibrary, TestPattern, PatternCategory, PatternComplexity
+from .domain_knowledge import DomainKnowledgeBase, KnowledgeDomain, KnowledgeType, KnowledgeEntry
 
 __all__ = [
     "SQLiteVecStore",
@@ -18,5 +19,9 @@ __all__ = [
     "PatternLibrary",
     "TestPattern",
     "PatternCategory",
-    "PatternComplexity"
+    "PatternComplexity",
+    "DomainKnowledgeBase",
+    "KnowledgeDomain",
+    "KnowledgeType",
+    "KnowledgeEntry",
 ]

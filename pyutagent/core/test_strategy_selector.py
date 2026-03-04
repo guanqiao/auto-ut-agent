@@ -11,6 +11,9 @@ from enum import Enum, auto
 from typing import Dict, List, Optional, Any, Tuple
 from collections import Counter
 
+from .component_registry import SimpleComponent, component
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,7 +85,12 @@ class StrategyRecommendation:
     reasoning: str
 
 
-class TestStrategySelector:
+@component(
+    component_id="test_strategy_selector",
+    dependencies=[],
+    description="Intelligent test strategy selector for optimal test generation"
+)
+class TestStrategySelector(SimpleComponent):
     """Intelligent test strategy selector.
     
     Analyzes code characteristics and recommends optimal test strategies.
@@ -97,6 +105,7 @@ class TestStrategySelector:
     
     def __init__(self):
         """Initialize the test strategy selector."""
+        super().__init__()
         self._strategy_weights = self._initialize_strategy_weights()
         self._characteristic_detectors = self._initialize_detectors()
         

@@ -1,4 +1,47 @@
 """Core module - 核心基础设施"""
 from pyutagent.core.event_bus import EventBus, AsyncEventBus
+from pyutagent.core.test_strategy_selector import (
+    TestStrategySelector,
+    TestStrategy,
+    CodeCharacteristic,
+    StrategyRecommendation
+)
+from pyutagent.core.boundary_analyzer import (
+    BoundaryAnalyzer,
+    BoundaryType,
+    ParameterType,
+    BoundaryAnalysisResult
+)
+from pyutagent.core.enhanced_feedback_loop import (
+    EnhancedFeedbackLoop,
+    FeedbackType,
+    LearningCategory,
+    AdaptiveAdjustment
+)
+from pyutagent.core.smart_mock_generator import (
+    SmartMockGenerator,
+    MockConfig,
+    GeneratedMock,
+    GenerationContext
+)
 
-__all__ = ['EventBus', 'AsyncEventBus']
+__all__ = [
+    'EventBus',
+    'AsyncEventBus',
+    'TestStrategySelector',
+    'TestStrategy',
+    'CodeCharacteristic',
+    'StrategyRecommendation',
+    'BoundaryAnalyzer',
+    'BoundaryType',
+    'ParameterType',
+    'BoundaryAnalysisResult',
+    'EnhancedFeedbackLoop',
+    'FeedbackType',
+    'LearningCategory',
+    'AdaptiveAdjustment',
+    'SmartMockGenerator',
+    'MockConfig',
+    'GeneratedMock',
+    'GenerationContext',
+]

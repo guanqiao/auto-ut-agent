@@ -11,6 +11,9 @@ from enum import Enum, auto
 from typing import Dict, List, Optional, Any, Tuple, Set
 from collections import defaultdict
 
+from .component_registry import SimpleComponent, component
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,7 +83,12 @@ class BoundaryAnalysisResult:
     recommendations: List[str]
 
 
-class BoundaryAnalyzer:
+@component(
+    component_id="boundary_analyzer",
+    dependencies=[],
+    description="Boundary value analyzer for edge case test generation"
+)
+class BoundaryAnalyzer(SimpleComponent):
     """Analyzer for boundary value testing.
     
     Features:
@@ -93,6 +101,7 @@ class BoundaryAnalyzer:
     
     def __init__(self):
         """Initialize the boundary analyzer."""
+        super().__init__()
         self._type_handlers = self._initialize_type_handlers()
         self._constraint_patterns = self._initialize_constraint_patterns()
         

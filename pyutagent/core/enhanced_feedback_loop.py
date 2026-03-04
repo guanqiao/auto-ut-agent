@@ -15,6 +15,9 @@ from typing import Dict, List, Optional, Any, Set, Tuple
 from collections import defaultdict, Counter
 import uuid
 
+from .component_registry import SimpleComponent, component
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -93,7 +96,12 @@ class AdaptiveAdjustment:
     applied: bool = False
 
 
-class EnhancedFeedbackLoop:
+@component(
+    component_id="enhanced_feedback_loop",
+    dependencies=[],
+    description="Enhanced feedback loop for intelligent learning and adaptation"
+)
+class EnhancedFeedbackLoop(SimpleComponent):
     """Enhanced feedback loop for intelligent learning.
     
     Features:
@@ -110,6 +118,7 @@ class EnhancedFeedbackLoop:
         Args:
             db_path: Path to SQLite database
         """
+        super().__init__()
         if db_path is None:
             home = Path.home()
             db_dir = home / ".pyutagent"

@@ -65,6 +65,11 @@ from .git_tools import (
     GitPullTool,
     get_all_git_tools,
 )
+from .search_tools import (
+    WebSearchTool,
+    WebFetchTool,
+    get_all_search_tools,
+)
 
 __all__ = [
     "JavaCodeParser",
@@ -123,4 +128,7 @@ __all__ = [
     "GitPushTool",
     "GitPullTool",
     "get_all_git_tools",
+    "WebSearchTool",
+    "WebFetchTool",
+    "get_all_search_tools",
 ]

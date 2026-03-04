@@ -11,6 +11,8 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Dict, List, Optional, Any
 
+from ..core.component_registry import SimpleComponent, component
+
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +131,12 @@ class ImprovementResult:
     success: bool
 
 
-class SelfReflection:
+@component(
+    component_id="self_reflection",
+    dependencies=[],
+    description="Self-reflection mechanism for code quality evaluation"
+)
+class SelfReflection(SimpleComponent):
     """Self-reflection mechanism for critiquing and improving generated code.
     
     Features:
@@ -153,6 +160,7 @@ class SelfReflection:
             quality_threshold: Minimum quality threshold
             max_improvement_iterations: Maximum improvement iterations
         """
+        super().__init__()
         self.llm_client = llm_client
         self.quality_threshold = quality_threshold
         self.max_improvement_iterations = max_improvement_iterations

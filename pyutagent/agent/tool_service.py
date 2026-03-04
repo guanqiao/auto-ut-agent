@@ -21,6 +21,7 @@ from ..tools.standard_tools import (
     BashTool,
 )
 from ..tools.git_tools import get_all_git_tools
+from ..tools.search_tools import get_all_search_tools
 from ..llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,12 @@ class AgentToolService:
         for tool in git_tools:
             self.registry.register(tool)
         
+        search_tools = get_all_search_tools()
+        for tool in search_tools:
+            self.registry.register(tool)
+        
         logger.info(f"[AgentToolService] Registered {len(git_tools)} git tools")
+        logger.info(f"[AgentToolService] Registered {len(search_tools)} search tools")
         logger.info("[AgentToolService] Registered standard tools")
     
     def _register_project_tools(self):
