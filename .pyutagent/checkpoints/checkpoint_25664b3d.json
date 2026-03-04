@@ -1,0 +1,133 @@
+{
+  "id": "25664b3d",
+  "created_at": "2026-03-04T19:20:14.662454",
+  "step": "initial_generation",
+  "iteration": 0,
+  "state": {
+    "target_file": "D:\\opensource\\magic-api-master\\magic-api\\src\\main\\java\\org\\ssssssss\\magicapi\\utils\\JsonUtils.java",
+    "test_file": "src\\test\\java\\org\\ssssssss\\magicapi\\utils\\JsonUtilsTest.java",
+    "class_info": {
+      "name": "JsonUtils",
+      "package": "org.ssssssss.magicapi.utils",
+      "methods": [
+        {
+          "name": "toJsonString",
+          "return_type": "String",
+          "parameters": [
+            [
+              "Object",
+              "target"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "toJsonStringWithoutPretty",
+          "return_type": "String",
+          "parameters": [
+            [
+              "Object",
+              "target"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "toJsonStringWithoutLog",
+          "return_type": "String",
+          "parameters": [
+            [
+              "Object",
+              "target"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "readValue",
+          "return_type": "T",
+          "parameters": [
+            [
+              "String",
+              "json"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "readValue",
+          "return_type": "T",
+          "parameters": [
+            [
+              "String",
+              "json"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "readValue",
+          "return_type": "T",
+          "parameters": [],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "readValue",
+          "return_type": "T",
+          "parameters": [
+            [
+              "JavaType",
+              "javaType"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "toJsonBytes",
+          "return_type": null,
+          "parameters": [
+            [
+              "Object",
+              "target"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        }
+      ],
+      "fields": [
+        [
+          "ObjectMapper",
+          "MAPPER",
+          "private static final"
+        ],
+        [
+          "Logger",
+          "logger",
+          "private static final"
+        ]
+      ],
+      "imports": [
+        "com.fasterxml.jackson.core.JsonGenerator",
+        "com.fasterxml.jackson.core.JsonProcessingException",
+        "com.fasterxml.jackson.core.type.TypeReference",
+        "com.fasterxml.jackson.databind",
+        "com.fasterxml.jackson.databind.module.SimpleModule",
+        "org.slf4j.Logger",
+        "org.slf4j.LoggerFactory",
+        "java.io.IOException",
+        "java.nio.charset.StandardCharsets"
+      ],
+      "annotations": [],
+      "source": "package org.ssssssss.magicapi.utils;\n\nimport com.fasterxml.jackson.core.JsonGenerator;\nimport com.fasterxml.jackson.core.JsonProcessingException;\nimport com.fasterxml.jackson.core.type.TypeReference;\nimport com.fasterxml.jackson.databind.*;\nimport com.fasterxml.jackson.databind.module.SimpleModule;\nimport org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;\n\nimport java.io.IOException;\nimport java.nio.charset.StandardCharsets;\n\n/**\n * JSON工具包\n *\n * @author mxd\n */\npublic class JsonUtils {\n\n\tprivate static final ObjectMapper MAPPER = new ObjectMapper();\n\n\tprivate static final Logger logger = LoggerFactory.getLogger(JsonUtils.class);\n\n\tstatic {\n\t\tMAPPER.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);\n\t\tMAPPER.disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);\n\t\tSimpleModule simpleModule = new SimpleModule();\n\t\tsimpleModule.addSerializer(Logger.class, new JsonSerializer<Logger>() {\n\t\t\t@Override\n\t\t\tpublic void serialize(Logger value, JsonGenerator gen, SerializerProvider serializers) throws IOException {\n\t\t\t\tgen.writeString(value.toString());\n\t\t\t}\n\t\t});\n\t\tMAPPER.registerModule(simpleModule);\n\t}\n\n\tpublic static String toJsonString(Object target) {\n\t\ttry {\n\t\t\treturn MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(target);\n\t\t} catch (JsonProcessingException e) {\n\t\t\tlogger.error(\"json序列化失败\", e);\n\t\t\treturn null;\n\t\t}\n\t}\n\n\tpublic static String toJsonStringWithoutPretty(Object target) {\n\t\ttry {\n\t\t\treturn MAPPER.writeValueAsString(target);\n\t\t} catch (JsonProcessingException e) {\n\t\t\tlogger.error(\"json序列化失败\", e);\n\t\t\treturn null;\n\t\t}\n\t}\n\n\tpublic static String toJsonStringWithoutLog(Object target) {\n\t\ttry {\n\t\t\treturn MAPPER.writeValueAsString(target);\n\t\t} catch (Exception e) {\n\t\t\treturn target == null ? null : target.toString();\n\t\t}\n\t}\n\n\tpublic static <T> T readValue(String json, TypeReference<T> typeReference) {\n\t\ttry {\n\t\t\treturn MAPPER.readValue(json, typeReference);\n\t\t} catch (IOException e) {\n\t\t\tlogger.error(\"读取json失败,json:{}\", json, e);\n\t\t\treturn null;\n\t\t}\n\t}\n\n\tpublic static <T> T readValue(String json, Class<T> clazz) {\n\t\ttry {\n\t\t\treturn MAPPER.readValue(json, clazz);\n\t\t} catch (IOException e) {\n\t\t\tlogger.error(\"读取json失败,json:{}\", json, e);\n\t\t\treturn null;\n\t\t}\n\t}\n\n\tpublic static <T> T readValue(byte[] bytes, Class<T> clazz) {\n\t\ttry {\n\t\t\treturn MAPPER.readValue(bytes, clazz);\n\t\t} catch (IOException e) {\n\t\t\tlogger.error(\"读取json失败,json:{}\", new String(bytes), e);\n\t\t\treturn null;\n\t\t}\n\t}\n\n\tpublic static <T> T readValue(byte[] bytes, JavaType javaType) {\n\t\ttry {\n\t\t\treturn MAPPER.readValue(bytes, javaType);\n\t\t} catch (IOException e) {\n\t\t\tlogger.error(\"读取json失败,json:{}\", new String(bytes), e);\n\t\t\treturn null;\n\t\t}\n\t}\n\n\tpublic static byte[] toJsonBytes(Object target) {\n\t\tString json = toJsonString(target);\n\t\treturn json == null ? new byte[0] : json.getBytes(StandardCharsets.UTF_8);\n\t}\n\n}\n"
+    }
+  },
+  "metadata": {}
+}

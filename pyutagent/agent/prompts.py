@@ -697,3 +697,58 @@ Generate the COMPLETE fixed test code. Consider:
 ## Output
 
 Provide the fixed test code:"""
+
+    def build_dependency_analysis_prompt(
+        self,
+        compiler_output: str,
+        current_pom_content: str
+    ) -> str:
+        """Build prompt for dependency analysis.
+        
+        Args:
+            compiler_output: Compilation error output
+            current_pom_content: Current pom.xml content
+            
+        Returns:
+            Prompt string
+        """
+        return f"""You are a Maven dependency expert. Analyze the following compilation errors and identify missing dependencies.
+
+Compilation Errors:
+```
+{compiler_output}
+```
+
+Current pom.xml:
+```
+{current_pom_content}
+```
+
+Task:
+1. Identify all missing dependencies from the compilation errors
+2. For each missing dependency, provide complete Maven coordinates
+3. Determine the appropriate scope (test, compile, provided, runtime)
+4. Recommend stable versions
+
+Output in JSON format:
+{{
+  "missing_dependencies": [
+    {{
+      "group_id": "org.junit.jupiter",
+      "artifact_id": "junit-jupiter",
+      "version": "5.10.0",
+      "scope": "test",
+      "reason": "JUnit 5 testing framework"
+    }}
+  ],
+  "confidence": 0.95,
+  "analysis": "Brief analysis of missing dependencies",
+  "suggested_fixes": ["Additional suggestions for fixing the errors"]
+}}
+
+Important:
+- Use latest stable versions for common libraries
+- Test dependencies should have scope "test"
+- Be precise with groupId and artifactId
+- If uncertain, set lower confidence score
+- Only output the JSON, no additional text"""

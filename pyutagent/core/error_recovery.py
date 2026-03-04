@@ -1024,7 +1024,7 @@ class ErrorRecoveryManager:
         context: RecoveryContext,
         llm_analysis: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """安装缺失的依赖
+        """安装缺失的依赖（增强版，使用 LLM 分析）
         
         Args:
             context: 恢复上下文
@@ -1038,51 +1038,81 @@ class ErrorRecoveryManager:
         
         logger.info("[ErrorRecoveryManager] Installing missing dependencies")
         
-        dependency_info = context.error_details.get("dependency_info", {})
-        missing_packages = dependency_info.get("missing_packages", [])
-        is_test_dependency = dependency_info.get("is_test_dependency", False)
+        compiler_output = context.error_details.get("compiler_output", context.error_message)
         
-        if not missing_packages:
-            compiler_output = context.error_details.get("compiler_output", context.error_message)
-            from .error_classification import detect_missing_dependencies
-            dependency_info = detect_missing_dependencies(compiler_output)
-            missing_packages = dependency_info.get("missing_packages", [])
-            is_test_dependency = dependency_info.get("is_test_dependency", False)
-        
-        if not missing_packages:
-            logger.warning("[ErrorRecoveryManager] No missing packages detected, falling back to resolve all")
-            return await self._resolve_dependencies(context, llm_analysis)
-        
+        # 使用增强的依赖恢复处理器
         handler = DependencyRecoveryHandler(
             project_path=self.project_path,
+            maven_runner=None,  # Will be created if needed
+            llm_client=self.llm_client,
+            prompt_builder=self.prompt_builder,
             progress_callback=self.progress_callback
         )
         
-        result = await handler.install_missing_dependencies(
-            missing_packages=missing_packages,
-            is_test_dependency=is_test_dependency
-        )
+        # 尝试使用增强版安装
+        result = await handler.install_missing_dependencies_enhanced(compiler_output)
         
         if result.success:
+            installed_deps = result.details.get("installed_dependencies", []) if result.details else []
+            dep_list = [f"{d.get('group_id')}:{d.get('artifact_id')}" for d in installed_deps]
             return {
                 "success": True,
                 "action": "retry",
-                "message": f"Dependencies installed: {missing_packages}",
+                "message": f"Dependencies installed: {dep_list}",
                 "should_continue": True,
                 "strategy": "install_dependencies",
-                "installed_packages": missing_packages
+                "installed_packages": installed_deps,
+                "analysis": result.details.get("analysis", "") if result.details else "",
+                "confidence": result.details.get("confidence", 0.0) if result.details else 0.0
             }
         else:
-            suggestions = handler.suggest_pom_additions(missing_packages)
-            return {
-                "success": False,
-                "action": "escalate",
-                "message": f"Failed to install dependencies: {result.error_message}",
-                "should_continue": False,
-                "strategy": "install_dependencies",
-                "suggested_pom_additions": suggestions,
-                "missing_packages": missing_packages
-            }
+            # 如果增强版失败，回退到传统方法
+            logger.warning(f"[ErrorRecoveryManager] Enhanced installation failed, trying fallback: {result.error_message}")
+            
+            dependency_info = context.error_details.get("dependency_info", {})
+            missing_packages = dependency_info.get("missing_packages", [])
+            is_test_dependency = dependency_info.get("is_test_dependency", False)
+            
+            if not missing_packages:
+                from .error_classification import detect_missing_dependencies
+                dependency_info = detect_missing_dependencies(compiler_output)
+                missing_packages = dependency_info.get("missing_packages", [])
+                is_test_dependency = dependency_info.get("is_test_dependency", False)
+            
+            if not missing_packages:
+                logger.warning("[ErrorRecoveryManager] No missing packages detected, falling back to resolve all")
+                return await self._resolve_dependencies(context, llm_analysis)
+            
+            fallback_handler = DependencyRecoveryHandler(
+                project_path=self.project_path,
+                progress_callback=self.progress_callback
+            )
+            
+            fallback_result = await fallback_handler.install_missing_dependencies(
+                missing_packages=missing_packages,
+                is_test_dependency=is_test_dependency
+            )
+            
+            if fallback_result.success:
+                return {
+                    "success": True,
+                    "action": "retry",
+                    "message": f"Dependencies installed (fallback): {missing_packages}",
+                    "should_continue": True,
+                    "strategy": "install_dependencies",
+                    "installed_packages": missing_packages
+                }
+            else:
+                suggestions = fallback_handler.suggest_pom_additions(missing_packages)
+                return {
+                    "success": False,
+                    "action": "escalate",
+                    "message": f"Failed to install dependencies: {fallback_result.error_message}",
+                    "should_continue": False,
+                    "strategy": "install_dependencies",
+                    "suggested_pom_additions": suggestions,
+                    "missing_packages": missing_packages
+                }
 
     async def _resolve_dependencies(
         self,
@@ -1252,12 +1282,15 @@ class DependencyRecoveryHandler:
     """依赖问题恢复处理器
     
     处理 Maven 依赖缺失、解析失败等问题。
+    支持 LLM 增强的依赖分析和自动添加。
     """
     
     def __init__(
         self,
         project_path: str,
         maven_runner: Optional[Any] = None,
+        llm_client: Optional[Any] = None,
+        prompt_builder: Optional[Any] = None,
         timeout: int = 300,
         progress_callback: Optional[Callable[[str, str], None]] = None
     ):
@@ -1266,16 +1299,40 @@ class DependencyRecoveryHandler:
         Args:
             project_path: 项目路径
             maven_runner: MavenRunner 实例（可选）
+            llm_client: LLM 客户端（可选，用于智能依赖分析）
+            prompt_builder: Prompt 构建器（可选）
             timeout: 超时时间（秒）
             progress_callback: 进度回调函数
         """
         self.project_path = project_path
         self.maven_runner = maven_runner
+        self.llm_client = llm_client
+        self.prompt_builder = prompt_builder
         self.timeout = timeout
         self.progress_callback = progress_callback
         
         self._resolution_attempts = 0
         self._max_resolution_attempts = 3
+        
+        # 初始化新组件
+        try:
+            from ..tools.dependency_analyzer import DependencyAnalyzer
+            from ..tools.pom_editor import PomEditor
+            from ..tools.dependency_installer import DependencyInstaller
+            
+            self.dependency_analyzer = DependencyAnalyzer(llm_client, prompt_builder)
+            self.pom_editor = PomEditor(project_path)
+            self.dependency_installer = DependencyInstaller(
+                project_path, 
+                maven_runner, 
+                timeout,
+                progress_callback
+            )
+        except ImportError as e:
+            logger.warning(f"[DependencyRecovery] Failed to import new components: {e}")
+            self.dependency_analyzer = None
+            self.pom_editor = None
+            self.dependency_installer = None
     
     async def resolve_dependencies(self) -> RecoveryResult:
         """解析并下载所有依赖
@@ -1399,6 +1456,140 @@ class DependencyRecoveryHandler:
             return await self.resolve_test_dependencies()
         else:
             return await self.resolve_dependencies()
+    
+    async def install_missing_dependencies_enhanced(
+        self,
+        compiler_output: str
+    ) -> RecoveryResult:
+        """增强的依赖安装流程（使用 LLM 分析）
+        
+        流程:
+        1. 使用 LLM 分析编译错误
+        2. 识别缺失的依赖
+        3. 添加依赖到 pom.xml
+        4. 执行 mvn clean install
+        5. 验证安装结果
+        
+        Args:
+            compiler_output: 编译器输出
+            
+        Returns:
+            RecoveryResult 对象
+        """
+        if not self.dependency_analyzer or not self.dependency_installer:
+            logger.warning("[DependencyRecovery] Enhanced components not available, falling back to basic method")
+            return await self.resolve_dependencies()
+        
+        if self.progress_callback:
+            self.progress_callback("ANALYZING_DEPS", "正在分析缺失的依赖...")
+        
+        logger.info("[DependencyRecovery] Starting enhanced dependency installation")
+        
+        try:
+            # 1. LLM 分析
+            pom_content = ""
+            if self.pom_editor:
+                try:
+                    pom_content = self.pom_editor.read_pom()
+                except Exception as e:
+                    logger.warning(f"[DependencyRecovery] Failed to read pom.xml: {e}")
+            
+            analysis_result = await self.dependency_analyzer.analyze_missing_dependencies(
+                compiler_output,
+                pom_content
+            )
+            
+            missing_deps = analysis_result.get("missing_dependencies", [])
+            confidence = analysis_result.get("confidence", 0.0)
+            
+            logger.info(f"[DependencyRecovery] LLM analysis found {len(missing_deps)} dependencies (confidence: {confidence:.2f})")
+            
+            if not missing_deps:
+                logger.warning("[DependencyRecovery] No missing dependencies detected by LLM")
+                return RecoveryResult(
+                    success=False,
+                    strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
+                    attempts_made=1,
+                    error_message="No missing dependencies detected",
+                    action="skip",
+                    should_continue=True
+                )
+            
+            # 2. 验证依赖
+            valid_deps = []
+            for dep in missing_deps:
+                is_valid, errors = self.dependency_analyzer.validate_dependency(dep)
+                if is_valid:
+                    valid_deps.append(dep)
+                else:
+                    logger.warning(f"[DependencyRecovery] Invalid dependency: {dep}, errors: {errors}")
+            
+            if not valid_deps:
+                logger.warning("[DependencyRecovery] No valid dependencies after validation")
+                return RecoveryResult(
+                    success=False,
+                    strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
+                    attempts_made=1,
+                    error_message="No valid dependencies found",
+                    action="skip",
+                    should_continue=True
+                )
+            
+            # 3. 去重
+            unique_deps = self.dependency_analyzer.deduplicate_dependencies(valid_deps)
+            
+            if self.progress_callback:
+                self.progress_callback(
+                    "INSTALLING_DEPS", 
+                    f"正在安装 {len(unique_deps)} 个依赖..."
+                )
+            
+            # 4. 安装依赖
+            install_result = await self.dependency_installer.install_dependencies(
+                unique_deps,
+                skip_tests=True
+            )
+            
+            if install_result.success:
+                logger.info(f"[DependencyRecovery] Successfully installed {len(install_result.installed_deps)} dependencies")
+                return RecoveryResult(
+                    success=True,
+                    strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
+                    attempts_made=1,
+                    recovered_data={
+                        "installed_dependencies": install_result.installed_deps,
+                        "analysis": analysis_result.get("analysis", ""),
+                        "confidence": confidence
+                    },
+                    action="retry",
+                    should_continue=True
+                )
+            else:
+                logger.warning(f"[DependencyRecovery] Failed to install dependencies: {install_result.message}")
+                return RecoveryResult(
+                    success=False,
+                    strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
+                    attempts_made=1,
+                    error_message=install_result.message,
+                    action="escalate",
+                    should_continue=False,
+                    details={
+                        "failed_dependencies": install_result.failed_deps,
+                        "suggested_fixes": analysis_result.get("suggested_fixes", []),
+                        "backup_path": install_result.backup_path
+                    }
+                )
+                
+        except Exception as e:
+            logger.exception(f"[DependencyRecovery] Enhanced installation failed: {e}")
+            return RecoveryResult(
+                success=False,
+                strategy_used=RecoveryStrategy.INSTALL_DEPENDENCIES,
+                attempts_made=1,
+                error_message=str(e),
+                action="retry",
+                should_continue=True
+            )
     
     async def _run_maven_resolve(self) -> Tuple[bool, str]:
         """运行 Maven dependency:resolve 命令
