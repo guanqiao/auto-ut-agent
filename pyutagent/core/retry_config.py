@@ -29,6 +29,7 @@ class RetryConfig:
         max_step_attempts: Maximum attempts for a single step
         max_compilation_attempts: Maximum compilation attempts
         max_test_attempts: Maximum test execution attempts
+        max_reset_count: Maximum number of reset/regenerate operations
         backoff_base: Base delay for backoff strategies (seconds)
         backoff_max: Maximum delay for backoff strategies (seconds)
         backoff_strategy: Strategy for calculating retry delays
@@ -39,6 +40,7 @@ class RetryConfig:
     max_step_attempts: int = 2
     max_compilation_attempts: int = 2
     max_test_attempts: int = 2
+    max_reset_count: int = 2
     
     backoff_base: float = 2.0
     backoff_max: float = 60.0
@@ -133,6 +135,28 @@ class RetryConfig:
             return step_limits.get(step_name.lower(), self.max_step_attempts)
         return self.max_step_attempts
     
+    def can_reset(self, reset_count: int) -> bool:
+        """Check if reset operation is allowed.
+        
+        Args:
+            reset_count: Current reset count
+            
+        Returns:
+            True if reset is allowed
+        """
+        return reset_count < self.max_reset_count
+    
+    def should_stop_reset(self, reset_count: int) -> bool:
+        """Check if should stop due to too many resets.
+        
+        Args:
+            reset_count: Current reset count
+            
+        Returns:
+            True if should stop
+        """
+        return reset_count >= self.max_reset_count
+    
     def with_overrides(self, **kwargs) -> 'RetryConfig':
         """Create a new RetryConfig with overridden values.
         
@@ -147,6 +171,7 @@ class RetryConfig:
             'max_step_attempts': self.max_step_attempts,
             'max_compilation_attempts': self.max_compilation_attempts,
             'max_test_attempts': self.max_test_attempts,
+            'max_reset_count': self.max_reset_count,
             'backoff_base': self.backoff_base,
             'backoff_max': self.backoff_max,
             'backoff_strategy': self.backoff_strategy,

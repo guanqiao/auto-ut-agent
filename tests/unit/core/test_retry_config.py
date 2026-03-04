@@ -30,6 +30,7 @@ class TestRetryConfig:
         assert config.max_step_attempts == 2
         assert config.max_compilation_attempts == 2
         assert config.max_test_attempts == 2
+        assert config.max_reset_count == 2
         assert config.backoff_base == 2.0
         assert config.backoff_max == 60.0
         assert config.backoff_strategy == RetryStrategy.EXPONENTIAL_BACKOFF
@@ -111,6 +112,22 @@ class TestRetryConfig:
         assert config.get_max_attempts("unknown") == 3
         assert config.get_max_attempts() == 3
     
+    def test_can_reset(self):
+        config = RetryConfig(max_reset_count=2)
+        
+        assert config.can_reset(0) is True
+        assert config.can_reset(1) is True
+        assert config.can_reset(2) is False
+        assert config.can_reset(3) is False
+    
+    def test_should_stop_reset(self):
+        config = RetryConfig(max_reset_count=2)
+        
+        assert config.should_stop_reset(0) is False
+        assert config.should_stop_reset(1) is False
+        assert config.should_stop_reset(2) is True
+        assert config.should_stop_reset(3) is True
+    
     def test_with_overrides(self):
         original = RetryConfig(max_total_attempts=50, max_step_attempts=2)
         modified = original.with_overrides(max_total_attempts=100, max_step_attempts=10)
@@ -119,6 +136,13 @@ class TestRetryConfig:
         assert original.max_step_attempts == 2
         assert modified.max_total_attempts == 100
         assert modified.max_step_attempts == 10
+    
+    def test_with_overrides_includes_reset_count(self):
+        original = RetryConfig(max_reset_count=2)
+        modified = original.with_overrides(max_reset_count=5)
+        
+        assert original.max_reset_count == 2
+        assert modified.max_reset_count == 5
 
 
 class TestGlobalFunctions:

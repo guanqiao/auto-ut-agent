@@ -56,16 +56,19 @@ class StepExecutor:
         operation,
         *args,
         step_name: str = "operation",
+        reset_count: int = 0,
         **kwargs
     ) -> StepResult:
         """Execute an operation with automatic error recovery.
         
         Now includes unified maximum attempt limits to prevent infinite loops.
+        Also includes reset count limit to prevent infinite recursion.
         
         Args:
             operation: The operation to execute
             *args: Positional arguments
             step_name: Name of the step for logging
+            reset_count: Current reset count (for preventing infinite recursion)
             **kwargs: Keyword arguments
             
         Returns:
@@ -74,7 +77,15 @@ class StepExecutor:
         attempt = 0
         max_attempts = self.retry_config.get_max_attempts(step_name)
         
-        logger.info(f"[StepExecutor] Starting step execution - Step: {step_name}, MaxAttempts: {max_attempts}")
+        if self.retry_config.should_stop_reset(reset_count):
+            logger.error(f"[StepExecutor] Exceeded maximum reset count - Step: {step_name}, ResetCount: {reset_count}/{self.retry_config.max_reset_count}")
+            return StepResult(
+                success=False,
+                state=AgentState.FAILED,
+                message=f"Exceeded maximum reset count ({self.retry_config.max_reset_count})"
+            )
+        
+        logger.info(f"[StepExecutor] Starting step execution - Step: {step_name}, MaxAttempts: {max_attempts}, ResetCount: {reset_count}/{self.retry_config.max_reset_count}")
         
         while not self.agent_core._stop_requested and not self.agent_core._terminated:
             attempt += 1
@@ -104,7 +115,7 @@ class StepExecutor:
                     error = Exception(result.message)
                     recovery_result = await self._try_recover(
                         error,
-                        {"step": step_name, "attempt": attempt, "result": result}
+                        {"step": step_name, "attempt": attempt, "result": result, "reset_count": reset_count}
                     )
                     
                     if not recovery_result.get("should_continue", True):
@@ -123,11 +134,20 @@ class StepExecutor:
                         if fixed_code:
                             await self._write_test_file(fixed_code)
                     elif action == "reset":
-                        logger.info("[StepExecutor] Resetting and regenerating")
-                        return await self.execute_with_recovery(
-                            self.generate_initial_tests,
-                            step_name="regenerating tests"
-                        )
+                        if self.retry_config.can_reset(reset_count):
+                            logger.info(f"[StepExecutor] Resetting and regenerating - ResetCount: {reset_count + 1}/{self.retry_config.max_reset_count}")
+                            return await self.execute_with_recovery(
+                                self.generate_initial_tests,
+                                step_name="regenerating tests",
+                                reset_count=reset_count + 1
+                            )
+                        else:
+                            logger.error(f"[StepExecutor] Reset denied - max reset count reached ({self.retry_config.max_reset_count})")
+                            return StepResult(
+                                success=False,
+                                state=AgentState.FAILED,
+                                message=f"Cannot reset: max reset count ({self.retry_config.max_reset_count}) reached"
+                            )
                     
                     delay = self.retry_config.get_delay(attempt)
                     if delay > 0:
@@ -141,7 +161,7 @@ class StepExecutor:
                 
                 recovery_result = await self._try_recover(
                     e,
-                    {"step": step_name, "attempt": attempt}
+                    {"step": step_name, "attempt": attempt, "reset_count": reset_count}
                 )
                 
                 if not recovery_result.get("should_continue", True):
@@ -165,6 +185,21 @@ class StepExecutor:
                         message=f"Skipped {step_name}",
                         data={}
                     )
+                elif action == "reset":
+                    if self.retry_config.can_reset(reset_count):
+                        logger.info(f"[StepExecutor] Resetting and regenerating - ResetCount: {reset_count + 1}/{self.retry_config.max_reset_count}")
+                        return await self.execute_with_recovery(
+                            self.generate_initial_tests,
+                            step_name="regenerating tests",
+                            reset_count=reset_count + 1
+                        )
+                    else:
+                        logger.error(f"[StepExecutor] Reset denied - max reset count reached ({self.retry_config.max_reset_count})")
+                        return StepResult(
+                            success=False,
+                            state=AgentState.FAILED,
+                            message=f"Cannot reset: max reset count ({self.retry_config.max_reset_count}) reached"
+                        )
                 
                 delay = self.retry_config.get_delay(attempt)
                 if delay > 0:
@@ -839,9 +874,12 @@ class StepExecutor:
                 message=f"Error compiling tests: {str(e)}"
             )
     
-    async def compile_with_recovery(self) -> bool:
+    async def compile_with_recovery(self, reset_count: int = 0) -> bool:
         """Compile tests with automatic error recovery.
         
+        Args:
+            reset_count: Current reset count (for preventing infinite recursion)
+            
         Returns:
             True if compilation successful
         """
@@ -852,7 +890,15 @@ class StepExecutor:
         
         attempt = 0
         
-        logger.info(f"[StepExecutor] 🔨 Starting test compilation (with recovery) - Max attempts: {self.agent_core.max_compilation_attempts}")
+        if self.retry_config.should_stop_reset(reset_count):
+            logger.error(f"[StepExecutor] ❌ Exceeded maximum reset count in compilation - ResetCount: {reset_count}/{self.retry_config.max_reset_count}")
+            self.agent_core._update_state(
+                AgentState.FAILED,
+                f"❌ Exceeded max reset count ({self.retry_config.max_reset_count})."
+            )
+            return False
+        
+        logger.info(f"[StepExecutor] 🔨 Starting test compilation (with recovery) - Max attempts: {self.agent_core.max_compilation_attempts}, ResetCount: {reset_count}/{self.retry_config.max_reset_count}")
         
         while not self.agent_core._stop_requested and not self.agent_core._terminated:
             attempt += 1
@@ -894,7 +940,7 @@ class StepExecutor:
                     error = Exception("Compilation failed: " + "\n".join(errors[:3]))
                     recovery_result = await self._try_recover(
                         error,
-                        {"step": "compilation", "attempt": attempt, "compiler_output": "\n".join(errors)}
+                        {"step": "compilation", "attempt": attempt, "compiler_output": "\n".join(errors), "reset_count": reset_count}
                     )
                     
                     if not recovery_result.get("should_continue", True):
@@ -912,13 +958,19 @@ class StepExecutor:
                             self.agent_core._update_state(AgentState.FIXING, "🔧 Applied fix, retrying compilation...")
                             logger.info("[StepExecutor] 🔧 Applied LLM fix, retrying compilation...")
                     elif action == "reset":
-                        self.agent_core._update_state(AgentState.FIXING, "🔄 Resetting and regenerating...")
-                        logger.info("[StepExecutor] 🔄 Resetting and regenerating tests...")
-                        reset_result = await self.execute_with_recovery(
-                            self.generate_initial_tests,
-                            step_name="regenerating after compilation failure"
-                        )
-                        if not reset_result.success:
+                        if self.retry_config.can_reset(reset_count):
+                            self.agent_core._update_state(AgentState.FIXING, f"🔄 Resetting and regenerating (Reset {reset_count + 1}/{self.retry_config.max_reset_count})...")
+                            logger.info(f"[StepExecutor] 🔄 Resetting and regenerating tests - ResetCount: {reset_count + 1}/{self.retry_config.max_reset_count}")
+                            reset_result = await self.execute_with_recovery(
+                                self.generate_initial_tests,
+                                step_name="regenerating after compilation failure",
+                                reset_count=reset_count + 1
+                            )
+                            if not reset_result.success:
+                                return False
+                        else:
+                            logger.error(f"[StepExecutor] Reset denied in compilation - max reset count reached ({self.retry_config.max_reset_count})")
+                            self.agent_core._update_state(AgentState.FAILED, f"Cannot reset: max reset count ({self.retry_config.max_reset_count}) reached")
                             return False
                     elif action == "fallback":
                         self.agent_core._update_state(AgentState.FIXING, "🔄 Trying alternative approach...")
@@ -932,7 +984,7 @@ class StepExecutor:
                 
                 recovery_result = await self._try_recover(
                     e,
-                    {"step": "compilation", "attempt": attempt}
+                    {"step": "compilation", "attempt": attempt, "reset_count": reset_count}
                 )
                 
                 if not recovery_result.get("should_continue", True):
@@ -982,9 +1034,12 @@ class StepExecutor:
                 message=f"Error running tests: {str(e)}"
             )
     
-    async def run_tests_with_recovery(self) -> bool:
+    async def run_tests_with_recovery(self, reset_count: int = 0) -> bool:
         """Run tests with automatic error recovery and partial success handling.
         
+        Args:
+            reset_count: Current reset count (for preventing infinite recursion)
+            
         Returns:
             True if tests pass
         """
@@ -995,7 +1050,15 @@ class StepExecutor:
         
         attempt = 0
         
-        logger.info(f"[StepExecutor] 🧪 Starting test execution (with recovery and partial success handling) - Max attempts: {self.agent_core.max_test_attempts}")
+        if self.retry_config.should_stop_reset(reset_count):
+            logger.error(f"[StepExecutor] ❌ Exceeded maximum reset count in test execution - ResetCount: {reset_count}/{self.retry_config.max_reset_count}")
+            self.agent_core._update_state(
+                AgentState.FAILED,
+                f"❌ Exceeded max reset count ({self.retry_config.max_reset_count})."
+            )
+            return False
+        
+        logger.info(f"[StepExecutor] 🧪 Starting test execution (with recovery and partial success handling) - Max attempts: {self.agent_core.max_test_attempts}, ResetCount: {reset_count}/{self.retry_config.max_reset_count}")
         
         while not self.agent_core._stop_requested and not self.agent_core._terminated:
             attempt += 1
@@ -1060,7 +1123,7 @@ class StepExecutor:
                     error = Exception(f"Test failures: {len(failures)} tests failed")
                     recovery_result = await self._try_recover(
                         error,
-                        {"step": "test_execution", "attempt": attempt, "failures": failures}
+                        {"step": "test_execution", "attempt": attempt, "failures": failures, "reset_count": reset_count}
                     )
                     
                     if not recovery_result.get("should_continue", True):
@@ -1078,13 +1141,19 @@ class StepExecutor:
                             self.agent_core._update_state(AgentState.FIXING, "🔧 Applied fix, retrying tests...")
                             logger.info("[StepExecutor] 🔧 Applied LLM fix, retrying tests...")
                     elif action == "reset":
-                        self.agent_core._update_state(AgentState.FIXING, "🔄 Resetting and regenerating...")
-                        logger.info("[StepExecutor] 🔄 Resetting and regenerating tests...")
-                        reset_result = await self.execute_with_recovery(
-                            self.generate_initial_tests,
-                            step_name="regenerating after test failure"
-                        )
-                        if not reset_result.success:
+                        if self.retry_config.can_reset(reset_count):
+                            self.agent_core._update_state(AgentState.FIXING, f"🔄 Resetting and regenerating (Reset {reset_count + 1}/{self.retry_config.max_reset_count})...")
+                            logger.info(f"[StepExecutor] 🔄 Resetting and regenerating tests - ResetCount: {reset_count + 1}/{self.retry_config.max_reset_count}")
+                            reset_result = await self.execute_with_recovery(
+                                self.generate_initial_tests,
+                                step_name="regenerating after test failure",
+                                reset_count=reset_count + 1
+                            )
+                            if not reset_result.success:
+                                return False
+                        else:
+                            logger.error(f"[StepExecutor] Reset denied in test execution - max reset count reached ({self.retry_config.max_reset_count})")
+                            self.agent_core._update_state(AgentState.FAILED, f"Cannot reset: max reset count ({self.retry_config.max_reset_count}) reached")
                             return False
                     
                     continue
@@ -1095,7 +1164,7 @@ class StepExecutor:
                 
                 recovery_result = await self._try_recover(
                     e,
-                    {"step": "test_execution", "attempt": attempt}
+                    {"step": "test_execution", "attempt": attempt, "reset_count": reset_count}
                 )
                 
                 if not recovery_result.get("should_continue", True):
