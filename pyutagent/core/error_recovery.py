@@ -934,24 +934,29 @@ class ErrorRecoveryManager:
             }
 
         try:
-            prompt = self.prompt_builder.build_comprehensive_fix_prompt(
-                error_category=context.error_category.name,
-                error_message=context.error_message,
-                error_details=context.error_details,
-                local_analysis=llm_analysis.get("local_insights", {}),
-                llm_insights=llm_analysis.get("llm_insights", ""),
-                specific_fixes=llm_analysis.get("specific_fixes", []),
-                current_test_code=context.current_test_code,
-                target_class_info=context.target_class_info,
-                attempt_history=[
-                    {
-                        "attempt": a.attempt_number,
-                        "success": a.success,
-                        "message": a.error_message[:100]
-                    }
-                    for a in context.attempt_history[-3:]
-                ]
-            )
+            # Phase 2: Use enhanced prompt if available
+            if context.error_details and "enhanced_prompt" in context.error_details:
+                logger.info("[ErrorRecoveryManager] Using Phase 2 enhanced fix prompt")
+                prompt = context.error_details["enhanced_prompt"]
+            else:
+                prompt = self.prompt_builder.build_comprehensive_fix_prompt(
+                    error_category=context.error_category.name,
+                    error_message=context.error_message,
+                    error_details=context.error_details,
+                    local_analysis=llm_analysis.get("local_insights", {}),
+                    llm_insights=llm_analysis.get("llm_insights", ""),
+                    specific_fixes=llm_analysis.get("specific_fixes", []),
+                    current_test_code=context.current_test_code,
+                    target_class_info=context.target_class_info,
+                    attempt_history=[
+                        {
+                            "attempt": a.attempt_number,
+                            "success": a.success,
+                            "message": a.error_message[:100]
+                        }
+                        for a in context.attempt_history[-3:]
+                    ]
+                )
 
             response = await self.llm_client.agenerate(prompt)
             fixed_code = self._extract_java_code(response)

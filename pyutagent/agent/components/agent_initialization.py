@@ -321,6 +321,13 @@ class AgentInitializer:
         from pyutagent.core.code_interpreter import TestCodeInterpreter, InterpreterConfig
         from pyutagent.core.refactoring_engine import RefactoringEngine
         from pyutagent.core.test_quality_analyzer import TestQualityAnalyzer
+        from pyutagent.core.semantic_analyzer import SemanticAnalyzer
+        from pyutagent.core.root_cause_analyzer import RootCauseAnalyzer
+        from pyutagent.core.test_strategy_selector import TestStrategySelector
+        from pyutagent.core.boundary_analyzer import BoundaryAnalyzer
+        from pyutagent.agent.intelligence_enhancer import IntelligenceEnhancer
+        from pyutagent.llm.intelligence_cot import IntelligenceEnhancedCoT
+        from pyutagent.agent.self_reflection import SelfReflection
         
         components = {}
         
@@ -335,7 +342,28 @@ class AgentInitializer:
         test_quality_analyzer = TestQualityAnalyzer()
         components["test_quality_analyzer"] = test_quality_analyzer
         
-        logger.debug("[AgentInitializer] Phase 4 components initialized")
+        semantic_analyzer = SemanticAnalyzer()
+        components["semantic_analyzer"] = semantic_analyzer
+        
+        root_cause_analyzer = RootCauseAnalyzer()
+        components["root_cause_analyzer"] = root_cause_analyzer
+        
+        test_strategy_selector = TestStrategySelector()
+        components["test_strategy_selector"] = test_strategy_selector
+        
+        boundary_analyzer = BoundaryAnalyzer()
+        components["boundary_analyzer"] = boundary_analyzer
+        
+        intelligence_enhancer = IntelligenceEnhancer()
+        components["intelligence_enhancer"] = intelligence_enhancer
+        
+        intelligence_cot = IntelligenceEnhancedCoT()
+        components["intelligence_cot"] = intelligence_cot
+        
+        self_reflection = SelfReflection()
+        components["self_reflection"] = self_reflection
+        
+        logger.debug("[AgentInitializer] Phase 4 components initialized with intelligence enhancement")
         return components
     
     def _init_lazy_components(self) -> Dict[str, Any]:
