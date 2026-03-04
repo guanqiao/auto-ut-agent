@@ -323,6 +323,11 @@ class StepExecutor:
     async def generate_initial_tests(self, use_streaming: bool = True, max_retries: int = 2) -> StepResult:
         """Generate initial test cases with context management, streaming and quality evaluation.
         
+        Enhanced with P4 intelligent features:
+        - Strategy selection before generation
+        - Self-reflection after generation
+        - Feedback recording for learning
+        
         Args:
             use_streaming: Whether to use streaming generation
             max_retries: Maximum number of retries on timeout
@@ -335,6 +340,25 @@ class StepExecutor:
         logger.info(f"[StepExecutor] ⚙️ Configuration - Streaming: {use_streaming}, MaxRetries: {max_retries}")
         
         self.agent_core._update_state(AgentState.GENERATING, f"🚀 正在为 {class_name} 生成测试代码...")
+        
+        # P4: Strategy Selection - Choose optimal test strategy before generation
+        selected_strategy = None
+        if hasattr(self.agent_core, 'strategy_selector') and self.agent_core.strategy_selector:
+            try:
+                source_code = self.agent_core.target_class_info.get("source", "")
+                strategy_result = self.agent_core.strategy_selector.select_strategy(
+                    source_code=source_code,
+                    class_info=self.agent_core.target_class_info
+                )
+                selected_strategy = strategy_result.primary_strategy.value
+                logger.info(f"[StepExecutor] 🧠 P4 Strategy selected: {selected_strategy} "
+                           f"(confidence: {strategy_result.confidence:.2f})")
+                self.agent_core._update_state(
+                    AgentState.GENERATING, 
+                    f"🧠 智能策略选择: {selected_strategy}"
+                )
+            except Exception as e:
+                logger.warning(f"[StepExecutor] Strategy selection failed: {e}")
         
         if hasattr(self.agent_core.llm_client, 'set_progress_callback'):
             self.agent_core.llm_client.set_progress_callback(self._llm_progress_callback)
@@ -562,6 +586,47 @@ class StepExecutor:
             )
             
             logger.info(f"[StepExecutor] Initial test generation complete - TestFile: {self.agent_core.current_test_file}")
+            
+            # P4: Self-Reflection - Critique generated test code
+            critique_result = None
+            if hasattr(self.agent_core, 'self_reflection') and self.agent_core.self_reflection:
+                try:
+                    self.agent_core._update_state(AgentState.GENERATING, "🧠 正在进行自我反思评估...")
+                    critique_result = await self.agent_core.self_reflection.critique_generated_test(
+                        test_code=test_code,
+                        source_code=self.agent_core.target_class_info.get("source"),
+                        class_info=self.agent_core.target_class_info
+                    )
+                    logger.info(f"[StepExecutor] 🧠 P4 Self-reflection - "
+                               f"Quality: {critique_result.overall_quality_score:.2f}, "
+                               f"Issues: {len(critique_result.identified_issues)}, "
+                               f"Should regenerate: {critique_result.should_regenerate}")
+                    
+                    if critique_result.should_regenerate:
+                        logger.warning(f"[StepExecutor] ⚠️ Self-reflection suggests regeneration")
+                except Exception as e:
+                    logger.warning(f"[StepExecutor] Self-reflection failed: {e}")
+            
+            # P4: Feedback Recording - Record generation result for learning
+            if hasattr(self.agent_core, 'feedback_loop') and self.agent_core.feedback_loop:
+                try:
+                    from ...core.enhanced_feedback_loop import FeedbackType
+                    self.agent_core.feedback_loop.record_feedback(
+                        feedback_type=FeedbackType.TEST_PASS if eval_result.is_acceptable else FeedbackType.TEST_FAILURE,
+                        context={
+                            "class_name": class_name,
+                            "strategy": selected_strategy,
+                            "test_file": self.agent_core.current_test_file
+                        },
+                        outcome="success" if eval_result.is_acceptable else "needs_improvement",
+                        details={
+                            "quality_score": eval_result.overall_score,
+                            "critique_score": critique_result.overall_quality_score if critique_result else None
+                        }
+                    )
+                    logger.debug(f"[StepExecutor] 🧠 P4 Feedback recorded")
+                except Exception as e:
+                    logger.warning(f"[StepExecutor] Feedback recording failed: {e}")
             
             if self.agent_core.ab_test_id and hasattr(self.agent_core, 'current_ab_variant_id'):
                 self._record_generation_result(success=True, response_time_ms=0)
