@@ -14,6 +14,8 @@ from pathlib import Path
 from enum import Enum, auto
 from collections import defaultdict
 
+from .cache import get_global_cache
+
 logger = logging.getLogger(__name__)
 
 
@@ -149,6 +151,7 @@ class SemanticAnalyzer:
         self.business_logic: Dict[str, List[BusinessLogic]] = defaultdict(list)
         self.data_flows: Dict[str, List[DataFlow]] = defaultdict(list)
         self.test_scenarios: List[TestScenario] = []
+        self.cache = get_global_cache()
         
     def analyze_file(self, file_path: str, java_class: Any) -> Dict[str, Any]:
         """分析 Java 文件的语义
@@ -161,6 +164,15 @@ class SemanticAnalyzer:
             分析结果
         """
         self.logger.info(f"[SemanticAnalyzer] Analyzing file: {file_path}")
+        
+        # 生成缓存键
+        cache_key = self.cache.generate_key("semantic_analysis", file_path, str(java_class))
+        
+        # 尝试从缓存获取
+        cached_result = self.cache.get(cache_key)
+        if cached_result is not None:
+            self.logger.info(f"[SemanticAnalyzer] Cache hit for file: {file_path}")
+            return cached_result
         
         # 1. 构建调用图
         self._build_call_graph_for_class(file_path, java_class)
@@ -207,6 +219,9 @@ class SemanticAnalyzer:
                 for ts in test_scenarios
             ]
         }
+        
+        # 缓存结果
+        self.cache.set(cache_key, result, ttl_l1=1800, ttl_l2=43200)
         
         self.logger.info(f"[SemanticAnalyzer] Analysis complete - "
                         f"Scenarios: {len(test_scenarios)}, "

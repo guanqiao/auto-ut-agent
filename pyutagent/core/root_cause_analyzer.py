@@ -15,6 +15,8 @@ from pathlib import Path
 from enum import Enum, auto
 from collections import defaultdict
 
+from .cache import get_global_cache
+
 logger = logging.getLogger(__name__)
 
 
@@ -142,6 +144,7 @@ class RootCauseAnalyzer:
         self.error_patterns = self._load_error_patterns()
         self.fix_strategies = self._load_fix_strategies()
         self.analysis_history: List[RootCauseAnalysis] = []
+        self.cache = get_global_cache()
         
     def _load_error_patterns(self) -> Dict[ErrorCategory, List[str]]:
         """加载错误模式"""
@@ -269,6 +272,15 @@ class RootCauseAnalyzer:
         """
         self.logger.info("[RootCauseAnalyzer] Analyzing compilation errors")
         
+        # 生成缓存键
+        cache_key = self.cache.generate_key("compilation_analysis", compiler_output)
+        
+        # 尝试从缓存获取
+        cached_result = self.cache.get(cache_key)
+        if cached_result is not None:
+            self.logger.info("[RootCauseAnalyzer] Cache hit for compilation analysis")
+            return self._dict_to_analysis(cached_result)
+        
         # 1. 解析编译错误
         errors = self._parse_compilation_errors(compiler_output)
         
@@ -305,6 +317,9 @@ class RootCauseAnalyzer:
             requires_manual_review=requires_review
         )
         
+        # 缓存结果
+        self.cache.set(cache_key, self._analysis_to_dict(analysis), ttl_l1=1800, ttl_l2=43200)
+        
         self.analysis_history.append(analysis)
         self.logger.info(f"[RootCauseAnalyzer] Analysis complete - "
                         f"Errors: {len(errors)}, "
@@ -330,6 +345,15 @@ class RootCauseAnalyzer:
             根因分析结果
         """
         self.logger.info("[RootCauseAnalyzer] Analyzing test failures")
+        
+        # 生成缓存键
+        cache_key = self.cache.generate_key("test_failure_analysis", test_output)
+        
+        # 尝试从缓存获取
+        cached_result = self.cache.get(cache_key)
+        if cached_result is not None:
+            self.logger.info("[RootCauseAnalyzer] Cache hit for test failure analysis")
+            return self._dict_to_analysis(cached_result)
         
         # 1. 解析测试失败
         failures = self._parse_test_failures(test_output)
@@ -366,6 +390,9 @@ class RootCauseAnalyzer:
             confidence_score=confidence_score,
             requires_manual_review=requires_review
         )
+        
+        # 缓存结果
+        self.cache.set(cache_key, self._analysis_to_dict(analysis), ttl_l1=1800, ttl_l2=43200)
         
         self.analysis_history.append(analysis)
         self.logger.info(f"[RootCauseAnalyzer] Analysis complete - "
@@ -1073,3 +1100,63 @@ class RootCauseAnalyzer:
         """清除分析历史"""
         self.analysis_history.clear()
         self.logger.info("[RootCauseAnalyzer] Analysis history cleared")
+    
+    def _analysis_to_dict(self, analysis: RootCauseAnalysis) -> Dict[str, Any]:
+        """将 RootCauseAnalysis 转换为可 JSON 序列化的字典"""
+        errors_list = []
+        for error in analysis.errors:
+            if hasattr(error, '__dict__'):
+                error_dict = {
+                    k: (v.value if isinstance(v, Enum) else v)
+                    for k, v in error.__dict__.items()
+                }
+                errors_list.append(error_dict)
+            else:
+                errors_list.append(error)
+        
+        root_causes_list = []
+        for rc in analysis.root_causes:
+            rc_dict = {
+                k: (v.value if isinstance(v, Enum) else v)
+                for k, v in rc.__dict__.items()
+            }
+            root_causes_list.append(rc_dict)
+        
+        suggested_fixes_list = []
+        for fix in analysis.suggested_fixes:
+            fix_dict = {
+                k: (v.value if isinstance(v, Enum) else v)
+                for k, v in fix.__dict__.items()
+            }
+            suggested_fixes_list.append(fix_dict)
+        
+        return {
+            "errors": errors_list,
+            "root_causes": root_causes_list,
+            "suggested_fixes": suggested_fixes_list,
+            "analysis_summary": analysis.analysis_summary,
+            "confidence_score": analysis.confidence_score,
+            "requires_manual_review": analysis.requires_manual_review
+        }
+    
+    def _dict_to_analysis(self, data: Dict[str, Any]) -> RootCauseAnalysis:
+        """将字典转换回 RootCauseAnalysis"""
+        errors = []
+        for error_data in data.get("errors", []):
+            if error_data.get("error_type") == "compilation":
+                error = CompilationError(**error_data)
+            else:
+                error = TestFailure(**error_data)
+            errors.append(error)
+        
+        root_causes = [RootCause(**rc_data) for rc_data in data.get("root_causes", [])]
+        suggested_fixes = [FixStrategy(**fix_data) for fix_data in data.get("suggested_fixes", [])]
+        
+        return RootCauseAnalysis(
+            errors=errors,
+            root_causes=root_causes,
+            suggested_fixes=suggested_fixes,
+            analysis_summary=data.get("analysis_summary", ""),
+            confidence_score=data.get("confidence_score", 0.0),
+            requires_manual_review=data.get("requires_manual_review", False)
+        )
