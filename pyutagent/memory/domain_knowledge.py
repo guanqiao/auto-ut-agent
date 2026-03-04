@@ -108,7 +108,7 @@ class DomainKnowledgeBase:
                     code_example TEXT,
                     tags TEXT,
                     related_entries TEXT,
-                    references TEXT,
+                    entry_references TEXT,
                     confidence REAL DEFAULT 1.0,
                     usage_count INTEGER DEFAULT 0
                 )
@@ -561,7 +561,7 @@ void shouldReturnAllItems() {
             cursor.execute('''
                 INSERT OR REPLACE INTO knowledge_entries
                 (entry_id, domain, knowledge_type, title, content, code_example,
-                 tags, related_entries, references, confidence, usage_count)
+                 tags, related_entries, entry_references, confidence, usage_count)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 entry.entry_id,

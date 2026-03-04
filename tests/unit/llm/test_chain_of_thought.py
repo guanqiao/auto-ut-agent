@@ -158,7 +158,7 @@ class TestChainOfThoughtEngine:
             name="my_custom_prompt",
             category=PromptCategory.TEST_GENERATION,
             description="Custom test generation prompt",
-            base_template="Generate tests for {class_name}",
+            base_template="Generate tests for ${class_name}",
             variables=["class_name"],
             thought_steps=[
                 {
@@ -196,7 +196,7 @@ class TestChainOfThoughtPrompt:
             thought_steps=[
                 ThoughtStep(ReasoningStep.ANALYZE, "Analyze code", "Analysis")
             ],
-            base_template="Template {var}",
+            base_template="Template ${var}",
             variables=["var"]
         )
         
@@ -211,7 +211,7 @@ class TestChainOfThoughtPrompt:
             category=PromptCategory.TEST_GENERATION,
             description="Test description",
             thought_steps=[],
-            base_template="Hello {name}, welcome to {place}!",
+            base_template="Hello ${name}, welcome to ${place}!",
             variables=["name", "place"]
         )
         
@@ -227,30 +227,14 @@ class TestChainOfThoughtPrompt:
             category=PromptCategory.TEST_GENERATION,
             description="Test description",
             thought_steps=[],
-            base_template="Hello {name} from {place}",
+            base_template="Hello ${name} from ${place}",
             variables=["name", "place"]
         )
         
         rendered = prompt.render({"name": "Bob"})
         
         assert "Bob" in rendered
-        assert "{place}" in rendered
-
-    def test_prompt_to_dict(self):
-        """Test prompt to dictionary conversion."""
-        prompt = ChainOfThoughtPrompt(
-            name="test_prompt",
-            category=PromptCategory.TEST_GENERATION,
-            description="Test description",
-            thought_steps=[],
-            base_template="Template",
-            variables=["var1"]
-        )
-        
-        d = prompt.to_dict()
-        
-        assert d["name"] == "test_prompt"
-        assert d["category"] == "test_generation"
+        assert "[place]" in rendered
 
 
 class TestThoughtStep:

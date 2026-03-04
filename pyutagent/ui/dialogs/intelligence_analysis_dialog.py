@@ -17,8 +17,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor, QTextCursor
 
-from ..core.semantic_analyzer import SemanticAnalyzer, TestScenario, BoundaryCondition
-from ..core.root_cause_analyzer import RootCauseAnalyzer, RootCauseAnalysis
+from ...core.semantic_analyzer import SemanticAnalyzer, TestScenario, BoundaryCondition
+from ...core.root_cause_analyzer import RootCauseAnalyzer, RootCauseAnalysis
 
 logger = logging.getLogger(__name__)
 

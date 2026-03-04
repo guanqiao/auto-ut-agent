@@ -5,9 +5,9 @@ from typing import Dict, Callable, Optional, List
 from dataclasses import dataclass, field
 from enum import Enum
 
-from PyQt6.QtWidgets import QMainWindow, QWidget, QShortcut, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView
+from PyQt6.QtWidgets import QMainWindow, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView
 from PyQt6.QtCore import Qt, QKeyCombination
-from PyQt6.QtGui import QKeySequence, QAction
+from PyQt6.QtGui import QKeySequence, QAction, QShortcut
 
 logger = logging.getLogger(__name__)
 

@@ -29,11 +29,13 @@ class TestEnhancedFeedbackLoop:
 
     def test_init_custom_db(self):
         """Test initialization with custom database."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "test_feedback.db")
+        db_path = tempfile.mktemp(suffix=".db")
+        try:
             feedback = EnhancedFeedbackLoop(db_path=db_path)
-            
             assert feedback.db_path == db_path
+        finally:
+            if os.path.exists(db_path):
+                os.remove(db_path)
 
     def test_record_feedback(self):
         """Test recording feedback event."""
@@ -242,7 +244,8 @@ class TestFeedbackEvent:
             event_id="event-123",
             feedback_type=FeedbackType.TEST_PASS,
             context={"test": "test1"},
-            outcome="success"
+            outcome="success",
+            details={}
         )
         
         assert event.event_id == "event-123"
@@ -300,7 +303,7 @@ class TestLearningInsight:
         d = insight.to_dict()
         
         assert d["insight_id"] == "insight-123"
-        assert d["category"] == "successful_pattern"
+        assert d["category"] == LearningCategory.SUCCESSFUL_PATTERN.value
 
 
 class TestAdaptiveAdjustment:
@@ -351,8 +354,8 @@ class TestFeedbackLoopIntegration:
 
     def test_full_feedback_cycle(self):
         """Test full feedback cycle."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "test_cycle.db")
+        db_path = tempfile.mktemp(suffix=".db")
+        try:
             feedback = EnhancedFeedbackLoop(db_path=db_path)
             
             feedback.record_compilation_result(False, [{"type": "SyntaxError"}], {})
@@ -363,6 +366,9 @@ class TestFeedbackLoopIntegration:
             stats = feedback.get_learning_stats()
             
             assert stats["total_events"] >= 4
+        finally:
+            if os.path.exists(db_path):
+                os.remove(db_path)
 
     def test_learning_from_failures(self):
         """Test learning from failures."""
