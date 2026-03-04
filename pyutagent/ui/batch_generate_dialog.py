@@ -42,7 +42,9 @@ class BatchGenerateWorker(QThread):
         max_iterations: int = 2,
         continue_on_error: bool = True,
         defer_compilation: bool = False,
-        compile_only_at_end: bool = False
+        compile_only_at_end: bool = False,
+        incremental_mode: bool = False,
+        skip_test_analysis: bool = False
     ):
         super().__init__()
         self.llm_client = llm_client
@@ -55,6 +57,8 @@ class BatchGenerateWorker(QThread):
         self.continue_on_error = continue_on_error
         self.defer_compilation = defer_compilation
         self.compile_only_at_end = compile_only_at_end
+        self.incremental_mode = incremental_mode
+        self.skip_test_analysis = skip_test_analysis
         self._stop_requested = False
         self._log_emitter: Optional[LogEmitter] = None
     
@@ -74,7 +78,9 @@ class BatchGenerateWorker(QThread):
                 coverage_target=self.coverage_target,
                 max_iterations=self.max_iterations,
                 defer_compilation=self.defer_compilation,
-                compile_only_at_end=self.compile_only_at_end
+                compile_only_at_end=self.compile_only_at_end,
+                incremental_mode=self.incremental_mode,
+                skip_test_analysis=self.skip_test_analysis
             )
             
             def progress_callback(batch_progress):
@@ -202,6 +208,18 @@ class BatchGenerateDialog(QDialog):
         self.continue_check.setChecked(True)
         self.continue_check.setToolTip("Continue generating tests for other files if one fails")
         right_col.addWidget(self.continue_check)
+        
+        self.incremental_check = QCheckBox("Incremental Mode")
+        self.incremental_check.setChecked(False)
+        self.incremental_check.setToolTip("Preserve existing passing tests when regenerating")
+        self.incremental_check.stateChanged.connect(self.on_incremental_changed)
+        right_col.addWidget(self.incremental_check)
+        
+        self.skip_analysis_check = QCheckBox("Skip Test Analysis")
+        self.skip_analysis_check.setChecked(False)
+        self.skip_analysis_check.setToolTip("Skip running existing tests, just analyze file content")
+        self.skip_analysis_check.setEnabled(False)
+        right_col.addWidget(self.skip_analysis_check)
         
         # Compilation strategy group
         compile_strategy_group = QGroupBox("Compilation Strategy")
@@ -386,12 +404,10 @@ class BatchGenerateDialog(QDialog):
     
     def on_compilation_strategy_changed(self, strategy: str):
         """Handle compilation strategy change."""
-        # Update radio button states
         self.standard_radio.setChecked(strategy == "standard")
         self.defer_radio.setChecked(strategy == "defer")
         self.fast_radio.setChecked(strategy == "fast")
         
-        # Update description
         if strategy == "standard":
             self.strategy_desc_label.setText(
                 "Standard: Verify each file immediately (recommended for quality)"
@@ -404,6 +420,16 @@ class BatchGenerateDialog(QDialog):
             self.strategy_desc_label.setText(
                 "Fast: Generate all without checks → Compile once (fastest, manual fix may be needed)"
             )
+    
+    def on_incremental_changed(self, state):
+        """Handle incremental mode checkbox change."""
+        enabled = state == Qt.CheckState.Checked.value
+        self.skip_analysis_check.setEnabled(enabled)
+        if enabled:
+            self.log("Incremental mode enabled: Existing passing tests will be preserved")
+        else:
+            self.skip_analysis_check.setChecked(False)
+            self.log("Incremental mode disabled: All tests will be regenerated")
     
     def update_file_count(self):
         """Update the file count label."""
@@ -489,7 +515,9 @@ class BatchGenerateDialog(QDialog):
             max_iterations=settings.coverage.max_iterations,
             continue_on_error=self.continue_check.isChecked(),
             defer_compilation=defer_compilation,
-            compile_only_at_end=compile_only_at_end
+            compile_only_at_end=compile_only_at_end,
+            incremental_mode=self.incremental_check.isChecked(),
+            skip_test_analysis=self.skip_analysis_check.isChecked()
         )
         
         self.worker.progress_updated.connect(self.on_progress_updated)

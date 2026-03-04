@@ -1,5 +1,6 @@
 """Generate command for CLI."""
 
+import asyncio
 from pathlib import Path
 
 import click
@@ -16,18 +17,21 @@ console = Console()
 @click.option('--coverage-target', type=int, default=80, help='Target coverage percentage')
 @click.option('--max-iterations', type=int, default=10, help='Maximum iterations')
 @click.option('--watch', is_flag=True, help='Watch progress in real-time')
+@click.option('-i', '--incremental', is_flag=True, help='Enable incremental mode (preserve existing passing tests)')
+@click.option('--skip-analysis', is_flag=True, help='Skip running existing tests, just analyze file content')
 def generate_command(
     file_path: str,
     llm: str,
     output_dir: str,
     coverage_target: int,
     max_iterations: int,
-    watch: bool
+    watch: bool,
+    incremental: bool,
+    skip_analysis: bool
 ):
     """Generate unit tests for a Java file."""
     file_path = Path(file_path)
 
-    # Validate file extension
     if file_path.suffix != '.java':
         console.print(f"[red]Error: {file_path} is not a Java file[/red]")
         raise click.Abort()
@@ -36,19 +40,20 @@ def generate_command(
     console.print(f"  LLM: {llm}")
     console.print(f"  Coverage target: {coverage_target}%")
     console.print(f"  Max iterations: {max_iterations}")
+    if incremental:
+        console.print(f"  [green]Incremental mode: ENABLED[/green] (will preserve existing passing tests)")
     console.print()
 
     try:
-        # Import here to avoid slow startup
-        from pyutagent.agent.test_generator import TestGeneratorAgent
+        from pyutagent.agent.react_agent import ReActAgent
+        from pyutagent.memory.working_memory import WorkingMemory
         from pyutagent.config import load_llm_config
-
-        # Load LLM configuration
+        from pyutagent.llm.client import LLMClient
+        
         config_collection = load_llm_config()
         if llm == 'default':
             llm_config = config_collection.get_default_config()
         else:
-            # Find config by name or ID
             llm_config = None
             for config in config_collection.configs:
                 if config.name == llm or config.id.startswith(llm):
@@ -59,11 +64,27 @@ def generate_command(
             console.print(f"[red]Error: LLM configuration '{llm}' not found[/red]")
             raise click.Abort()
 
-        # Create agent and generate tests
-        agent = TestGeneratorAgent(llm_config=llm_config)
+        llm_client = LLMClient.from_config(llm_config)
+        
+        working_memory = WorkingMemory(
+            target_coverage=coverage_target / 100.0,
+            max_iterations=max_iterations,
+            current_file=str(file_path)
+        )
+        
+        project_path = file_path.parent
+        while project_path.parent and not (project_path / 'pom.xml').exists():
+            project_path = project_path.parent
+        
+        agent = ReActAgent(
+            llm_client=llm_client,
+            working_memory=working_memory,
+            project_path=str(project_path),
+            incremental_mode=incremental,
+            skip_test_analysis=skip_analysis,
+        )
 
         if watch:
-            # Show progress with rich
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -71,30 +92,22 @@ def generate_command(
             ) as progress:
                 task = progress.add_task("Generating tests...", total=None)
 
-                result = agent.generate_tests(
-                    target_file=str(file_path),
-                    output_dir=output_dir,
-                    coverage_target=coverage_target,
-                    max_iterations=max_iterations
-                )
+                result = asyncio.run(agent.generate_tests(str(file_path)))
         else:
-            result = agent.generate_tests(
-                target_file=str(file_path),
-                output_dir=output_dir,
-                coverage_target=coverage_target,
-                max_iterations=max_iterations
-            )
+            result = asyncio.run(agent.generate_tests(str(file_path)))
 
-        if result.get('success'):
+        if result.success:
             console.print(f"[green]✓ Tests generated successfully![/green]")
-            if result.get('test_file'):
-                console.print(f"  Test file: {result['test_file']}")
-            if result.get('coverage'):
-                console.print(f"  Coverage: {result['coverage']:.1f}%")
+            if result.test_file:
+                console.print(f"  Test file: {result.test_file}")
+            if result.coverage:
+                console.print(f"  Coverage: {result.coverage:.1f}%")
+            if incremental and hasattr(result, 'preserved_count'):
+                console.print(f"  Preserved tests: {result.preserved_count}")
         else:
             console.print(f"[red]✗ Test generation failed[/red]")
-            if result.get('error'):
-                console.print(f"  Error: {result['error']}")
+            if result.message:
+                console.print(f"  Error: {result.message}")
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")

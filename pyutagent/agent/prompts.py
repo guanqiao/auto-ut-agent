@@ -338,6 +338,128 @@ Instructions:
 
 Output the new test methods:"""
 
+    def build_incremental_preserve_prompt(
+        self,
+        class_info: Dict[str, Any],
+        source_code: str,
+        preserved_tests: List[str],
+        preserved_test_code: str,
+        tests_to_fix: List[Any],
+        uncovered_info: Dict[str, Any],
+        current_coverage: float,
+        target_coverage: float
+    ) -> str:
+        """Build prompt for incremental test generation with test preservation.
+        
+        This prompt is used when:
+        - Existing tests exist and some are passing
+        - We want to preserve passing tests
+        - We may need to fix failing tests
+        - We need to generate additional tests for coverage
+        
+        Args:
+            class_info: Target class information
+            source_code: Target class source code
+            preserved_tests: List of test names to preserve
+            preserved_test_code: Code of tests to preserve
+            tests_to_fix: List of failing tests with error info
+            uncovered_info: Information about uncovered code
+            current_coverage: Current coverage percentage
+            target_coverage: Target coverage percentage
+            
+        Returns:
+            Prompt string
+        """
+        class_name = class_info.get("name", "Unknown")
+        
+        preserved_list = "\n".join([f"- {t}" for t in preserved_tests])
+        
+        tests_to_fix_section = ""
+        if tests_to_fix:
+            fix_items = []
+            for test in tests_to_fix:
+                test_name = test.method_name if hasattr(test, 'method_name') else str(test)
+                error_msg = test.error_message if hasattr(test, 'error_message') else "Unknown error"
+                fix_items.append(f"### {test_name}\nError: {error_msg}")
+            tests_to_fix_section = f"""
+## Tests to Fix (REGENERATE THESE)
+The following tests are FAILING and need to be fixed:
+{chr(10).join(fix_items)}
+"""
+        
+        uncovered_section = ""
+        if uncovered_info:
+            uncovered_lines = uncovered_info.get("lines", [])
+            uncovered_methods = uncovered_info.get("methods", [])
+            
+            lines_str = ", ".join(map(str, uncovered_lines[:20]))
+            if len(uncovered_lines) > 20:
+                lines_str += f" and {len(uncovered_lines) - 20} more"
+            
+            methods_str = "\n".join([f"- {m}" for m in uncovered_methods[:10]])
+            
+            if uncovered_lines or uncovered_methods:
+                uncovered_section = f"""
+## Uncovered Code (GENERATE NEW TESTS FOR THESE)
+Current coverage: {current_coverage:.1%} (Target: {target_coverage:.1%})
+
+Uncovered Lines: {lines_str}
+
+Uncovered Methods:
+{methods_str}
+"""
+        
+        return f"""{self.system_prompt}
+
+Generate INCREMENTAL unit tests for the following Java class.
+
+## Context
+- Target class: {class_name}
+- Current coverage: {current_coverage:.1%}
+- Target coverage: {target_coverage:.1%}
+
+## Target Class Source Code
+```java
+{source_code}
+```
+
+## Passing Tests (PRESERVE THESE - DO NOT MODIFY)
+The following tests are PASSING and must be preserved exactly as they are:
+{preserved_list}
+
+## Preserved Test Code (for reference)
+```java
+{preserved_test_code}
+```
+{tests_to_fix_section}{uncovered_section}
+## Instructions
+
+You are generating tests in INCREMENTAL MODE. This means:
+
+1. **PRESERVE** all passing tests exactly as they are
+2. **FIX** any failing tests by correcting the test logic
+3. **ADD** new tests for uncovered code to reach target coverage
+4. **OUTPUT** the COMPLETE test class with all tests combined
+
+## Output Requirements
+
+1. Output the COMPLETE Java test class code
+2. Include all preserved tests (unchanged)
+3. Include fixed versions of failing tests
+4. Include new tests for uncovered code
+5. Ensure all imports are correct
+6. Follow JUnit 5 best practices
+7. Use @DisplayName for each test method
+
+## Important Notes
+
+- Do NOT modify the preserved passing tests
+- Do NOT skip any existing test methods
+- Ensure the output is a complete, compilable test class
+- The test class name should be {class_name}Test
+
+Output the complete test class:"""
+
     def build_error_analysis_prompt(
         self,
         error_category: str,

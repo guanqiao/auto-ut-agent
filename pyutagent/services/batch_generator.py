@@ -22,6 +22,9 @@ class BatchConfig:
         max_iterations: Maximum iterations per file
         defer_compilation: Whether to defer compilation until all files are generated
         compile_only_at_end: If True, skip compilation/verification during generation
+        incremental_mode: Enable incremental test generation (preserve existing passing tests)
+        preserve_passing_tests: Whether to preserve passing tests in incremental mode
+        skip_test_analysis: Skip running existing tests, just analyze file content
     """
     parallel_workers: int = 1
     timeout_per_file: int = 300
@@ -30,6 +33,9 @@ class BatchConfig:
     max_iterations: int = 10
     defer_compilation: bool = False
     compile_only_at_end: bool = False
+    incremental_mode: bool = False
+    preserve_passing_tests: bool = True
+    skip_test_analysis: bool = False
 
 
 @dataclass
@@ -156,7 +162,8 @@ class BatchGenerator:
             f"[BatchGenerator] Initialized - Project: {project_path}, "
             f"ParallelWorkers: {self.config.parallel_workers}, "
             f"Timeout: {self.config.timeout_per_file}s, "
-            f"DeferCompilation: {self.config.defer_compilation}"
+            f"DeferCompilation: {self.config.defer_compilation}, "
+            f"IncrementalMode: {self.config.incremental_mode}"
         )
         
         # Initialize build tool manager for compilation
@@ -337,15 +344,20 @@ class BatchGenerator:
                 llm_client=self.llm_client,
                 working_memory=working_memory,
                 project_path=self.project_path,
-                progress_callback=lambda p: self._on_agent_progress(file_name, p)
+                progress_callback=lambda p: self._on_agent_progress(file_name, p),
+                incremental_mode=self.config.incremental_mode,
+                preserve_passing_tests=self.config.preserve_passing_tests,
+                skip_test_analysis=self.config.skip_test_analysis,
             )
             
-            self._update_progress(file_name, "Generating tests...")
+            if self.config.incremental_mode:
+                self._update_progress(file_name, "Incremental mode: analyzing existing tests...")
+                logger.info(f"[BatchGenerator] Incremental mode enabled for {file_name}")
+            else:
+                self._update_progress(file_name, "Generating tests...")
             
-            # In defer_compilation mode, we only generate code without verification
             if self.config.defer_compilation:
                 logger.info(f"[BatchGenerator] Defer compilation mode - generating code only for {file_name}")
-                # Set a flag in working memory to skip compilation/verification
                 working_memory.skip_verification = True
             
             try:

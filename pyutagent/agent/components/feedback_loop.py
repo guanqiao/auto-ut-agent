@@ -16,7 +16,7 @@ class FeedbackLoopExecutor:
     
     The feedback loop follows this pattern:
     1. Parse target Java file (with retry)
-    2. Generate initial tests (with retry)
+    2. Generate initial tests (with retry) OR incremental tests (if enabled)
     3. Compile tests -> if fails, AI analyzes & fixes -> retry
     4. Run tests -> if fails, AI analyzes & fixes -> retry
     5. Check coverage -> if < target, generate additional tests -> back to 3
@@ -40,6 +40,8 @@ class FeedbackLoopExecutor:
             target_coverage=agent_core.target_coverage
         )
         
+        self._incremental_context = None
+        
         logger.debug("[FeedbackLoopExecutor] Initialized")
     
     async def run_feedback_loop(self, target_file: str) -> AgentResult:
@@ -54,6 +56,9 @@ class FeedbackLoopExecutor:
         logger.info(f"[FeedbackLoopExecutor] 🎯 Starting test generation for: {Path(target_file).name}")
         logger.info(f"[FeedbackLoopExecutor] 📊 Configuration - MaxIterations: {self.agent_core.max_iterations}, TargetCoverage: {self.agent_core.target_coverage:.1%}")
         
+        if hasattr(self.agent_core, 'incremental_mode') and self.agent_core.incremental_mode:
+            logger.info("[FeedbackLoopExecutor] 🔄 Incremental mode enabled")
+        
         await self._check_pause()
         if self.agent_core._terminated:
             return self.agent_core._create_terminated_result("before starting")
@@ -62,13 +67,71 @@ class FeedbackLoopExecutor:
         if not parse_result.success:
             return parse_result
         
-        generate_result = await self._phase_generate_initial_tests()
+        use_incremental = await self._check_incremental_mode(target_file)
+        
+        if use_incremental:
+            generate_result = await self._phase_generate_incremental_tests()
+        else:
+            generate_result = await self._phase_generate_initial_tests()
+        
         if not generate_result.success:
             return generate_result
         
         self._save_initial_checkpoint(target_file)
         
         return await self._phase_feedback_loop()
+    
+    async def _check_incremental_mode(self, target_file: str) -> bool:
+        """Check if incremental mode should be used.
+        
+        Args:
+            target_file: Path to target Java file
+            
+        Returns:
+            True if incremental mode should be used
+        """
+        if not hasattr(self.agent_core, 'incremental_mode') or not self.agent_core.incremental_mode:
+            return False
+        
+        if not hasattr(self.agent_core, 'incremental_manager') or not self.agent_core.incremental_manager:
+            logger.warning("[FeedbackLoopExecutor] Incremental mode enabled but no manager available")
+            return False
+        
+        logger.info("[FeedbackLoopExecutor] 🔍 Checking for existing tests...")
+        
+        existing_test_file = self.agent_core.incremental_manager.detect_existing_test(
+            target_file,
+            self.agent_core.target_class_info
+        )
+        
+        if not existing_test_file:
+            logger.info("[FeedbackLoopExecutor] No existing test file found, using normal generation")
+            return False
+        
+        skip_analysis = getattr(self.agent_core, 'skip_test_analysis', False)
+        
+        analysis = await self.agent_core.incremental_manager.analyze_existing_tests(
+            existing_test_file,
+            run_tests=not skip_analysis
+        )
+        
+        if not self.agent_core.incremental_manager.should_use_incremental_mode(analysis):
+            logger.info("[FeedbackLoopExecutor] Incremental mode not recommended, using normal generation")
+            return False
+        
+        self._incremental_context = self.agent_core.incremental_manager.build_incremental_context(
+            analysis=analysis,
+            class_info=self.agent_core.target_class_info,
+            source_code=self.agent_core.target_class_info.get("source", ""),
+            target_coverage=self.agent_core.target_coverage
+        )
+        
+        logger.info(
+            f"[FeedbackLoopExecutor] ✅ Using incremental mode - "
+            f"Preserving {len(self._incremental_context.preserved_test_names)} tests"
+        )
+        
+        return True
     
     async def _phase_parse_target(self, target_file: str) -> AgentResult:
         """Phase 1: Parse target Java file.
@@ -132,6 +195,45 @@ class FeedbackLoopExecutor:
         
         self.agent_core.current_test_file = generate_result.data.get("test_file")
         logger.info(f"[FeedbackLoopExecutor] ✅ Initial test generation complete - TestFile: {self.agent_core.current_test_file}")
+        
+        return AgentResult(success=True, state=AgentState.GENERATING)
+    
+    async def _phase_generate_incremental_tests(self) -> AgentResult:
+        """Phase 2 (Incremental): Generate tests in incremental mode.
+        
+        Returns:
+            AgentResult with generation results
+        """
+        if not self._incremental_context:
+            logger.warning("[FeedbackLoopExecutor] No incremental context, falling back to normal generation")
+            return await self._phase_generate_initial_tests()
+        
+        class_name = self._incremental_context.class_info.get('name', 'unknown')
+        preserved_count = len(self._incremental_context.preserved_test_names)
+        
+        self.agent_core._update_state(
+            AgentState.GENERATING, 
+            f"🔄 Step 2/6: Incremental mode - preserving {preserved_count} tests for {class_name}..."
+        )
+        logger.info(f"[FeedbackLoopExecutor] 🔄 Step 2: Incremental test generation")
+        logger.info(f"[FeedbackLoopExecutor] Preserving {preserved_count} passing tests, "
+                   f"fixing {len(self._incremental_context.tests_to_fix)} failing tests")
+        
+        generate_result = await self.step_executor.execute_with_recovery(
+            self.step_executor.generate_incremental_tests,
+            self._incremental_context,
+            step_name="generating incremental tests"
+        )
+        
+        if not generate_result.success or self.agent_core._stop_requested:
+            logger.error(f"[FeedbackLoopExecutor] Failed to generate incremental tests - {generate_result.message}")
+            logger.info("[FeedbackLoopExecutor] Falling back to normal generation...")
+            return await self._phase_generate_initial_tests()
+        
+        self.agent_core.current_test_file = generate_result.data.get("test_file")
+        preserved = generate_result.data.get("preserved_count", 0)
+        logger.info(f"[FeedbackLoopExecutor] ✅ Incremental test generation complete - "
+                   f"TestFile: {self.agent_core.current_test_file}, Preserved: {preserved} tests")
         
         return AgentResult(success=True, state=AgentState.GENERATING)
     

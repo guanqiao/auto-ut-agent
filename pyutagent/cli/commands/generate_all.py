@@ -26,6 +26,8 @@ console = Console()
 @click.option('--stop-on-error', is_flag=True, help='Stop on first error')
 @click.option('--defer-compilation', is_flag=True, default=False, help='Defer compilation until all files are generated')
 @click.option('--compile-only-at-end', is_flag=True, default=False, help='Only compile once after all files are generated (implies --defer-compilation)')
+@click.option('-i', '--incremental', is_flag=True, default=False, help='Enable incremental mode (preserve existing passing tests)')
+@click.option('--skip-analysis', is_flag=True, default=False, help='Skip running existing tests, just analyze file content')
 def generate_all_command(
     project_path: str,
     llm: str,
@@ -37,7 +39,9 @@ def generate_all_command(
     continue_on_error: bool,
     stop_on_error: bool,
     defer_compilation: bool,
-    compile_only_at_end: bool
+    compile_only_at_end: bool,
+    incremental: bool,
+    skip_analysis: bool
 ):
     """Generate unit tests for all Java files in a Maven project.
     
@@ -85,7 +89,8 @@ def generate_all_command(
         f"Timeout per file: {timeout}s\n"
         f"Continue on error: {continue_on_error}\n"
         f"Defer compilation: {defer_compilation}" + 
-        (f"\n[green]✓ Two-phase mode enabled (generate all → compile all)[/green]" if defer_compilation else ""),
+        (f"\n[green]✓ Two-phase mode enabled (generate all → compile all)[/green]" if defer_compilation else "") +
+        (f"\n[green]✓ Incremental mode: ENABLED[/green] (preserve existing passing tests)" if incremental else ""),
         title="Configuration"
     ))
     
@@ -117,7 +122,9 @@ def generate_all_command(
             coverage_target=coverage_target,
             max_iterations=max_iterations,
             defer_compilation=defer_compilation,
-            compile_only_at_end=compile_only_at_end
+            compile_only_at_end=compile_only_at_end,
+            incremental_mode=incremental,
+            skip_test_analysis=skip_analysis,
         )
         
         file_paths = [str(f.relative_to(project_path)) for f in java_files]

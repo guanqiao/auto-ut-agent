@@ -58,6 +58,7 @@ class ReActAgent(BaseAgent):
     - Context window management for large files
     - Pre-compilation code quality evaluation
     - Partial success handling for incremental repair
+    - Incremental mode for preserving existing passing tests
     """
     
     def __init__(
@@ -68,7 +69,10 @@ class ReActAgent(BaseAgent):
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         container: Optional[Container] = None,
         model_name: Optional[str] = None,
-        ab_test_id: Optional[str] = None
+        ab_test_id: Optional[str] = None,
+        incremental_mode: bool = False,
+        preserve_passing_tests: bool = True,
+        skip_test_analysis: bool = False
     ):
         """Initialize ReAct agent.
         
@@ -80,14 +84,20 @@ class ReActAgent(BaseAgent):
             container: Optional dependency injection container
             model_name: LLM model name for prompt optimization
             ab_test_id: Optional A/B test ID for prompt variant testing
+            incremental_mode: Enable incremental test generation mode
+            preserve_passing_tests: Whether to preserve passing tests in incremental mode
+            skip_test_analysis: Skip running existing tests, just analyze file content
         """
         super().__init__(llm_client, working_memory, project_path, progress_callback)
         
         self._container = container or get_container()
         self.model_name = model_name or "gpt-4"
         self.ab_test_id = ab_test_id
+        self.incremental_mode = incremental_mode
+        self.preserve_passing_tests = preserve_passing_tests
+        self.skip_test_analysis = skip_test_analysis
         
-        logger.info(f"[ReActAgent] Initializing agent - Project: {project_path}, Model: {self.model_name}")
+        logger.info(f"[ReActAgent] Initializing agent - Project: {project_path}, Model: {self.model_name}, IncrementalMode: {incremental_mode}")
         
         self._init_components()
         
@@ -122,6 +132,21 @@ class ReActAgent(BaseAgent):
         self._recovery_manager = AgentRecoveryManager(components, self._core)
         self._helpers = AgentHelpers(self._core, components)
         self._extensions = AgentExtensions(self._core, components)
+        
+        if self.incremental_mode:
+            from pyutagent.agent.incremental_manager import create_incremental_manager
+            self.incremental_manager = create_incremental_manager(
+                project_path=str(self.project_path),
+                incremental_mode=True,
+                maven_runner=components.get("maven_runner"),
+                coverage_analyzer=components.get("coverage_analyzer"),
+                preserve_passing_tests=self.preserve_passing_tests,
+                skip_analysis=self.skip_test_analysis,
+            )
+            self._core.incremental_manager = self.incremental_manager
+            self._core.incremental_mode = True
+            self._core.skip_test_analysis = self.skip_test_analysis
+            logger.info("[ReActAgent] Incremental manager initialized")
         
         settings = get_settings()
         self.max_compilation_attempts = settings.coverage.max_compilation_attempts
