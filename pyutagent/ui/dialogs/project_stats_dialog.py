@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
-from ..core.config import get_settings
+from ...core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
