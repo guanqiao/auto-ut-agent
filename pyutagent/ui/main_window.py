@@ -21,10 +21,15 @@ from .dialogs.maven_config_dialog import MavenConfigDialog
 from .dialogs.jdk_config_dialog import JDKConfigDialog
 from .dialogs.project_stats_dialog import ProjectStatsDialog
 from .dialogs.config_overview_dialog import ConfigOverviewDialog
+from .dialogs.test_history_dialog import TestHistoryDialog
+from .dialogs.setup_wizard import run_setup_wizard
 from .batch_generate_dialog import BatchGenerateDialog
+from .dialogs.intelligence_analysis_dialog import IntelligenceAnalysisDialog
 from .log_handler import LogEmitter
 from .styles import get_style_manager
 from .components import get_notification_manager
+from .shortcuts_manager import setup_main_window_shortcuts, ShortcutsDialog
+from .command_palette import show_command_palette
 from ..core.config import (
     LLMConfig,
     LLMConfigCollection,
@@ -41,6 +46,7 @@ from ..core.config import (
 from ..llm.client import LLMClient
 from ..agent.react_agent import ReActAgent, AgentState
 from ..memory.working_memory import WorkingMemory
+from ..core.test_history import add_generation_record, TestGenerationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -592,6 +598,7 @@ class MainWindow(QMainWindow):
         self.setup_status_bar()
         self.apply_styles()
         self.setup_llm_client()
+        self.setup_shortcuts()
         
         # Initialize button states
         self.chat_widget.set_running_state(False, is_paused=False)
@@ -653,6 +660,10 @@ class MainWindow(QMainWindow):
         show_config_action = QAction("&Show Current Configuration", self)
         show_config_action.triggered.connect(self.on_show_config)
         settings_menu.addAction(show_config_action)
+        
+        wizard_action = QAction("&Setup Wizard...", self)
+        wizard_action.triggered.connect(self.on_setup_wizard)
+        settings_menu.addAction(wizard_action)
 
         settings_menu.addSeparator()
 
@@ -685,6 +696,20 @@ class MainWindow(QMainWindow):
         stats_action = QAction("Project &Statistics", self)
         stats_action.triggered.connect(self.on_project_stats)
         tools_menu.addAction(stats_action)
+        
+        history_action = QAction("Test &History", self)
+        history_action.setShortcut("Ctrl+H")
+        history_action.triggered.connect(self.on_test_history)
+        tools_menu.addAction(history_action)
+        
+        tools_menu.addSeparator()
+        
+        # 智能分析功能
+        intelligence_action = QAction("🧠 &Intelligence Analysis...", self)
+        intelligence_action.setShortcut("Ctrl+I")
+        intelligence_action.setToolTip("Show code semantic analysis and error root cause analysis")
+        intelligence_action.triggered.connect(self.on_intelligence_analysis)
+        tools_menu.addAction(intelligence_action)
 
         tools_menu.addSeparator()
 
@@ -698,7 +723,21 @@ class MainWindow(QMainWindow):
         generate_all_action.triggered.connect(self.on_generate_all_tests)
         tools_menu.addAction(generate_all_action)
 
+        tools_menu.addSeparator()
+        
+        command_palette_action = QAction("&Command Palette", self)
+        command_palette_action.setShortcut("Ctrl+Shift+P")
+        command_palette_action.triggered.connect(self.on_command_palette)
+        tools_menu.addAction(command_palette_action)
+
         help_menu = menubar.addMenu("&Help")
+        
+        shortcuts_action = QAction("&Keyboard Shortcuts", self)
+        shortcuts_action.setShortcut("Ctrl+/")
+        shortcuts_action.triggered.connect(self.on_shortcuts)
+        help_menu.addAction(shortcuts_action)
+        
+        help_menu.addSeparator()
 
         about_action = QAction("&About", self)
         about_action.triggered.connect(self.on_about)
@@ -839,6 +878,14 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"LLM client initialization failed: {e}")
             self._notification_manager.show_error(f"Failed to initialize LLM client: {e}")
 
+    def setup_shortcuts(self):
+        """Setup keyboard shortcuts."""
+        try:
+            setup_main_window_shortcuts(self)
+            logger.info("Keyboard shortcuts setup complete")
+        except Exception as e:
+            logger.error(f"Failed to setup shortcuts: {e}")
+
     def on_show_config(self):
         """Handle show configuration action."""
         try:
@@ -847,6 +894,19 @@ class MainWindow(QMainWindow):
             logger.info("Configuration overview shown")
         except Exception as e:
             logger.exception("Failed to show configuration")
+
+    def on_setup_wizard(self):
+        """Handle setup wizard action."""
+        try:
+            if run_setup_wizard(self):
+                # Reload configurations after wizard completes
+                self.config_collection = load_llm_config()
+                self.setup_llm_client()
+                self._notification_manager.show_success("Configuration updated successfully")
+                logger.info("Setup wizard completed, configuration reloaded")
+        except Exception as e:
+            logger.exception("Failed to run setup wizard")
+            self._notification_manager.show_error(f"Setup wizard failed: {e}")
 
     def on_open_project(self):
         """Handle open project action."""
@@ -1145,6 +1205,66 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.exception("Failed to show project statistics")
 
+    def on_test_history(self):
+        """Handle test history action."""
+        try:
+            dialog = TestHistoryDialog(self.current_project, self)
+            dialog.regenerate_requested.connect(self._on_history_regenerate)
+            dialog.exec()
+            logger.info("Test history dialog shown")
+        except Exception as e:
+            logger.exception("Failed to show test history")
+    
+    def on_intelligence_analysis(self):
+        """Handle intelligence analysis action."""
+        try:
+            # 获取选中的文件
+            selected_file = self.project_tree.get_selected_file()
+            
+            if not selected_file:
+                QMessageBox.information(
+                    self,
+                    "Information",
+                    "Please select a Java file from the left panel first"
+                )
+                return
+            
+            # 创建并显示智能分析对话框
+            dialog = IntelligenceAnalysisDialog(self)
+            
+            # 解析 Java 文件
+            from ..tools.java_parser import JavaParser
+            parser = JavaParser()
+            java_class = parser.parse_file(selected_file)
+            
+            # 执行分析
+            dialog.analyze_code(selected_file, java_class)
+            
+            # 显示对话框
+            dialog.exec()
+            
+            logger.info(f"Intelligence analysis completed for: {selected_file}")
+            
+        except Exception as e:
+            logger.exception("Failed to perform intelligence analysis")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to perform intelligence analysis:\n{str(e)}"
+            )
+
+    def _on_history_regenerate(self, source_file: str):
+        """Handle regenerate request from history."""
+        try:
+            if Path(source_file).exists():
+                self.start_generation(source_file)
+            else:
+                self._notification_manager.show_warning(
+                    f"Source file not found: {source_file}"
+                )
+        except Exception as e:
+            logger.exception("Failed to regenerate from history")
+
     def on_generate_tests(self):
         """Handle generate tests action."""
         try:
@@ -1274,6 +1394,14 @@ class MainWindow(QMainWindow):
             settings = get_settings()
             file_name = Path(target_file).name
             
+            # Store generation info for history tracking
+            from datetime import datetime
+            self._current_generation = {
+                'source_file': target_file,
+                'start_time': datetime.now(),
+                'model_used': self.llm_client.model if self.llm_client else 'unknown'
+            }
+            
             # 添加初始日志信息
             self.progress_widget.add_log(f"🚀 Starting test generation for {file_name}", "INFO")
             self.progress_widget.add_log(f"📊 Target coverage: {settings.coverage.target_coverage:.1%}", "INFO")
@@ -1374,6 +1502,12 @@ class MainWindow(QMainWindow):
             # Reset button states
             self.chat_widget.set_running_state(False, is_paused=False)
 
+            # Calculate duration
+            duration_seconds = 0
+            if hasattr(self, '_current_generation'):
+                from datetime import datetime
+                duration_seconds = (datetime.now() - self._current_generation['start_time']).total_seconds()
+
             if success:
                 self.progress_widget.add_log(f"🎉 Test generation completed successfully!", "INFO")
                 self.progress_widget.add_log(f"📁 Test file: {test_file}", "INFO")
@@ -1388,10 +1522,36 @@ class MainWindow(QMainWindow):
                 )
                 self.progress_widget.update_progress(100, "✅ Completed")
                 logger.info(f"Test generation completed successfully: {test_file}, coverage: {coverage:.1%}")
+                
+                # Add to history
+                if hasattr(self, '_current_generation'):
+                    add_generation_record(
+                        project_path=self.current_project,
+                        source_file=self._current_generation['source_file'],
+                        test_file=test_file,
+                        status=TestGenerationStatus.SUCCESS.value,
+                        coverage=coverage,
+                        target_coverage=get_settings().coverage.target_coverage,
+                        iterations=iterations,
+                        duration_seconds=duration_seconds,
+                        model_used=self._current_generation.get('model_used', 'unknown')
+                    )
             else:
                 self.progress_widget.add_log(f"❌ Generation failed: {message}", "ERROR")
                 self.chat_widget.add_agent_message(f"❌ Generation failed: {message}")
                 logger.warning(f"Test generation failed: {message}")
+                
+                # Add to history
+                if hasattr(self, '_current_generation'):
+                    add_generation_record(
+                        project_path=self.current_project,
+                        source_file=self._current_generation['source_file'],
+                        status=TestGenerationStatus.FAILED.value,
+                        error_message=message,
+                        iterations=iterations,
+                        duration_seconds=duration_seconds,
+                        model_used=self._current_generation.get('model_used', 'unknown')
+                    )
 
             self.status_bar.showMessage("Ready")
         except Exception as e:
@@ -1438,6 +1598,23 @@ class MainWindow(QMainWindow):
             logger.info(f"User message sent: {message}")
         except Exception as e:
             logger.exception("Failed to handle user message")
+
+    def on_shortcuts(self):
+        """Show keyboard shortcuts dialog."""
+        try:
+            dialog = ShortcutsDialog(self)
+            dialog.exec()
+            logger.info("Keyboard shortcuts dialog shown")
+        except Exception as e:
+            logger.exception("Failed to show shortcuts dialog")
+
+    def on_command_palette(self):
+        """Show command palette."""
+        try:
+            show_command_palette(self)
+            logger.info("Command palette shown")
+        except Exception as e:
+            logger.exception("Failed to show command palette")
 
     def on_about(self):
         """Show about dialog."""
