@@ -112,7 +112,7 @@ class ConfigOverviewDialog(QDialog):
     def load_config(self):
         """Load and display configuration."""
         try:
-            from ..core.config import (
+            from ...core.config import (
                 load_llm_config,
                 load_aider_config,
                 get_settings,
@@ -133,7 +133,7 @@ class ConfigOverviewDialog(QDialog):
     def _load_llm_config(self):
         """Load LLM configuration."""
         try:
-            from ..core.config import load_llm_config
+            from ...core.config import load_llm_config
 
             collection = load_llm_config()
 
@@ -167,7 +167,7 @@ class ConfigOverviewDialog(QDialog):
     def _load_maven_config(self):
         """Load Maven configuration."""
         try:
-            from ..core.config import get_settings
+            from ...core.config import get_settings
 
             settings = get_settings()
 
@@ -188,7 +188,7 @@ class ConfigOverviewDialog(QDialog):
     def _load_jdk_config(self):
         """Load JDK configuration."""
         try:
-            from ..core.config import get_settings
+            from ...core.config import get_settings
 
             settings = get_settings()
 
@@ -209,7 +209,7 @@ class ConfigOverviewDialog(QDialog):
     def _load_coverage_config(self):
         """Load Coverage configuration."""
         try:
-            from ..core.config import get_settings
+            from ...core.config import get_settings
 
             settings = get_settings()
 
@@ -231,7 +231,7 @@ class ConfigOverviewDialog(QDialog):
     def _load_aider_config(self):
         """Load Aider configuration."""
         try:
-            from ..core.config import load_aider_config
+            from ...core.config import load_aider_config
 
             config = load_aider_config()
 
