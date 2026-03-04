@@ -50,7 +50,9 @@ class AgentCore:
         self._pause_event = asyncio.Event()
         self._pause_event.set()
         
-        # Delegate these properties to working_memory
+        self.model_name = llm_client.model if llm_client else "unknown"
+        self.ab_test_id: Optional[str] = None
+        
         self.max_iterations = working_memory.max_iterations
         self.target_coverage = working_memory.target_coverage
         
