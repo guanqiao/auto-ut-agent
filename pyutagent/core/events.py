@@ -44,6 +44,15 @@ class EventType(Enum):
     RECOVERY_ACTION = auto()
     LOG = auto()
     CUSTOM = auto()
+    
+    # P4 Intelligent Enhancement Events
+    TEST_GENERATED = auto()
+    STRATEGY_SELECTED = auto()
+    QUALITY_CRITIQUE = auto()
+    BOUNDARY_ANALYZED = auto()
+    FEEDBACK_RECORDED = auto()
+    PATTERN_MATCHED = auto()
+    KNOWLEDGE_UPDATED = auto()
 
 
 @dataclass
@@ -308,6 +317,107 @@ class EventEmitter:
             data={
                 "line_coverage": line_coverage,
                 "branch_coverage": branch_coverage,
+            },
+            source=source,
+        )
+        self.emit(event)
+    
+    def emit_test_generated(
+        self,
+        test_code: str,
+        strategy: str,
+        quality_score: float,
+        source: str = ""
+    ) -> None:
+        """Emit a test generated event (P4).
+        
+        Args:
+            test_code: Generated test code
+            strategy: Strategy used for generation
+            quality_score: Quality score from self-reflection
+            source: Source component
+        """
+        event = AgentEvent(
+            type=EventType.TEST_GENERATED,
+            data={
+                "test_code_length": len(test_code),
+                "strategy": strategy,
+                "quality_score": quality_score,
+            },
+            source=source,
+        )
+        self.emit(event)
+    
+    def emit_strategy_selected(
+        self,
+        strategy: str,
+        confidence: float,
+        reasoning: str,
+        source: str = ""
+    ) -> None:
+        """Emit a strategy selected event (P4).
+        
+        Args:
+            strategy: Selected strategy
+            confidence: Confidence score
+            reasoning: Reasoning for selection
+            source: Source component
+        """
+        event = AgentEvent(
+            type=EventType.STRATEGY_SELECTED,
+            data={
+                "strategy": strategy,
+                "confidence": confidence,
+                "reasoning": reasoning,
+            },
+            source=source,
+        )
+        self.emit(event)
+    
+    def emit_quality_critique(
+        self,
+        overall_score: float,
+        issues_count: int,
+        should_regenerate: bool,
+        source: str = ""
+    ) -> None:
+        """Emit a quality critique event (P4).
+        
+        Args:
+            overall_score: Overall quality score
+            issues_count: Number of identified issues
+            should_regenerate: Whether regeneration is recommended
+            source: Source component
+        """
+        event = AgentEvent(
+            type=EventType.QUALITY_CRITIQUE,
+            data={
+                "overall_score": overall_score,
+                "issues_count": issues_count,
+                "should_regenerate": should_regenerate,
+            },
+            source=source,
+        )
+        self.emit(event)
+    
+    def emit_feedback_recorded(
+        self,
+        feedback_type: str,
+        outcome: str,
+        source: str = ""
+    ) -> None:
+        """Emit a feedback recorded event (P4).
+        
+        Args:
+            feedback_type: Type of feedback
+            outcome: Outcome description
+            source: Source component
+        """
+        event = AgentEvent(
+            type=EventType.FEEDBACK_RECORDED,
+            data={
+                "feedback_type": feedback_type,
+                "outcome": outcome,
             },
             source=source,
         )
