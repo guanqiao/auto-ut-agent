@@ -292,8 +292,32 @@ class RetryManager:
         return base
 
     def should_retry_exception(self, exception: Exception) -> bool:
+        """Check if an exception should be retried.
+
+        Uses RetryConfig.classify_exception for intelligent error classification
+        if available, otherwise falls back to basic type checking.
+
+        Args:
+            exception: The exception to check
+
+        Returns:
+            True if the exception should be retried
+        """
+        # First check ignore list
         if isinstance(exception, self.config.exceptions_to_ignore):
             return False
+
+        # Try to use RetryConfig's intelligent classification
+        try:
+            from .retry_config import RetryConfig
+            retry_config = RetryConfig()
+            should_retry, delay, reason = retry_config.classify_exception(exception)
+            if not should_retry:
+                logger.info(f"[RetryManager] Not retrying: {reason}")
+            return should_retry
+        except Exception:
+            # Fall back to basic type checking
+            pass
 
         if isinstance(exception, self.config.exceptions_to_retry):
             return True
