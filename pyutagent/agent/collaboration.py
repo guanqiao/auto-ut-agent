@@ -1,561 +1,545 @@
-"""User Collaboration - Flexible human-agent interaction modes.
+"""Collaboration Patterns for Specialized SubAgents.
 
-This module provides multiple collaboration modes:
-- Full Autonomous: Agent works independently
-- Suggest and Confirm: Agent suggests, user confirms
-- Step by Step: User approves each step
-- Manual Review: User reviews all changes
+This module provides advanced collaboration patterns:
+- Delegation: Simple task delegation
+- Negotiation: Agent negotiation for task assignment
+- Bidding: Competitive bidding for tasks
+- Consensus: Multi-agent consensus building
+
+This is part of Phase 3 Week 19-20: Specialized SubAgent Enhancement.
 """
 
 import asyncio
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pyutagent.agent.capability_registry import (
+        CapabilityRegistry,
+        CapabilityProvider,
+        CapabilityType,
+    )
 
 logger = logging.getLogger(__name__)
 
 
-class CollaborationMode(Enum):
-    """Collaboration mode between user and agent."""
-    FULL_AUTONOMOUS = auto()           # Agent works independently
-    SUGGEST_AND_CONFIRM = auto()       # Agent suggests, user confirms
-    STEP_BY_STEP = auto()              # User approves each step
-    MANUAL_REVIEW = auto()             # User reviews all changes
-
-
-class UserResponse(Enum):
-    """User response to agent action."""
-    APPROVE = auto()                   # Approve and continue
-    REJECT = auto()                    # Reject and stop
-    MODIFY = auto()                    # Modify and continue
-    SKIP = auto()                      # Skip this action
-    ASK_QUESTION = auto()              # Ask for clarification
+class CollaborationPattern(Enum):
+    """Types of collaboration patterns."""
+    DELEGATION = "delegation"
+    NEGOTIATION = "negotiation"
+    BIDDING = "bidding"
+    CONSENSUS = "consensus"
+    ROUND_ROBIN = "round_robin"
+    BROADCAST = "broadcast"
 
 
 @dataclass
-class ProposedAction:
-    """An action proposed by the agent."""
-    action_id: str
+class Task:
+    """A task to be assigned to agents."""
+    task_id: str
+    task_type: str
     description: str
-    action_type: str
-    details: Dict[str, Any]
-    impact: str  # Description of impact
-    can_undo: bool = True
-    alternatives: List[Dict[str, Any]] = field(default_factory=list)
+    priority: int = 5
+    deadline: Optional[datetime] = None
+    required_capabilities: List[str] = field(default_factory=list)
+    constraints: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=datetime.now)
 
 
 @dataclass
-class ActionResult:
-    """Result of an action execution."""
-    action_id: str
+class Bid:
+    """A bid from an agent for a task."""
+    agent_id: str
+    task_id: str
+    score: float
+    estimated_time: float
+    confidence: float
+    proposed_approach: str = ""
+    constraints: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class NegotiationProposal:
+    """A proposal during negotiation."""
+    agent_id: str
+    task_id: str
+    capability_match: float
+    availability: float
+    historical_success: float
+    proposed_terms: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ConsensusVote:
+    """A vote in consensus building."""
+    agent_id: str
+    proposal_id: str
+    vote: bool
+    confidence: float
+    reason: str = ""
+
+
+@dataclass
+class CollaborationResult:
+    """Result of a collaboration process."""
     success: bool
-    message: str
-    output: Any = None
-    requires_review: bool = False
-    changes_made: List[str] = field(default_factory=list)
+    selected_agent: Optional[str] = None
+    task: Optional[Task] = None
+    pattern_used: CollaborationPattern = CollaborationPattern.DELEGATION
+    participants: List[str] = field(default_factory=list)
+    bids: List[Bid] = field(default_factory=list)
+    proposals: List[NegotiationProposal] = field(default_factory=list)
+    votes: List[ConsensusVote] = field(default_factory=list)
+    duration_ms: int = 0
+    error: Optional[str] = None
 
 
-@dataclass
-class UserDecision:
-    """User's decision on a proposed action."""
-    response: UserResponse
-    feedback: Optional[str] = None
-    modifications: Optional[Dict[str, Any]] = None
-    timestamp: datetime = field(default_factory=datetime.now)
-
-
-@dataclass
-class ContentPreview:
-    """Preview of content for user review."""
-    title: str
-    content_type: str  # code, diff, text, etc.
-    original_content: Optional[str]
-    proposed_content: str
-    highlights: List[Dict[str, Any]] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-
-
-class UserInteractionHandler:
-    """Handler for user interactions in different collaboration modes.
-
-    Features:
-    - Multiple collaboration modes
-    - Action proposal and confirmation
-    - Content preview and review
-    - Question asking
-    - Decision tracking
-    """
-
-    def __init__(
+class CollaborationStrategy(ABC):
+    """Abstract base class for collaboration strategies."""
+    
+    @abstractmethod
+    async def assign(
         self,
-        mode: CollaborationMode = CollaborationMode.SUGGEST_AND_CONFIRM,
-        auto_approve_threshold: float = 0.9,
-        callback: Optional[Callable] = None
-    ):
-        """Initialize user interaction handler.
-
+        task: Task,
+        candidates: List[str],
+        registry: "CapabilityRegistry",
+    ) -> CollaborationResult:
+        """Assign a task using this strategy.
+        
         Args:
-            mode: Collaboration mode
-            auto_approve_threshold: Confidence threshold for auto-approval
-            callback: Callback function for user interactions
-        """
-        self.mode = mode
-        self.auto_approve_threshold = auto_approve_threshold
-        self.callback = callback
-        self._decision_history: List[Dict[str, Any]] = []
-
-        logger.info(f"[UserInteractionHandler] Initialized with mode: {mode.name}")
-
-    async def propose_action(
-        self,
-        action: ProposedAction,
-        confidence: float = 0.5
-    ) -> UserDecision:
-        """Propose an action to the user.
-
-        Args:
-            action: Action to propose
-            confidence: Agent's confidence in the action
-
+            task: Task to assign
+            candidates: List of candidate agent IDs
+            registry: Capability registry
+            
         Returns:
-            User's decision
+            CollaborationResult with assignment details
         """
-        # In full autonomous mode, auto-approve if confidence is high
-        if self.mode == CollaborationMode.FULL_AUTONOMOUS:
-            if confidence >= self.auto_approve_threshold:
-                logger.info(f"[UserInteractionHandler] Auto-approved action: {action.action_id}")
-                return UserDecision(response=UserResponse.APPROVE)
+        pass
 
-        # In suggest and confirm mode, ask for confirmation
-        if self.mode == CollaborationMode.SUGGEST_AND_CONFIRM:
-            return await self._ask_for_confirmation(action, confidence)
 
-        # In step by step mode, always ask
-        if self.mode == CollaborationMode.STEP_BY_STEP:
-            return await self._ask_for_confirmation(action, confidence, detailed=True)
-
-        # In manual review mode, queue for review
-        if self.mode == CollaborationMode.MANUAL_REVIEW:
-            return UserDecision(
-                response=UserResponse.APPROVE,
-                feedback="Queued for manual review"
+class DelegationStrategy(CollaborationStrategy):
+    """Simple delegation strategy.
+    
+    Selects the best available agent based on capability scores.
+    """
+    
+    async def assign(
+        self,
+        task: Task,
+        candidates: List[str],
+        registry: "CapabilityRegistry",
+    ) -> CollaborationResult:
+        """Delegate to best available agent."""
+        from pyutagent.agent.capability_registry import CapabilityType
+        
+        start_time = datetime.now()
+        
+        try:
+            cap_type = CapabilityType(task.task_type)
+        except ValueError:
+            cap_type = None
+        
+        if cap_type is None:
+            return CollaborationResult(
+                success=False,
+                task=task,
+                pattern_used=CollaborationPattern.DELEGATION,
+                error=f"Unknown task type: {task.task_type}",
             )
-
-        # Default: ask for confirmation
-        return await self._ask_for_confirmation(action, confidence)
-
-    async def _ask_for_confirmation(
-        self,
-        action: ProposedAction,
-        confidence: float,
-        detailed: bool = False
-    ) -> UserDecision:
-        """Ask user for confirmation.
-
-        Args:
-            action: Action to confirm
-            confidence: Confidence level
-            detailed: Whether to show detailed info
-
-        Returns:
-            User decision
-        """
-        # Build confirmation message
-        message = self._build_confirmation_message(action, confidence, detailed)
-
-        # If callback is provided, use it
-        if self.callback:
-            try:
-                response = await self.callback("confirm_action", {
-                    "action": action,
-                    "message": message,
-                    "confidence": confidence
-                })
-                return self._parse_user_response(response)
-            except Exception as e:
-                logger.error(f"[UserInteractionHandler] Callback failed: {e}")
-
-        # Default: auto-approve (for testing/non-interactive mode)
-        logger.info(f"[UserInteractionHandler] No callback, auto-approving: {action.action_id}")
-        return UserDecision(response=UserResponse.APPROVE)
-
-    def _build_confirmation_message(
-        self,
-        action: ProposedAction,
-        confidence: float,
-        detailed: bool
-    ) -> str:
-        """Build confirmation message.
-
-        Args:
-            action: Action to confirm
-            confidence: Confidence level
-            detailed: Whether to include details
-
-        Returns:
-            Confirmation message
-        """
-        lines = [
-            f"Proposed Action: {action.description}",
-            f"Type: {action.action_type}",
-            f"Confidence: {confidence:.0%}",
-            f"Impact: {action.impact}",
-        ]
-
-        if detailed:
-            lines.append(f"Details: {action.details}")
-            if action.alternatives:
-                lines.append(f"Alternatives: {len(action.alternatives)} available")
-
-        lines.append("Approve? (yes/no/modify/skip)")
-
-        return "\n".join(lines)
-
-    def _parse_user_response(self, response: Any) -> UserDecision:
-        """Parse user response.
-
-        Args:
-            response: Raw user response
-
-        Returns:
-            Parsed decision
-        """
-        if isinstance(response, UserDecision):
-            return response
-
-        if isinstance(response, str):
-            response_lower = response.lower().strip()
-
-            if response_lower in ("yes", "y", "approve", "ok"):
-                return UserDecision(response=UserResponse.APPROVE)
-            elif response_lower in ("no", "n", "reject", "cancel"):
-                return UserDecision(response=UserResponse.REJECT)
-            elif response_lower in ("modify", "m", "change"):
-                return UserDecision(response=UserResponse.MODIFY)
-            elif response_lower in ("skip", "s", "next"):
-                return UserDecision(response=UserResponse.SKIP)
-            elif "?" in response_lower:
-                return UserDecision(
-                    response=UserResponse.ASK_QUESTION,
-                    feedback=response
-                )
-
-        # Default to approve
-        return UserDecision(response=UserResponse.APPROVE)
-
-    async def show_preview(
-        self,
-        preview: ContentPreview,
-        wait_for_feedback: bool = True
-    ) -> Optional[UserDecision]:
-        """Show content preview to user.
-
-        Args:
-            preview: Content preview
-            wait_for_feedback: Whether to wait for user feedback
-
-        Returns:
-            User decision if waiting for feedback
-        """
-        # Build preview message
-        message = self._build_preview_message(preview)
-
-        # If callback is provided, use it
-        if self.callback:
-            try:
-                await self.callback("show_preview", {
-                    "preview": preview,
-                    "message": message
-                })
-            except Exception as e:
-                logger.error(f"[UserInteractionHandler] Preview callback failed: {e}")
-
-        if wait_for_feedback and self.mode != CollaborationMode.FULL_AUTONOMOUS:
-            # Ask for approval
-            if self.callback:
-                response = await self.callback("ask_approval", {
-                    "message": "Approve these changes?"
-                })
-                return self._parse_user_response(response)
-
-        return None
-
-    def _build_preview_message(self, preview: ContentPreview) -> str:
-        """Build preview message.
-
-        Args:
-            preview: Content preview
-
-        Returns:
-            Preview message
-        """
-        lines = [
-            f"Preview: {preview.title}",
-            f"Type: {preview.content_type}",
-        ]
-
-        if preview.warnings:
-            lines.append("Warnings:")
-            for warning in preview.warnings:
-                lines.append(f"  - {warning}")
-
-        if preview.highlights:
-            lines.append("Highlights:")
-            for highlight in preview.highlights:
-                lines.append(f"  - {highlight}")
-
-        lines.append("\nProposed Content:")
-        lines.append(preview.proposed_content[:500])  # Truncate for display
-
-        if len(preview.proposed_content) > 500:
-            lines.append("... (truncated)")
-
-        return "\n".join(lines)
-
-    async def ask_question(
-        self,
-        question: str,
-        options: Optional[List[str]] = None,
-        allow_free_text: bool = True
-    ) -> str:
-        """Ask user a question.
-
-        Args:
-            question: Question to ask
-            options: Optional predefined options
-            allow_free_text: Whether to allow free text response
-
-        Returns:
-            User's answer
-        """
-        # Build question message
-        message = question
-        if options:
-            message += "\nOptions:\n"
-            for i, option in enumerate(options, 1):
-                message += f"  {i}. {option}\n"
-
-        if allow_free_text:
-            message += "\n(Or type your own answer)"
-
-        # If callback is provided, use it
-        if self.callback:
-            try:
-                response = await self.callback("ask_question", {
-                    "question": question,
-                    "options": options,
-                    "message": message
-                })
-                return str(response)
-            except Exception as e:
-                logger.error(f"[UserInteractionHandler] Question callback failed: {e}")
-
-        # Default: return first option or empty string
-        return options[0] if options else ""
-
-    async def report_progress(
-        self,
-        message: str,
-        progress: Optional[float] = None
-    ):
-        """Report progress to user.
-
-        Args:
-            message: Progress message
-            progress: Optional progress percentage (0-1)
-        """
-        if self.callback:
-            try:
-                await self.callback("report_progress", {
-                    "message": message,
-                    "progress": progress
-                })
-            except Exception as e:
-                logger.error(f"[UserInteractionHandler] Progress callback failed: {e}")
-
-        logger.info(f"[UserInteractionHandler] Progress: {message}")
-
-    async def report_completion(
-        self,
-        task: str,
-        results: Dict[str, Any],
-        success: bool = True
-    ):
-        """Report task completion to user.
-
-        Args:
-            task: Task description
-            results: Task results
-            success: Whether task succeeded
-        """
-        status = "completed successfully" if success else "failed"
-        message = f"Task {status}: {task}"
-
-        if self.callback:
-            try:
-                await self.callback("report_completion", {
-                    "task": task,
-                    "results": results,
-                    "success": success,
-                    "message": message
-                })
-            except Exception as e:
-                logger.error(f"[UserInteractionHandler] Completion callback failed: {e}")
-
-        logger.info(f"[UserInteractionHandler] {message}")
-
-    def record_decision(
-        self,
-        action_id: str,
-        decision: UserDecision,
-        action_result: Optional[ActionResult] = None
-    ):
-        """Record a decision for learning.
-
-        Args:
-            action_id: Action ID
-            decision: User decision
-            action_result: Optional action result
-        """
-        self._decision_history.append({
-            "action_id": action_id,
-            "decision": decision.response.name,
-            "feedback": decision.feedback,
-            "timestamp": decision.timestamp.isoformat(),
-            "result": action_result.message if action_result else None
-        })
-
-    def get_decision_history(
-        self,
-        action_type: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """Get decision history.
-
-        Args:
-            action_type: Optional filter by action type
-
-        Returns:
-            List of decisions
-        """
-        if action_type:
-            return [d for d in self._decision_history if d.get("action_type") == action_type]
-        return self._decision_history.copy()
-
-    def set_mode(self, mode: CollaborationMode):
-        """Change collaboration mode.
-
-        Args:
-            mode: New collaboration mode
-        """
-        self.mode = mode
-        logger.info(f"[UserInteractionHandler] Mode changed to: {mode.name}")
+        
+        provider = registry.find_best_provider(
+            cap_type,
+            exclude_agents=set(candidates) if not candidates else set(),
+        )
+        
+        if provider is None:
+            return CollaborationResult(
+                success=False,
+                task=task,
+                pattern_used=CollaborationPattern.DELEGATION,
+                error="No available provider found",
+            )
+        
+        duration = (datetime.now() - start_time).total_seconds() * 1000
+        
+        return CollaborationResult(
+            success=True,
+            selected_agent=provider.agent_id,
+            task=task,
+            pattern_used=CollaborationPattern.DELEGATION,
+            participants=[provider.agent_id],
+            duration_ms=int(duration),
+        )
 
 
-class CollaborationManager:
-    """Manager for collaboration sessions.
-
-    Manages the interaction flow between agent and user.
+class BiddingStrategy(CollaborationStrategy):
+    """Competitive bidding strategy.
+    
+    Agents bid for tasks and the best bid wins.
     """
-
+    
     def __init__(
         self,
-        default_mode: CollaborationMode = CollaborationMode.SUGGEST_AND_CONFIRM
+        bid_timeout_ms: int = 5000,
+        min_bids: int = 1,
     ):
-        """Initialize collaboration manager.
-
-        Args:
-            default_mode: Default collaboration mode
-        """
-        self.default_mode = default_mode
-        self._handlers: Dict[str, UserInteractionHandler] = {}
-        self._session_history: List[Dict[str, Any]] = []
-
-    def create_session(
+        self.bid_timeout_ms = bid_timeout_ms
+        self.min_bids = min_bids
+        self._bid_handlers: Dict[str, Callable] = {}
+    
+    def register_bid_handler(
         self,
-        session_id: str,
-        mode: Optional[CollaborationMode] = None,
-        callback: Optional[Callable] = None
-    ) -> UserInteractionHandler:
-        """Create a new collaboration session.
-
-        Args:
-            session_id: Session identifier
-            mode: Collaboration mode
-            callback: Interaction callback
-
-        Returns:
-            User interaction handler
-        """
-        handler = UserInteractionHandler(
-            mode=mode or self.default_mode,
-            callback=callback
+        agent_id: str,
+        handler: Callable[[Task], Bid],
+    ) -> None:
+        """Register a bid handler for an agent."""
+        self._bid_handlers[agent_id] = handler
+    
+    async def assign(
+        self,
+        task: Task,
+        candidates: List[str],
+        registry: "CapabilityRegistry",
+    ) -> CollaborationResult:
+        """Collect bids and select winner."""
+        start_time = datetime.now()
+        bids: List[Bid] = []
+        
+        async def collect_bid(agent_id: str) -> Optional[Bid]:
+            handler = self._bid_handlers.get(agent_id)
+            if handler is None:
+                return self._create_default_bid(agent_id, task, registry)
+            
+            try:
+                if asyncio.iscoroutinefunction(handler):
+                    return await handler(task)
+                return handler(task)
+            except Exception as e:
+                logger.warning(f"Bid handler error for {agent_id}: {e}")
+                return None
+        
+        timeout = self.bid_timeout_ms / 1000
+        try:
+            bid_tasks = [collect_bid(aid) for aid in candidates]
+            results = await asyncio.wait_for(
+                asyncio.gather(*bid_tasks, return_exceptions=True),
+                timeout=timeout,
+            )
+            
+            for result in results:
+                if isinstance(result, Bid):
+                    bids.append(result)
+        except asyncio.TimeoutError:
+            logger.warning(f"Bidding timed out for task {task.task_id}")
+        
+        if len(bids) < self.min_bids:
+            return CollaborationResult(
+                success=False,
+                task=task,
+                pattern_used=CollaborationPattern.BIDDING,
+                bids=bids,
+                error=f"Insufficient bids: {len(bids)} < {self.min_bids}",
+            )
+        
+        winner = max(bids, key=lambda b: self._score_bid(b))
+        
+        duration = (datetime.now() - start_time).total_seconds() * 1000
+        
+        return CollaborationResult(
+            success=True,
+            selected_agent=winner.agent_id,
+            task=task,
+            pattern_used=CollaborationPattern.BIDDING,
+            participants=[b.agent_id for b in bids],
+            bids=bids,
+            duration_ms=int(duration),
         )
-        self._handlers[session_id] = handler
-
-        logger.info(f"[CollaborationManager] Created session: {session_id}")
-        return handler
-
-    def get_session(self, session_id: str) -> Optional[UserInteractionHandler]:
-        """Get an existing session.
-
-        Args:
-            session_id: Session identifier
-
-        Returns:
-            User interaction handler or None
-        """
-        return self._handlers.get(session_id)
-
-    def end_session(self, session_id: str):
-        """End a collaboration session.
-
-        Args:
-            session_id: Session identifier
-        """
-        if session_id in self._handlers:
-            handler = self._handlers[session_id]
-            self._session_history.append({
-                "session_id": session_id,
-                "decisions": handler.get_decision_history(),
-                "ended_at": datetime.now().isoformat()
-            })
-            del self._handlers[session_id]
-            logger.info(f"[CollaborationManager] Ended session: {session_id}")
-
-    def get_session_history(self) -> List[Dict[str, Any]]:
-        """Get all session history.
-
-        Returns:
-            List of session records
-        """
-        return self._session_history.copy()
+    
+    def _create_default_bid(
+        self,
+        agent_id: str,
+        task: Task,
+        registry: "CapabilityRegistry",
+    ) -> Optional[Bid]:
+        """Create a default bid based on registry data."""
+        from pyutagent.agent.capability_registry import CapabilityType
+        
+        try:
+            cap_type = CapabilityType(task.task_type)
+        except ValueError:
+            return None
+        
+        providers = registry.find_all_providers(cap_type)
+        provider = next((p for p in providers if p.agent_id == agent_id), None)
+        
+        if provider is None:
+            return None
+        
+        return Bid(
+            agent_id=agent_id,
+            task_id=task.task_id,
+            score=provider.effective_score,
+            estimated_time=10.0,
+            confidence=provider.capability.score.success_rate,
+        )
+    
+    def _score_bid(self, bid: Bid) -> float:
+        """Score a bid for comparison."""
+        return (
+            bid.score * 0.4 +
+            bid.confidence * 0.3 +
+            (1.0 / max(bid.estimated_time, 0.1)) * 0.3
+        )
 
 
-def create_collaboration_handler(
-    mode: str = "suggest_and_confirm",
-    callback: Optional[Callable] = None
-) -> UserInteractionHandler:
-    """Create a collaboration handler.
-
-    Args:
-        mode: Collaboration mode name
-        callback: Interaction callback
-
-    Returns:
-        User interaction handler
+class NegotiationStrategy(CollaborationStrategy):
+    """Negotiation-based task assignment.
+    
+    Agents negotiate for tasks based on capabilities and availability.
     """
-    mode_map = {
-        "full_autonomous": CollaborationMode.FULL_AUTONOMOUS,
-        "suggest_and_confirm": CollaborationMode.SUGGEST_AND_CONFIRM,
-        "step_by_step": CollaborationMode.STEP_BY_STEP,
-        "manual_review": CollaborationMode.MANUAL_REVIEW
-    }
+    
+    def __init__(
+        self,
+        max_rounds: int = 3,
+        negotiation_timeout_ms: int = 10000,
+    ):
+        self.max_rounds = max_rounds
+        self.negotiation_timeout_ms = negotiation_timeout_ms
+    
+    async def assign(
+        self,
+        task: Task,
+        candidates: List[str],
+        registry: "CapabilityRegistry",
+    ) -> CollaborationResult:
+        """Negotiate task assignment."""
+        from pyutagent.agent.capability_registry import CapabilityType
+        
+        start_time = datetime.now()
+        proposals: List[NegotiationProposal] = []
+        
+        try:
+            cap_type = CapabilityType(task.task_type)
+        except ValueError:
+            return CollaborationResult(
+                success=False,
+                task=task,
+                pattern_used=CollaborationPattern.NEGOTIATION,
+                error=f"Unknown task type: {task.task_type}",
+            )
+        
+        for agent_id in candidates:
+            caps = registry.get_agent_capabilities(agent_id)
+            matching_caps = [c for c in caps if c.capability_type == cap_type]
+            
+            if matching_caps:
+                best_cap = max(matching_caps, key=lambda c: c.score.total_score)
+                
+                providers = registry.find_all_providers(cap_type)
+                provider = next((p for p in providers if p.agent_id == agent_id), None)
+                
+                availability = 1.0 - (provider.load_factor if provider else 0.0)
+                
+                proposals.append(NegotiationProposal(
+                    agent_id=agent_id,
+                    task_id=task.task_id,
+                    capability_match=best_cap.score.total_score,
+                    availability=availability,
+                    historical_success=best_cap.score.success_rate,
+                ))
+        
+        if not proposals:
+            return CollaborationResult(
+                success=False,
+                task=task,
+                pattern_used=CollaborationPattern.NEGOTIATION,
+                error="No suitable agents found",
+            )
+        
+        winner = self._select_winner(proposals)
+        
+        duration = (datetime.now() - start_time).total_seconds() * 1000
+        
+        return CollaborationResult(
+            success=True,
+            selected_agent=winner.agent_id,
+            task=task,
+            pattern_used=CollaborationPattern.NEGOTIATION,
+            participants=[p.agent_id for p in proposals],
+            proposals=proposals,
+            duration_ms=int(duration),
+        )
+    
+    def _select_winner(self, proposals: List[NegotiationProposal]) -> NegotiationProposal:
+        """Select winner from proposals."""
+        def score_proposal(p: NegotiationProposal) -> float:
+            return (
+                p.capability_match * 0.4 +
+                p.availability * 0.3 +
+                p.historical_success * 0.3
+            )
+        
+        return max(proposals, key=score_proposal)
 
-    collaboration_mode = mode_map.get(mode.lower(), CollaborationMode.SUGGEST_AND_CONFIRM)
 
-    return UserInteractionHandler(
-        mode=collaboration_mode,
-        callback=callback
-    )
+class ConsensusStrategy(CollaborationStrategy):
+    """Consensus-based task assignment.
+    
+    Multiple agents vote on who should handle a task.
+    """
+    
+    def __init__(
+        self,
+        quorum: float = 0.5,
+        voting_timeout_ms: int = 5000,
+    ):
+        self.quorum = quorum
+        self.voting_timeout_ms = voting_timeout_ms
+    
+    async def assign(
+        self,
+        task: Task,
+        candidates: List[str],
+        registry: "CapabilityRegistry",
+    ) -> CollaborationResult:
+        """Build consensus on task assignment."""
+        from pyutagent.agent.capability_registry import CapabilityType
+        
+        start_time = datetime.now()
+        votes: List[ConsensusVote] = []
+        
+        try:
+            cap_type = CapabilityType(task.task_type)
+        except ValueError:
+            return CollaborationResult(
+                success=False,
+                task=task,
+                pattern_used=CollaborationPattern.CONSENSUS,
+                error=f"Unknown task type: {task.task_type}",
+            )
+        
+        providers = registry.find_all_providers(cap_type)
+        
+        if not providers:
+            return CollaborationResult(
+                success=False,
+                task=task,
+                pattern_used=CollaborationPattern.CONSENSUS,
+                error="No providers available",
+            )
+        
+        best_provider = max(
+            providers,
+            key=lambda p: p.effective_score,
+        )
+        
+        for agent_id in candidates:
+            vote = agent_id == best_provider.agent_id
+            confidence = 0.8 if vote else 0.2
+            
+            votes.append(ConsensusVote(
+                agent_id=agent_id,
+                proposal_id=best_provider.agent_id,
+                vote=vote,
+                confidence=confidence,
+            ))
+        
+        positive_votes = sum(1 for v in votes if v.vote)
+        quorum_reached = positive_votes >= len(candidates) * self.quorum
+        
+        duration = (datetime.now() - start_time).total_seconds() * 1000
+        
+        return CollaborationResult(
+            success=quorum_reached,
+            selected_agent=best_provider.agent_id if quorum_reached else None,
+            task=task,
+            pattern_used=CollaborationPattern.CONSENSUS,
+            participants=candidates,
+            votes=votes,
+            duration_ms=int(duration),
+            error="Quorum not reached" if not quorum_reached else None,
+        )
+
+
+class CollaborationOrchestrator:
+    """Orchestrator for agent collaboration.
+    
+    Manages different collaboration patterns and selects
+    the appropriate one for each task.
+    """
+    
+    def __init__(self, registry: "CapabilityRegistry"):
+        self._registry = registry
+        self._strategies: Dict[CollaborationPattern, CollaborationStrategy] = {
+            CollaborationPattern.DELEGATION: DelegationStrategy(),
+            CollaborationPattern.BIDDING: BiddingStrategy(),
+            CollaborationPattern.NEGOTIATION: NegotiationStrategy(),
+            CollaborationPattern.CONSENSUS: ConsensusStrategy(),
+        }
+        self._default_pattern = CollaborationPattern.DELEGATION
+    
+    def register_strategy(
+        self,
+        pattern: CollaborationPattern,
+        strategy: CollaborationStrategy,
+    ) -> None:
+        """Register a strategy for a pattern."""
+        self._strategies[pattern] = strategy
+    
+    def set_default_pattern(self, pattern: CollaborationPattern) -> None:
+        """Set the default collaboration pattern."""
+        self._default_pattern = pattern
+    
+    async def assign_task(
+        self,
+        task: Task,
+        candidates: Optional[List[str]] = None,
+        pattern: Optional[CollaborationPattern] = None,
+    ) -> CollaborationResult:
+        """Assign a task using collaboration.
+        
+        Args:
+            task: Task to assign
+            candidates: Optional list of candidate agents
+            pattern: Optional specific pattern to use
+            
+        Returns:
+            CollaborationResult
+        """
+        pattern = pattern or self._default_pattern
+        strategy = self._strategies.get(pattern)
+        
+        if strategy is None:
+            return CollaborationResult(
+                success=False,
+                task=task,
+                pattern_used=pattern,
+                error=f"No strategy for pattern: {pattern}",
+            )
+        
+        if candidates is None or len(candidates) == 0:
+            candidates = self._get_candidates(task)
+        
+        return await strategy.assign(task, candidates, self._registry)
+    
+    def _get_candidates(self, task: Task) -> List[str]:
+        """Get candidate agents for a task."""
+        from pyutagent.agent.capability_registry import CapabilityType
+        
+        try:
+            cap_type = CapabilityType(task.task_type)
+        except ValueError:
+            return []
+        
+        providers = self._registry.find_all_providers(cap_type)
+        return [p.agent_id for p in providers if p.is_available]
+    
+    def get_available_patterns(self) -> List[CollaborationPattern]:
+        """Get list of available patterns."""
+        return list(self._strategies.keys())

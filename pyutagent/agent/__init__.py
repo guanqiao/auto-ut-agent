@@ -350,15 +350,40 @@ from .delegation_mixin import (
 
 # Collaboration (P2 Gap Fill)
 from .collaboration import (
-    CollaborationMode,
+    CollaborationPattern,
+    Task,
+    Bid,
+    NegotiationProposal,
+    ConsensusVote,
+    CollaborationResult,
+    CollaborationStrategy,
+    DelegationStrategy,
+    BiddingStrategy,
+    NegotiationStrategy,
+    ConsensusStrategy,
+    CollaborationOrchestrator,
+)
+
+# Capability Registry (Phase 3 Week 19-20)
+from .capability_registry import (
+    CapabilityType,
+    CapabilityScore,
+    AgentCapability,
+    CapabilityProvider,
+    CapabilityRegistry,
+    get_capability_registry,
+)
+
+# Safety (for UserResponse, ProposedAction, etc.)
+from .safety import (
     UserResponse,
     ProposedAction,
-    ActionResult,
     UserDecision,
-    ContentPreview,
-    UserInteractionHandler,
-    CollaborationManager,
-    create_collaboration_handler,
+    ValidationResult,
+    ValidationContext,
+    ValidationResponse,
+    SafetyPolicy,
+    InterruptType,
 )
 
 __all__ = [
@@ -654,15 +679,35 @@ __all__ = [
     "create_delegation_mixin",
 
     # Collaboration
-    "CollaborationMode",
-    "CollaborationManager",
-    "UserInteractionHandler",
+    "CollaborationPattern",
+    "Task",
+    "Bid",
+    "NegotiationProposal",
+    "ConsensusVote",
+    "CollaborationResult",
+    "CollaborationStrategy",
+    "DelegationStrategy",
+    "BiddingStrategy",
+    "NegotiationStrategy",
+    "ConsensusStrategy",
+    "CollaborationOrchestrator",
+    
+    # Capability Registry
+    "CapabilityType",
+    "CapabilityScore",
+    "AgentCapability",
+    "CapabilityProvider",
+    "CapabilityRegistry",
+    "get_capability_registry",
+    
+    # Safety
     "UserResponse",
     "ProposedAction",
-    "ActionResult",
     "UserDecision",
-    "ContentPreview",
-    "create_collaboration_handler",
+    "ValidationContext",
+    "ValidationResponse",
+    "SafetyPolicy",
+    "InterruptType",
 ]
 
 
