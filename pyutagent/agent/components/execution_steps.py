@@ -1631,7 +1631,7 @@ class StepExecutor:
             
             logger.debug(f"[StepExecutor] Extracted additional test code - Length: {len(additional_tests)}")
             
-            self._append_tests_to_file(test_file_path, additional_tests)
+            await self._append_tests_to_file(test_file_path, additional_tests)
             
             # P4: Record coverage improvement attempt
             if hasattr(self.agent_core, 'feedback_loop') and self.agent_core.feedback_loop:
@@ -1739,7 +1739,7 @@ class StepExecutor:
         logger.debug(f"[StepExecutor] Uncovered info - Lines: {len(uncovered_info['lines'])}")
         return uncovered_info
     
-    def _append_tests_to_file(self, test_file_path: Path, additional_tests: str) -> bool:
+    async def _append_tests_to_file(self, test_file_path: Path, additional_tests: str) -> bool:
         """Append additional tests to existing test file using smart editor.
         
         Args:
@@ -1757,7 +1757,7 @@ class StepExecutor:
             if last_brace > 0:
                 search_pattern = content[last_brace-50:last_brace+1] if last_brace > 50 else content[:last_brace+1]
                 
-                edit_result = self.components["smart_editor"].apply_search_replace(
+                edit_result = await self.components["smart_editor"].apply_search_replace(
                     code=content,
                     search=search_pattern,
                     replace=search_pattern.rstrip('}') + "\n" + additional_tests + "\n}",
