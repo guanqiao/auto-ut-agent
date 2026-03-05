@@ -265,10 +265,10 @@ pytest --cov=pyutagent --cov-report=html
 
 ### 测试统计
 
-- **总测试数**: 290+
+- **总测试数**: 480+
 - **通过率**: 100%
-- **执行时间**: ~28 秒
-- **测试覆盖**: 核心模块、LLM 模块、Agent 模块全覆盖
+- **执行时间**: ~35 秒
+- **测试覆盖**: 核心模块、LLM 模块、Agent 模块、规划模块全覆盖
 
 ## 项目结构
 
@@ -418,6 +418,13 @@ pyutagent/
 - [x] **用户交互** - 交互式修复建议和确认
 - [x] **智能代码分析** - 语义分析、依赖图、影响分析
 
+### Phase 3 架构优化 (2026-03-05 完成) ✨
+
+- [x] **任务规划层** - TaskDecomposer 原子/顺序/组合策略，DependencyGraph 拓扑排序
+- [x] **专业化子Agent** - CapabilityRegistry 15种能力类型，CollaborationOrchestrator 4种协作模式
+- [x] **上下文压缩** - ContextCompressor 智能压缩，4种策略(优先级/语义/摘要/混合)
+- [x] **性能监控** - PerformanceDashboard 统一监控，MetricsStore/AlertManager/BaselineManager
+
 ### 竞争力功能 (已完成)
 
 - [x] **代码解释器** - 安全测试代码执行、运行时错误捕获
@@ -437,7 +444,7 @@ pyutagent/
 - [x] **智能聚类** - SmartClusterer 词向量语义 27 个测试
 - [x] **文档系统** - Sphinx 文档、使用示例、最佳实践
 
-**总计**: 290+ 测试，100% 通过率，~28 秒执行时间
+**总计**: 480+ 测试，100% 通过率，~35 秒执行时间
 
 ## 许可证
 
