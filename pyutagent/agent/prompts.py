@@ -754,6 +754,265 @@ Important:
 - Only output the JSON, no additional text"""
 
 
+    def build_thinking_prompt(
+        self,
+        situation: str,
+        context: Dict[str, Any],
+        thinking_type: str = "analytical",
+        analysis_result: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Build prompt for agent thinking process.
+        
+        Args:
+            situation: The situation to think about
+            context: Current context information
+            thinking_type: Type of thinking (analytical, critical, strategic, etc.)
+            analysis_result: Optional previous analysis result
+            
+        Returns:
+            Prompt string
+        """
+        context_str = "\n".join([
+            f"- {k}: {str(v)[:200]}"
+            for k, v in list(context.items())[:10]
+        ])
+        
+        analysis_section = ""
+        if analysis_result:
+            analysis_section = f"""
+## Previous Analysis
+{analysis_result.get('thought', 'No previous analysis')}
+
+Conclusions:
+{chr(10).join([f"- {c}" for c in analysis_result.get('conclusions', [])])}
+"""
+        
+        thinking_guides = {
+            "analytical": """
+Think systematically:
+1. What are the key components of this situation?
+2. What are the relationships between them?
+3. What patterns do you observe?
+4. What conclusions can you draw?""",
+            "critical": """
+Think critically:
+1. What assumptions are being made?
+2. What evidence supports or contradicts these assumptions?
+3. What are the potential flaws in the current approach?
+4. What alternative explanations exist?""",
+            "strategic": """
+Think strategically:
+1. What are the short-term and long-term implications?
+2. What resources are available?
+3. What are the risks and opportunities?
+4. What is the optimal path forward?""",
+            "predictive": """
+Think predictively:
+1. What trends or patterns do you observe?
+2. What is likely to happen next?
+3. What could go wrong?
+4. How can we prepare for different scenarios?""",
+        }
+        
+        guide = thinking_guides.get(thinking_type, thinking_guides["analytical"])
+        
+        return f"""You are an intelligent agent engaging in deep thinking about a problem.
+
+## Situation
+{situation}
+{analysis_section}
+## Context
+{context_str}
+
+## Thinking Task
+{guide}
+
+## Output Format
+Provide your thinking in this structured format:
+
+THOUGHT: [Your main thought in one sentence]
+EVIDENCE:
+- [Supporting evidence 1]
+- [Supporting evidence 2]
+CONCLUSIONS:
+- [Conclusion 1]
+- [Conclusion 2]
+CONFIDENCE: [0.0-1.0]
+
+Think deeply and provide your analysis:"""
+
+    def build_error_thinking_prompt(
+        self,
+        error: Exception,
+        error_message: str,
+        error_category: str,
+        context: Dict[str, Any],
+        similar_errors: Optional[List[Dict[str, Any]]] = None
+    ) -> str:
+        """Build prompt for thinking about an error.
+        
+        Args:
+            error: The exception that occurred
+            error_message: Error message
+            error_category: Category of the error
+            context: Current context
+            similar_errors: Similar past errors
+            
+        Returns:
+            Prompt string
+        """
+        error_type = type(error).__name__
+        
+        similar_section = ""
+        if similar_errors:
+            similar_section = f"""
+## Similar Past Errors
+{chr(10).join([
+    f"- {e.get('error_category', 'Unknown')}: Used {e.get('strategy_used', 'Unknown')} - {'Success' if e.get('success') else 'Failed'}"
+    for e in similar_errors[:5]
+])}
+"""
+        
+        return f"""You are an expert at diagnosing and recovering from errors in software systems.
+
+## Error Information
+**Type:** {error_type}
+**Category:** {error_category}
+**Message:** {error_message[:500]}
+
+## Context
+{chr(10).join([f"- {k}: {str(v)[:100]}" for k, v in list(context.items())[:5]])}
+{similar_section}
+## Thinking Task
+Think through this error systematically:
+
+1. **Perception**: What exactly happened?
+2. **Analysis**: Why did it happen? What is the root cause?
+3. **Reasoning**: What are the implications? What patterns do you see?
+4. **Decision**: What is the best recovery strategy?
+
+## Output Format
+Provide your thinking in this structured format:
+
+ROOT_CAUSE: [Root cause in one sentence]
+ANALYSIS: [Brief analysis of the error]
+RECOVERY_STRATEGY: [One of: RETRY, RETRY_WITH_BACKOFF, ANALYZE_AND_FIX, SKIP_AND_CONTINUE, RESET_AND_REGENERATE, INSTALL_DEPENDENCIES, ESCALATE_TO_USER]
+FIX_SUGGESTIONS:
+- [Suggestion 1]
+- [Suggestion 2]
+CONFIDENCE: [0.0-1.0]
+REASONING: [Why this strategy is recommended]
+
+Provide your analysis:"""
+
+    def build_prediction_prompt(
+        self,
+        current_state: Dict[str, Any],
+        context: Dict[str, Any],
+        history: Optional[List[Dict[str, Any]]] = None
+    ) -> str:
+        """Build prompt for predicting potential issues.
+        
+        Args:
+            current_state: Current state of the system
+            context: Current context
+            history: Historical data for pattern recognition
+            
+        Returns:
+            Prompt string
+        """
+        state_str = "\n".join([
+            f"- {k}: {str(v)[:100]}"
+            for k, v in current_state.items()
+        ])
+        
+        history_section = ""
+        if history:
+            history_section = f"""
+## Recent History
+{chr(10).join([
+    f"- {h.get('event', 'Unknown')}: {h.get('outcome', 'Unknown')}"
+    for h in history[-10:]
+])}
+"""
+        
+        return f"""You are an expert at predicting potential issues in software development.
+
+## Current State
+{state_str}
+
+## Context
+{chr(10).join([f"- {k}: {str(v)[:100]}" for k, v in list(context.items())[:5]])}
+{history_section}
+## Prediction Task
+Based on the current state and history, predict potential issues:
+
+1. What could go wrong in the next steps?
+2. What risks should be mitigated?
+3. What preventive actions should be taken?
+
+## Output Format
+Provide predictions in this format:
+
+PREDICTIONS:
+- ISSUE_TYPE: [type] | RISK: [HIGH/MEDIUM/LOW] | PROBABILITY: [0.0-1.0] | DESCRIPTION: [description] | PREVENTION: [suggestion]
+
+Example:
+- ISSUE_TYPE: NULL_POINTER | RISK: HIGH | PROBABILITY: 0.8 | DESCRIPTION: Mock not properly initialized | PREVENTION: Add when().thenReturn() for mock
+
+Provide your predictions:"""
+
+    def build_reflection_prompt(
+        self,
+        action_taken: str,
+        result: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> str:
+        """Build prompt for reflecting on an action.
+        
+        Args:
+            action_taken: Description of the action taken
+            result: Result of the action
+            context: Context in which the action was taken
+            
+        Returns:
+            Prompt string
+        """
+        success = result.get("success", False)
+        outcome = "successful" if success else "unsuccessful"
+        
+        return f"""You are reflecting on an action you just took.
+
+## Action Taken
+{action_taken}
+
+## Result
+**Outcome:** {outcome}
+**Details:** {result.get('message', 'No details')}
+
+## Context
+{chr(10).join([f"- {k}: {str(v)[:100]}" for k, v in list(context.items())[:5]])}
+
+## Reflection Task
+Reflect on this action:
+
+1. Did the action achieve its intended goal?
+2. What went well? What could have been better?
+3. What did you learn from this?
+4. How can this inform future decisions?
+
+## Output Format
+Provide your reflection in this format:
+
+OUTCOME_ANALYSIS: [Analysis of the outcome]
+WHAT_WENT_WELL: [Positive aspects]
+WHAT_TO_IMPROVE: [Areas for improvement]
+LESSONS_LEARNED: [Key takeaways]
+FUTURE_RECOMMENDATIONS: [Recommendations for similar situations]
+
+Provide your reflection:"""
+
+
 class ToolUsagePromptBuilder:
     """Builds prompts for tool usage in agents."""
     

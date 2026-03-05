@@ -485,6 +485,7 @@ class ErrorRecoveryManager:
     3. Uses LLM for deep analysis if needed
     4. Applies appropriate recovery strategies
     5. Tracks all attempts and adjusts strategies
+    6. Uses ThinkingEngine for intelligent reasoning (Phase 3)
     """
 
     def __init__(
@@ -494,7 +495,9 @@ class ErrorRecoveryManager:
         prompt_builder: Optional[Any] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
         max_total_attempts: int = 50,
-        max_same_error_attempts: int = 3
+        max_same_error_attempts: int = 3,
+        thinking_engine: Optional[Any] = None,
+        enable_thinking: bool = True
     ):
         self.llm_client = llm_client
         self.project_path = project_path
@@ -502,12 +505,15 @@ class ErrorRecoveryManager:
         self.progress_callback = progress_callback
         self.max_total_attempts = max_total_attempts
         self.max_same_error_attempts = max_same_error_attempts
+        self.thinking_engine = thinking_engine
+        self.enable_thinking = enable_thinking
 
         self.recovery_history: List[RecoveryAttempt] = []
         self.state_preserver = StatePreserver()
         
         self._last_error_signature: Optional[str] = None
         self._same_error_count: int = 0
+        self._thinking_results: List[Any] = []
 
     def categorize_error(self, error_message: str, error_details: Dict[str, Any]) -> ErrorCategory:
         return ErrorClassifier.categorize_error(error_message, error_details)
@@ -564,6 +570,14 @@ class ErrorRecoveryManager:
         self._last_error_signature = None
         self._same_error_count = 0
 
+    def get_thinking_results(self) -> List[Any]:
+        """Get all thinking results from recovery sessions."""
+        return self._thinking_results.copy()
+
+    def get_last_thinking_result(self) -> Optional[Any]:
+        """Get the most recent thinking result."""
+        return self._thinking_results[-1] if self._thinking_results else None
+
     async def recover(
         self,
         error: Exception,
@@ -573,6 +587,12 @@ class ErrorRecoveryManager:
     ) -> Dict[str, Any]:
         error_message = str(error)
         error_category = self.categorize_error(error_message, error_context)
+
+        thinking_result = None
+        if self.enable_thinking and self.thinking_engine:
+            thinking_result = await self._think_before_recovery(
+                error, error_message, error_category, error_context
+            )
 
         is_same_error = self._check_same_error(error, error_context)
         if is_same_error and self._same_error_count >= self.max_same_error_attempts:
@@ -605,6 +625,15 @@ class ErrorRecoveryManager:
 
         llm_analysis = await self._llm_analysis(context, local_analysis)
 
+        if thinking_result:
+            llm_analysis["thinking_result"] = thinking_result
+            if thinking_result.recovery_strategy:
+                try:
+                    llm_analysis["recommended_strategy"] = thinking_result.recovery_strategy
+                    llm_analysis["confidence"] = thinking_result.confidence
+                except Exception:
+                    pass
+
         strategy = self._determine_strategy(context, local_analysis, llm_analysis)
         if is_same_error and self._same_error_count >= 2:
             if strategy in (RecoveryStrategy.ANALYZE_AND_FIX, RecoveryStrategy.RETRY_IMMEDIATE):
@@ -627,6 +656,60 @@ class ErrorRecoveryManager:
         self.recovery_history.append(attempt)
 
         return result
+
+    async def _think_before_recovery(
+        self,
+        error: Exception,
+        error_message: str,
+        error_category: ErrorCategory,
+        error_context: Dict[str, Any]
+    ) -> Optional[Any]:
+        """Use ThinkingEngine to think about the error before recovery.
+        
+        Args:
+            error: The exception that occurred
+            error_message: Error message
+            error_category: Category of the error
+            error_context: Error context information
+            
+        Returns:
+            ThinkingResult or None
+        """
+        try:
+            if self.progress_callback:
+                self.progress_callback("THINKING", "Analyzing error with thinking engine...")
+
+            logger.info(f"[ErrorRecoveryManager] Thinking about error: {error_category.name}")
+
+            thinking_result = await self.thinking_engine.think_about_error(
+                error=error,
+                context={
+                    "error_category": error_category.name,
+                    "error_message": error_message[:500],
+                    **error_context
+                }
+            )
+
+            self._thinking_results.append(thinking_result)
+
+            if self.progress_callback:
+                self.progress_callback(
+                    "THINKING_COMPLETE",
+                    f"Thinking complete - Confidence: {thinking_result.confidence:.0%}"
+                )
+
+            logger.info(
+                f"[ErrorRecoveryManager] Thinking result - "
+                f"Root cause: {thinking_result.root_cause[:100]}, "
+                f"Strategy: {thinking_result.recovery_strategy}, "
+                f"Confidence: {thinking_result.confidence:.2f}"
+            )
+
+            return thinking_result
+
+        except Exception as e:
+            logger.warning(f"[ErrorRecoveryManager] Thinking engine failed: {e}")
+            return None
 
     async def _local_analysis(self, context: RecoveryContext) -> Dict[str, Any]:
         analysis = {
