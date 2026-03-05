@@ -255,14 +255,14 @@ class FeedbackLoop:
                 return self._create_stopped_result()
             
             parse_result = await self._phase_parse(target_file)
-            if not parse_result:
+            if parse_result is not None:
                 return parse_result
             
             if not await self._check_pause():
                 return self._create_stopped_result()
             
             generate_result = await self._phase_generate()
-            if not generate_result:
+            if generate_result is not None:
                 return generate_result
             
             return await self._run_feedback_iterations()
