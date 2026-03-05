@@ -225,6 +225,17 @@ class MavenRunner(BuildToolRunner):
         returncode, stdout, stderr = self._run_command(cmd)
         return returncode == 0, stdout + stderr
     
+    async def compile_tests_async(self) -> Tuple[bool, str]:
+        """Compile test classes asynchronously.
+        
+        Returns:
+            Tuple of (success, output)
+        """
+        cmd = [self._executable, "test-compile", "-q"]
+        returncode, stdout, stderr = self._run_command(cmd)
+        output = stderr if stderr else stdout
+        return returncode == 0, output
+    
     async def generate_coverage(
         self,
         test_class: Optional[str] = None
@@ -384,6 +395,17 @@ class GradleRunner(BuildToolRunner):
         returncode, stdout, stderr = self._run_command(cmd)
         return returncode == 0, stdout + stderr
     
+    async def compile_tests_async(self) -> Tuple[bool, str]:
+        """Compile test classes asynchronously.
+        
+        Returns:
+            Tuple of (success, output)
+        """
+        cmd = [self._executable, "compileTestJava", "--quiet"]
+        returncode, stdout, stderr = self._run_command(cmd)
+        output = stderr if stderr else stdout
+        return returncode == 0, output
+    
     async def generate_coverage(
         self,
         test_class: Optional[str] = None
@@ -507,6 +529,17 @@ class BazelRunner(BuildToolRunner):
         returncode, stdout, stderr = self._run_command(cmd)
         
         return returncode == 0, stdout + stderr
+    
+    async def compile_tests_async(self) -> Tuple[bool, str]:
+        """Compile test classes asynchronously.
+        
+        Returns:
+            Tuple of (success, output)
+        """
+        cmd = [self._executable, "build", "//...", "--javacopts=-source 11 -target 11"]
+        returncode, stdout, stderr = self._run_command(cmd)
+        output = stderr if stderr else stdout
+        return returncode == 0, output
     
     async def generate_coverage(
         self,
