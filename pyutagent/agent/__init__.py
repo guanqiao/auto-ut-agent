@@ -391,6 +391,25 @@ from .context_compression import (
     create_compressor,
 )
 
+# Performance Dashboard (Phase 3 Week 23-24)
+from .performance_dashboard import (
+    MetricCategory,
+    AlertType,
+    Severity,
+    PerformanceMetric,
+    PerformanceAlert,
+    PerformanceBaseline,
+    PerformanceReport,
+    MetricsStore,
+    AlertManager,
+    BaselineManager,
+    PerformanceDashboard,
+    OperationTimer,
+    get_dashboard,
+    reset_dashboard,
+    time_operation,
+)
+
 # Safety (for UserResponse, ProposedAction, etc.)
 from .safety import (
     UserResponse,
@@ -731,6 +750,23 @@ __all__ = [
     "HybridStrategy",
     "ContextCompressor",
     "create_compressor",
+    
+    # Performance Dashboard
+    "MetricCategory",
+    "AlertType",
+    "Severity",
+    "PerformanceMetric",
+    "PerformanceAlert",
+    "PerformanceBaseline",
+    "PerformanceReport",
+    "MetricsStore",
+    "AlertManager",
+    "BaselineManager",
+    "PerformanceDashboard",
+    "OperationTimer",
+    "get_dashboard",
+    "reset_dashboard",
+    "time_operation",
     
     # Safety
     "UserResponse",
