@@ -14,163 +14,189 @@ from pyutagent.ui.components.progress_tracker import (
 class TestProgressTracker:
     """Test ProgressTracker class."""
 
-    @pytest.fixture
-    def progress_tracker(self, qtbot):
-        """Create ProgressTracker instance."""
-        tracker = ProgressTracker()
-        qtbot.addWidget(tracker)
-        return tracker
-
-    def test_progress_tracker_creation(self, progress_tracker):
+    def test_progress_tracker_creation(self):
         """Test ProgressTracker can be created."""
-        assert progress_tracker is not None
-        assert progress_tracker._current_step == 0
-        assert progress_tracker._total_steps == 0
+        tracker = ProgressTracker()
+        assert tracker is not None
+        assert tracker._current_step == 0
+        assert tracker._total_steps == 0
+        tracker.deleteLater()
 
-    def test_set_progress(self, progress_tracker):
+    def test_set_progress(self):
         """Test set_progress method."""
-        progress_tracker.set_progress(5, 10, "Halfway done")
+        tracker = ProgressTracker()
+        tracker.set_progress(5, 10, "Halfway done")
 
-        assert progress_tracker._current_step == 5
-        assert progress_tracker._total_steps == 10
-        assert progress_tracker._progress_bar.value() == 50
-        assert progress_tracker._step_label.text() == "5/10"
+        assert tracker._current_step == 5
+        assert tracker._total_steps == 10
+        assert tracker._progress_bar.value() == 50
+        assert tracker._step_label.text() == "5/10"
+        tracker.deleteLater()
 
-    def test_set_progress_completion(self, progress_tracker):
+    def test_set_progress_completion(self):
         """Test set_progress with completion."""
-        progress_tracker.set_progress(10, 10, "Complete")
+        tracker = ProgressTracker()
+        tracker.set_progress(10, 10, "Complete")
 
-        assert progress_tracker._progress_bar.value() == 100
-        assert "Completed" in progress_tracker._status_label.text()
+        assert tracker._progress_bar.value() == 100
+        assert "Completed" in tracker._status_label.text()
+        tracker.deleteLater()
 
-    def test_set_status_info(self, progress_tracker):
+    def test_set_status_info(self):
         """Test set_status with info type."""
-        progress_tracker.set_status("Processing", "info")
-        assert progress_tracker._status_label.text() == "Processing"
+        tracker = ProgressTracker()
+        tracker.set_status("Processing", "info")
+        assert tracker._status_label.text() == "Processing"
+        tracker.deleteLater()
 
-    def test_set_status_success(self, progress_tracker):
+    def test_set_status_success(self):
         """Test set_status with success type."""
-        progress_tracker.set_status("Done", "success")
-        assert progress_tracker._status_label.text() == "Done"
+        tracker = ProgressTracker()
+        tracker.set_status("Done", "success")
+        assert tracker._status_label.text() == "Done"
+        tracker.deleteLater()
 
-    def test_set_status_warning(self, progress_tracker):
+    def test_set_status_warning(self):
         """Test set_status with warning type."""
-        progress_tracker.set_status("Warning", "warning")
-        assert progress_tracker._status_label.text() == "Warning"
+        tracker = ProgressTracker()
+        tracker.set_status("Warning", "warning")
+        assert tracker._status_label.text() == "Warning"
+        tracker.deleteLater()
 
-    def test_set_status_error(self, progress_tracker):
+    def test_set_status_error(self):
         """Test set_status with error type."""
-        progress_tracker.set_status("Error", "error")
-        assert progress_tracker._status_label.text() == "Error"
+        tracker = ProgressTracker()
+        tracker.set_status("Error", "error")
+        assert tracker._status_label.text() == "Error"
+        tracker.deleteLater()
 
-    def test_add_step_detail(self, progress_tracker):
+    def test_add_step_detail(self):
         """Test add_step_detail method."""
-        progress_tracker.add_step_detail(1, "First step", "completed")
-        progress_tracker.add_step_detail(2, "Second step", "running")
+        tracker = ProgressTracker()
+        tracker.add_step_detail(1, "First step", "completed")
+        tracker.add_step_detail(2, "Second step", "running")
 
-        assert len(progress_tracker._step_details) == 2
-        assert progress_tracker._step_details[0]["number"] == 1
-        assert progress_tracker._step_details[0]["description"] == "First step"
-        assert progress_tracker._step_details[0]["status"] == "completed"
+        assert len(tracker._step_details) == 2
+        assert tracker._step_details[0]["number"] == 1
+        assert tracker._step_details[0]["description"] == "First step"
+        assert tracker._step_details[0]["status"] == "completed"
+        tracker.deleteLater()
 
-    def test_update_step_status(self, progress_tracker):
+    def test_update_step_status(self):
         """Test update_step_status method."""
-        progress_tracker.add_step_detail(1, "First step", "pending")
-        progress_tracker.update_step_status(1, "completed")
+        tracker = ProgressTracker()
+        tracker.add_step_detail(1, "First step", "pending")
+        tracker.update_step_status(1, "completed")
 
-        assert progress_tracker._step_details[0]["status"] == "completed"
+        assert tracker._step_details[0]["status"] == "completed"
+        tracker.deleteLater()
 
-    def test_clear(self, progress_tracker):
+    def test_clear(self):
         """Test clear method."""
-        progress_tracker.set_progress(5, 10, "Halfway")
-        progress_tracker.add_step_detail(1, "Step 1", "completed")
+        tracker = ProgressTracker()
+        tracker.set_progress(5, 10, "Halfway")
+        tracker.add_step_detail(1, "Step 1", "completed")
 
-        progress_tracker.clear()
+        tracker.clear()
 
-        assert progress_tracker._current_step == 0
-        assert progress_tracker._total_steps == 0
-        assert progress_tracker._progress_bar.value() == 0
-        assert len(progress_tracker._step_details) == 0
+        assert tracker._current_step == 0
+        assert tracker._total_steps == 0
+        assert tracker._progress_bar.value() == 0
+        assert len(tracker._step_details) == 0
+        tracker.deleteLater()
 
-    def test_get_progress_percent(self, progress_tracker):
+    def test_get_progress_percent(self):
         """Test get_progress_percent method."""
-        progress_tracker.set_progress(5, 10)
-        assert progress_tracker.get_progress_percent() == 50.0
+        tracker = ProgressTracker()
+        tracker.set_progress(5, 10)
+        assert tracker.get_progress_percent() == 50.0
+        tracker.deleteLater()
 
-    def test_get_progress_percent_zero(self, progress_tracker):
+    def test_get_progress_percent_zero(self):
         """Test get_progress_percent with zero total."""
-        assert progress_tracker.get_progress_percent() == 0.0
+        tracker = ProgressTracker()
+        assert tracker.get_progress_percent() == 0.0
+        tracker.deleteLater()
 
-    def test_is_completed(self, progress_tracker):
+    def test_is_completed(self):
         """Test is_completed method."""
-        progress_tracker.set_progress(10, 10)
-        assert progress_tracker.is_completed() is True
+        tracker = ProgressTracker()
+        tracker.set_progress(10, 10)
+        assert tracker.is_completed() is True
+        tracker.deleteLater()
 
-    def test_is_completed_not_complete(self, progress_tracker):
+    def test_is_completed_not_complete(self):
         """Test is_completed when not complete."""
-        progress_tracker.set_progress(5, 10)
-        assert progress_tracker.is_completed() is False
+        tracker = ProgressTracker()
+        tracker.set_progress(5, 10)
+        assert tracker.is_completed() is False
+        tracker.deleteLater()
 
-    def test_toggle_details(self, progress_tracker):
+    def test_toggle_details(self):
         """Test _toggle_details method."""
+        tracker = ProgressTracker()
         # Initially hidden
-        assert progress_tracker._details_container.isVisible() is False
+        assert tracker._details_container.isVisible() is False
 
         # Toggle to show
-        progress_tracker._toggle_details()
-        assert progress_tracker._details_container.isVisible() is True
-        assert progress_tracker._expanded is True
+        tracker._toggle_details()
+        assert tracker._details_container.isVisible() is True
+        assert tracker._expanded is True
 
         # Toggle to hide
-        progress_tracker._toggle_details()
-        assert progress_tracker._details_container.isVisible() is False
-        assert progress_tracker._expanded is False
+        tracker._toggle_details()
+        assert tracker._details_container.isVisible() is False
+        assert tracker._expanded is False
+        tracker.deleteLater()
 
-    def test_update_details_display(self, progress_tracker):
+    def test_update_details_display(self):
         """Test _update_details_display method."""
-        progress_tracker.add_step_detail(1, "Step 1", "completed")
-        progress_tracker.add_step_detail(2, "Step 2", "running")
+        tracker = ProgressTracker()
+        tracker.add_step_detail(1, "Step 1", "completed")
+        tracker.add_step_detail(2, "Step 2", "running")
 
-        progress_tracker._update_details_display()
+        tracker._update_details_display()
 
-        text = progress_tracker._steps_text.toPlainText()
+        text = tracker._steps_text.toPlainText()
         assert "Step 1" in text
         assert "Step 2" in text
+        tracker.deleteLater()
 
 
 class TestCircularProgress:
     """Test CircularProgress class."""
 
-    @pytest.fixture
-    def circular_progress(self, qtbot):
-        """Create CircularProgress instance."""
-        progress = CircularProgress(diameter=40)
-        qtbot.addWidget(progress)
-        return progress
-
-    def test_circular_progress_creation(self, circular_progress):
+    def test_circular_progress_creation(self):
         """Test CircularProgress can be created."""
-        assert circular_progress is not None
-        assert circular_progress._diameter == 40
-        assert circular_progress._progress == 0
+        progress = CircularProgress(diameter=40)
+        assert progress is not None
+        assert progress._diameter == 40
+        assert progress._progress == 0
+        progress.deleteLater()
 
-    def test_set_progress(self, circular_progress):
+    def test_set_progress(self):
         """Test set_progress method."""
-        circular_progress.set_progress(75)
-        assert circular_progress._progress == 75
+        progress = CircularProgress()
+        progress.set_progress(75)
+        assert progress._progress == 75
+        progress.deleteLater()
 
-    def test_set_progress_clamping(self, circular_progress):
+    def test_set_progress_clamping(self):
         """Test set_progress clamps values."""
-        circular_progress.set_progress(150)
-        assert circular_progress._progress == 100
+        progress = CircularProgress()
+        progress.set_progress(150)
+        assert progress._progress == 100
 
-        circular_progress.set_progress(-10)
-        assert circular_progress._progress == 0
+        progress.set_progress(-10)
+        assert progress._progress == 0
+        progress.deleteLater()
 
-    def test_set_color(self, circular_progress):
+    def test_set_color(self):
         """Test set_color method."""
-        circular_progress.set_color("#FF0000")
-        assert circular_progress._color == "#FF0000"
+        progress = CircularProgress()
+        progress.set_color("#FF0000")
+        assert progress._color == "#FF0000"
+        progress.deleteLater()
 
 
 class TestCreateProgressTracker:

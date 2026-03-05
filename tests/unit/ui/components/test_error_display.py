@@ -249,3 +249,19 @@ class TestErrorListWidget:
 
 class TestCreateErrorDisplay:
     """Test create_error_display function."""
+
+    def test_create_error_display(self):
+        """Test create_error_display creates correct instance."""
+        widget = create_error_display()
+        assert isinstance(widget, ErrorDisplayWidget)
+        widget.deleteLater()
+
+
+class TestCreateErrorList:
+    """Test create_error_list function."""
+
+    def test_create_error_list(self):
+        """Test create_error_list creates correct instance."""
+        widget = create_error_list()
+        assert isinstance(widget, ErrorListWidget)
+        widget.deleteLater()

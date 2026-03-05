@@ -1,13 +1,18 @@
 """Batch execution module for handling large numbers of subtasks.
 
+.. deprecated::
+    Use pyutagent.agent.execution.executor.StepExecutor instead.
+    This module is kept for backward compatibility.
+
 This module provides:
-- BatchExecutor: Execute subtasks in batches with progress tracking
-- ProgressPersistence: Save and restore execution progress
-- ExecutionCheckpoint: Checkpoint management for long-running tasks
+- BatchExecutor: Execute subtasks in batches with progress tracking (deprecated)
+- ProgressPersistence: Save and restore execution progress (deprecated)
+- ExecutionCheckpoint: Checkpoint management for long-running tasks (deprecated)
 """
 
 import json
 import logging
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +21,14 @@ from enum import Enum
 import asyncio
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.agent.batch_executor is deprecated. "
+    "Use pyutagent.agent.execution.executor.StepExecutor instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class BatchStatus(Enum):

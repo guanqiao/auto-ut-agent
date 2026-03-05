@@ -1,13 +1,18 @@
 """Parallel Tool Executor - Execute independent tools in parallel.
 
+.. deprecated::
+    Use pyutagent.agent.execution.executor.StepExecutor with parallel=True instead.
+    This module is kept for backward compatibility.
+
 This module provides:
-- ParallelExecutor: Execute tools concurrently
-- DependencyResolver: Resolve tool dependencies
-- ResultAggregator: Combine results
+- ParallelExecutor: Execute tools concurrently (deprecated)
+- DependencyResolver: Resolve tool dependencies (deprecated)
+- ResultAggregator: Combine results (deprecated)
 """
 
 import asyncio
 import logging
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
@@ -15,6 +20,14 @@ from typing import Any, Dict, List, Optional, Set
 from ..tools.tool import ToolResult
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.agent.parallel_executor is deprecated. "
+    "Use pyutagent.agent.execution.executor.StepExecutor with parallel=True instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 @dataclass
