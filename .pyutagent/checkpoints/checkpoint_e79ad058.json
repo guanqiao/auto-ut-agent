@@ -1,0 +1,41 @@
+{
+  "id": "e79ad058",
+  "created_at": "2026-03-05T18:14:40.822259",
+  "step": "initial_generation",
+  "iteration": 0,
+  "state": {
+    "target_file": "D:\\opensource\\magic-api-master\\magic-api\\src\\main\\java\\org\\ssssssss\\magicapi\\utils\\PathUtils.java",
+    "test_file": "src\\test\\java\\org\\ssssssss\\magicapi\\utils\\PathUtilsTest.java",
+    "class_info": {
+      "name": "PathUtils",
+      "package": "org.ssssssss.magicapi.utils",
+      "methods": [
+        {
+          "name": "replaceSlash",
+          "return_type": "String",
+          "parameters": [
+            [
+              "String",
+              "path"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        }
+      ],
+      "fields": [
+        [
+          "Pattern",
+          "REPLACE_SLASH_REGX",
+          "private static final"
+        ]
+      ],
+      "imports": [
+        "java.util.regex.Pattern"
+      ],
+      "annotations": [],
+      "source": "package org.ssssssss.magicapi.utils;\n\nimport java.util.regex.Pattern;\n\n/**\n * 路径处理工具包\n *\n * @author mxd\n */\npublic class PathUtils {\n\n\tprivate static final Pattern REPLACE_SLASH_REGX = Pattern.compile(\"/+\");\n\n\t/**\n\t * 将多个/替换为一个/\n\t */\n\tpublic static String replaceSlash(String path) {\n\t\treturn REPLACE_SLASH_REGX.matcher(path).replaceAll(\"/\");\n\t}\n}\n"
+    }
+  },
+  "metadata": {}
+}

@@ -374,6 +374,23 @@ from .capability_registry import (
     get_capability_registry,
 )
 
+# Context Compression (Phase 3 Week 21-22)
+from .context_compression import (
+    ContentPriority,
+    CompressionLevel,
+    ContentType,
+    ContentBlock,
+    CompressionContext,
+    CompressionResult as EnhancedCompressionResult,
+    ContentAnalyzer,
+    PriorityBasedStrategy,
+    SemanticStrategy,
+    SummarizationStrategy,
+    HybridStrategy,
+    ContextCompressor,
+    create_compressor,
+)
+
 # Safety (for UserResponse, ProposedAction, etc.)
 from .safety import (
     UserResponse,
@@ -699,6 +716,21 @@ __all__ = [
     "CapabilityProvider",
     "CapabilityRegistry",
     "get_capability_registry",
+    
+    # Context Compression
+    "ContentPriority",
+    "CompressionLevel",
+    "ContentType",
+    "ContentBlock",
+    "CompressionContext",
+    "EnhancedCompressionResult",
+    "ContentAnalyzer",
+    "PriorityBasedStrategy",
+    "SemanticStrategy",
+    "SummarizationStrategy",
+    "HybridStrategy",
+    "ContextCompressor",
+    "create_compressor",
     
     # Safety
     "UserResponse",

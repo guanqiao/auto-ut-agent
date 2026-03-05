@@ -1,12 +1,7 @@
 """Prompts for agent operations."""
 
-# Import from the original prompts.py using absolute import to avoid circular imports
-try:
-    from pyutagent.agent.prompts import PromptBuilder, ToolUsagePromptBuilder
-except ImportError:
-    # Fallback for when there's a circular import
-    PromptBuilder = None
-    ToolUsagePromptBuilder = None
+# Import from the prompts submodule
+from .prompts import PromptBuilder, ToolUsagePromptBuilder
 
 # Import JaCoCo config prompts
 from .jacoco_config_prompts import (
