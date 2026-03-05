@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-03-05T13:18:15.974704",
+  "updated_at": "2026-03-05T13:21:12.947665",
   "patterns": [
     {
       "pattern_id": "ec1cdc7393654620",
@@ -133,9 +133,9 @@
         "Compilation[a-f0-9]+iled:\\ ע:\\ ��������·���з�����һ�����������������������\\\n��ע������δ�����а��\\ javac\\ ���ܻ�����"
       ],
       "created_at": "2026-03-04T19:26:22.443432",
-      "updated_at": "2026-03-05T13:18:15.974704",
-      "occurrence_count": 10,
-      "success_count": 10,
+      "updated_at": "2026-03-05T13:21:12.947665",
+      "occurrence_count": 11,
+      "success_count": 11,
       "failure_count": 0
     }
   ],
@@ -1278,6 +1278,19 @@
         },
         "time_to_recover": 172.22677731513977,
         "attempts_needed": 1
+      },
+      {
+        "strategy": "ANALYZE_AND_FIX",
+        "success": true,
+        "timestamp": "2026-03-05T13:21:12.947665",
+        "context": {
+          "step": "compilation",
+          "attempt": 2,
+          "compiler_output": "ע: ��������·���з�����һ�����������������������\n��ע������δ�����а�� javac ���ܻ������ע������\n�������ٰ�����ָ����һ���������� (-processor)��\n��ָ��������·�� (--processor-path, --processor-module-path)��\n����ʽ��������ע���� (-proc:only, -proc:full)��\n��ʹ�� -Xlint:-options ���ش���Ϣ��\n��ʹ�� -proc:none ������ע������\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:3: ����: �����org.junit������\nimport org.junit.Test;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:6: ����: �����org.junit������\nimport static org.junit.Assert.assertEquals;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:6: ����: ������ͽӿھ�̬����\nimport static org.junit.Assert.assertEquals;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:7: ����: �����org.junit������\nimport static org.junit.Assert.fail;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:7: ����: ������ͽӿھ�̬����\nimport static org.junit.Assert.fail;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:18: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:35: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:52: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:69: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:86: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:104: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:122: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\n12 ������",
+          "reset_count": 0
+        },
+        "time_to_recover": 163.05628180503845,
+        "attempts_needed": 2
       }
     ]
   }

@@ -48,6 +48,7 @@ class TestGeneratorAgent:
         llm_config: LLMConfig,
         conversation: ConversationManager,
         working_memory: WorkingMemory,
+        llm_client: Optional[Any] = None,
     ):
         """Initialize test generator agent.
         
@@ -56,11 +57,13 @@ class TestGeneratorAgent:
             llm_config: LLM configuration
             conversation: Conversation manager
             working_memory: Working memory for task state
+            llm_client: Optional LLM client for coverage estimation fallback
         """
         self.project_path = Path(project_path)
         self.llm_config = llm_config
         self.conversation = conversation
         self.working_memory = working_memory
+        self._llm_client_for_coverage = llm_client
         
         # Tools
         self.java_parser = JavaCodeParser()
@@ -110,6 +113,40 @@ class TestGeneratorAgent:
                 self._get_llm_client()
             )
         return self._aider_generator
+    
+    def _analyze_coverage_with_fallback(
+        self,
+        source_code: Optional[str] = None,
+        test_code: Optional[str] = None,
+        class_info: Optional[Dict[str, Any]] = None
+    ) -> tuple:
+        """Analyze coverage with LLM fallback.
+        
+        Args:
+            source_code: Source code for LLM estimation
+            test_code: Test code for LLM estimation
+            class_info: Class info for LLM estimation
+            
+        Returns:
+            Tuple of (coverage_report, source, confidence)
+        """
+        try:
+            report = self.coverage_analyzer.parse_report()
+            if report:
+                return report, "jacoco", 1.0
+        except Exception as e:
+            logger.warning(f"JaCoCo parse failed: {e}")
+        
+        if self._llm_client_for_coverage and source_code and test_code:
+            try:
+                from .llm_coverage_evaluator import LLMCoverageEvaluator
+                evaluator = LLMCoverageEvaluator(self._llm_client_for_coverage)
+                llm_report = evaluator.quick_estimate(source_code, test_code, class_info)
+                return llm_report, "llm_estimated", llm_report.confidence
+            except Exception as e:
+                logger.warning(f"LLM coverage estimation failed: {e}")
+        
+        return None, "unknown", 0.0
     
     def _log(self, message: str):
         """Log message."""
@@ -214,10 +251,20 @@ class TestGeneratorAgent:
             await self._check_pause()
             self._update_progress(70, "分析覆盖率...")
             
-            coverage_report = self.coverage_analyzer.parse_report()
+            source_code = java_class.source if hasattr(java_class, 'source') else ""
+            class_info = {
+                "name": java_class.name,
+                "methods": [{"name": m.name} for m in java_class.methods]
+            }
+            
+            coverage_report, source, confidence = self._analyze_coverage_with_fallback(
+                source_code, test_code, class_info
+            )
             if coverage_report:
-                self.working_memory.update_coverage(coverage_report.line_coverage)
-                self._log(f"当前覆盖率: {coverage_report.line_coverage:.1%}")
+                self.working_memory.update_coverage(
+                    coverage_report.line_coverage, source, confidence
+                )
+                self._log(f"当前覆盖率: {coverage_report.line_coverage:.1%} (来源: {source})")
             
             # Step 5: Iterative optimization
             iteration = 0
@@ -260,9 +307,15 @@ class TestGeneratorAgent:
                     break
                 
                 # Update coverage
-                coverage_report = self.coverage_analyzer.parse_report()
+                coverage_report, source, confidence = self._analyze_coverage_with_fallback(
+                    source_code, test_code, class_info
+                )
                 if coverage_report:
-                    self.working_memory.update_coverage(coverage_report.line_coverage)
+                    self.working_memory.update_coverage(
+                        coverage_report.line_coverage if hasattr(coverage_report, 'line_coverage') else coverage_report.line_coverage,
+                        source,
+                        confidence
+                    )
             
             # Complete
             self.status = TaskStatus.COMPLETED

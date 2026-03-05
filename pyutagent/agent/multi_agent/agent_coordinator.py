@@ -103,15 +103,25 @@ class AgentCoordinator:
         self._stop_requested = False
         self._coordinator_id = f"coordinator_{uuid.uuid4().hex[:8]}"
         
+        # Performance optimizations
+        self._batch_size = 10  # Process tasks in batches
+        self._dependency_cache: Dict[str, bool] = {}  # Cache dependency check results
+        self._task_type_capability_cache: Dict[str, Set[AgentCapability]] = {}
+        self._last_dependency_check: float = 0
+        self._dependency_cache_ttl = 5.0  # 5 seconds
+        
         # Statistics
         self.stats = {
             "tasks_created": 0,
             "tasks_completed": 0,
             "tasks_failed": 0,
-            "agents_registered": 0
+            "agents_registered": 0,
+            "tasks_batch_processed": 0,
+            "messages_optimized": 0
         }
         
-        logger.info(f"[AgentCoordinator:{self._coordinator_id}] Initialized")
+        logger.info(f"[AgentCoordinator:{self._coordinator_id}] Initialized "
+                   f"(batch_size={self._batch_size})")
     
     async def start(self):
         """Start the coordinator."""
@@ -259,40 +269,89 @@ class AgentCoordinator:
                     f"{message.sender_id}")
     
     async def _task_scheduler_loop(self):
-        """Task scheduling loop."""
+        """Task scheduling loop with batch processing."""
         while not self._stop_requested:
             try:
-                # Get next task from queue
-                priority, task_id = await asyncio.wait_for(
-                    self.task_queue.get(),
-                    timeout=1.0
-                )
+                # Collect tasks in batch
+                batch = []
+                batch_start_time = asyncio.get_event_loop().time()
                 
-                if task_id in self.tasks:
-                    task = self.tasks[task_id]
+                # Try to fill batch within 100ms or until batch_size reached
+                while len(batch) < self._batch_size:
+                    timeout = 0.1 - (asyncio.get_event_loop().time() - batch_start_time)
+                    if timeout <= 0:
+                        break
                     
-                    # Check dependencies
-                    if not self._check_dependencies(task):
-                        # Re-queue if dependencies not met
-                        await self.task_queue.put((priority + 1, task_id))
-                        continue
-                    
-                    # Allocate task to agent
-                    agent_id = self._allocate_task(task)
-                    
-                    if agent_id:
-                        await self._assign_task(task, agent_id)
-                    else:
-                        # No suitable agent, re-queue
-                        await self.task_queue.put((priority + 1, task_id))
-                        logger.warning(f"[AgentCoordinator:{self._coordinator_id}] "
-                                      f"No agent available for task {task_id}")
+                    try:
+                        priority, task_id = await asyncio.wait_for(
+                            self.task_queue.get(),
+                            timeout=max(0.01, timeout)
+                        )
+                        if task_id in self.tasks:
+                            batch.append((priority, task_id))
+                    except asyncio.TimeoutError:
+                        break
                 
-            except asyncio.TimeoutError:
-                continue
+                if batch:
+                    self.stats["tasks_batch_processed"] += len(batch)
+                    await self._process_task_batch(batch)
+                
             except Exception as e:
                 logger.exception(f"[AgentCoordinator:{self._coordinator_id}] "
                                 f"Task scheduling error: {e}")
+    
+    async def _process_task_batch(self, batch: List[tuple]):
+        """Process a batch of tasks efficiently.
+        
+        Args:
+            batch: List of (priority, task_id) tuples
+        """
+        # Clear dependency cache if expired
+        current_time = asyncio.get_event_loop().time()
+        if current_time - self._last_dependency_check > self._dependency_cache_ttl:
+            self._dependency_cache.clear()
+            self._last_dependency_check = current_time
+        
+        # Process each task in batch
+        requeue_tasks = []
+        assign_tasks = []
+        
+        for priority, task_id in batch:
+            task = self.tasks.get(task_id)
+            if not task:
+                continue
+            
+            # Check dependencies with caching
+            cache_key = f"{task_id}:{','.join(sorted(task.dependencies))}"
+            if cache_key in self._dependency_cache:
+                deps_satisfied = self._dependency_cache[cache_key]
+            else:
+                deps_satisfied = self._check_dependencies(task)
+                self._dependency_cache[cache_key] = deps_satisfied
+            
+            if not deps_satisfied:
+                requeue_tasks.append((priority + 1, task_id))
+                continue
+            
+            # Allocate task to agent
+            agent_id = self._allocate_task(task)
+            
+            if agent_id:
+                assign_tasks.append((task, agent_id))
+            else:
+                requeue_tasks.append((priority + 1, task_id))
+        
+        # Batch re-queue tasks
+        for priority, task_id in requeue_tasks:
+            await self.task_queue.put((priority, task_id))
+        
+        if requeue_tasks:
+            logger.debug(f"[AgentCoordinator:{self._coordinator_id}] "
+                        f"Re-queued {len(requeue_tasks)} tasks")
+        
+        # Batch assign tasks
+        for task, agent_id in assign_tasks:
+            await self._assign_task(task, agent_id)
     
     def _check_dependencies(self, task: TaskInfo) -> bool:
         """Check if task dependencies are satisfied.
@@ -417,7 +476,7 @@ class AgentCoordinator:
         return self._allocate_capability_match(task)
     
     def _get_required_capabilities(self, task_type: str) -> Set[AgentCapability]:
-        """Get required capabilities for a task type.
+        """Get required capabilities for a task type (with caching).
         
         Args:
             task_type: Type of task
@@ -425,6 +484,10 @@ class AgentCoordinator:
         Returns:
             Set of required capabilities
         """
+        # Check cache first
+        if task_type in self._task_type_capability_cache:
+            return self._task_type_capability_cache[task_type]
+        
         capability_map = {
             "design_tests": {AgentCapability.TEST_DESIGN},
             "implement_tests": {AgentCapability.TEST_IMPLEMENTATION},
@@ -432,10 +495,25 @@ class AgentCoordinator:
             "fix_errors": {AgentCapability.ERROR_FIXING},
             "analyze_coverage": {AgentCapability.COVERAGE_ANALYSIS},
             "generate_mocks": {AgentCapability.MOCK_GENERATION},
-            "analyze_dependencies": {AgentCapability.DEPENDENCY_ANALYSIS}
+            "analyze_dependencies": {AgentCapability.DEPENDENCY_ANALYSIS},
+            "analyze_code": {AgentCapability.DEPENDENCY_ANALYSIS, AgentCapability.TEST_DESIGN},
+            "generate_tests": {AgentCapability.TEST_IMPLEMENTATION, AgentCapability.MOCK_GENERATION},
+            "generate_test_for_method": {AgentCapability.TEST_IMPLEMENTATION},
+            "generate_mocks": {AgentCapability.MOCK_GENERATION},
+            "create_test_fixture": {AgentCapability.TEST_IMPLEMENTATION},
+            "fix_compilation_error": {AgentCapability.ERROR_FIXING},
+            "fix_test_failure": {AgentCapability.ERROR_FIXING},
+            "fix_import_error": {AgentCapability.ERROR_FIXING},
+            "fix_mock_error": {AgentCapability.ERROR_FIXING, AgentCapability.MOCK_GENERATION},
+            "analyze_error": {AgentCapability.ERROR_FIXING, AgentCapability.TEST_REVIEW}
         }
         
-        return capability_map.get(task_type, set())
+        capabilities = capability_map.get(task_type, set())
+        
+        # Cache the result
+        self._task_type_capability_cache[task_type] = capabilities
+        
+        return capabilities
     
     async def _assign_task(self, task: TaskInfo, agent_id: str):
         """Assign task to an agent.

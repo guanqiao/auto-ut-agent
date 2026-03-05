@@ -558,6 +558,7 @@ Please provide the fixed test code.""",
         ab_variants = []
         for variant_name, template, traffic in variants:
             variant_id = f"{test_id}_{variant_name}"
+            self._save_template(template)
             ab_variants.append(ABTestVariant(
                 variant_id=variant_id,
                 name=variant_name,
