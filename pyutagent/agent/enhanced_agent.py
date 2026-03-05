@@ -97,6 +97,11 @@ class EnhancedAgentConfig:
     
     # Model
     model_name: str = "gpt-4"
+    
+    # Incremental mode configuration (from master branch)
+    incremental_mode: bool = False
+    preserve_passing_tests: bool = True
+    skip_test_analysis: bool = False
 
 
 class EnhancedAgent(ReActAgent):
@@ -169,7 +174,6 @@ class EnhancedAgent(ReActAgent):
         self._init_p3_components()
         self._init_p4_components()
         
-        # Call parent init with model name for P1 prompt optimization
         super().__init__(
             llm_client=llm_client,
             working_memory=working_memory,
@@ -177,7 +181,10 @@ class EnhancedAgent(ReActAgent):
             progress_callback=progress_callback,
             container=container,
             model_name=self.config.model_name,
-            ab_test_id=self.config.ab_test_id
+            ab_test_id=self.config.ab_test_id,
+            incremental_mode=self.config.incremental_mode,
+            preserve_passing_tests=self.config.preserve_passing_tests,
+            skip_test_analysis=self.config.skip_test_analysis
         )
         
         # Start metrics reporting

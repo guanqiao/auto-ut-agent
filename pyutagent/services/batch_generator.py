@@ -705,6 +705,9 @@ class BatchGenerator:
                     enable_pattern_library=self.config.enable_pattern_library,
                     enable_chain_of_thought=True,
                     enable_metrics=True,
+                    incremental_mode=self.config.incremental_mode,
+                    preserve_passing_tests=self.config.preserve_passing_tests,
+                    skip_test_analysis=self.config.skip_test_analysis,
                 )
                 agent = EnhancedAgent(
                     llm_client=self.llm_client,

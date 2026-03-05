@@ -77,6 +77,7 @@ class AgentWorker(QThread):
         agent_config: Optional[EnhancedAgentConfig] = None,
         use_enhanced_agent: bool = True,
         incremental_mode: bool = False,
+        preserve_passing_tests: bool = True,
         skip_test_analysis: bool = False
     ):
         super().__init__()
@@ -88,6 +89,7 @@ class AgentWorker(QThread):
         self.agent_config = agent_config
         self.use_enhanced_agent = use_enhanced_agent
         self.incremental_mode = incremental_mode
+        self.preserve_passing_tests = preserve_passing_tests
         self.skip_test_analysis = skip_test_analysis
         self._is_running = True
         self._is_paused = False
@@ -118,6 +120,9 @@ class AgentWorker(QThread):
                     enable_pattern_library=True,
                     enable_chain_of_thought=True,
                     enable_metrics=True,
+                    incremental_mode=self.incremental_mode,
+                    preserve_passing_tests=self.preserve_passing_tests,
+                    skip_test_analysis=self.skip_test_analysis,
                 )
                 self.agent = EnhancedAgent(
                     llm_client=self.llm_client,
@@ -135,6 +140,7 @@ class AgentWorker(QThread):
                     progress_callback=self._on_progress,
                     model_name=self.llm_client.model,
                     incremental_mode=self.incremental_mode,
+                    preserve_passing_tests=self.preserve_passing_tests,
                     skip_test_analysis=self.skip_test_analysis
                 )
                 logger.info("[AgentWorker] Using ReActAgent (basic mode)")
@@ -1536,6 +1542,7 @@ class MainWindow(QMainWindow):
                 target_coverage=settings.coverage.target_coverage,
                 max_iterations=settings.coverage.max_iterations,
                 incremental_mode=incremental,
+                preserve_passing_tests=True,
                 skip_test_analysis=skip_analysis
             )
 
