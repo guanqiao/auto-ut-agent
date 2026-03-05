@@ -299,7 +299,7 @@ class PYUTMdParser:
     
     SECTION_PATTERN = re.compile(r'^##\s+(.+)$', re.MULTILINE)
     LIST_ITEM_PATTERN = re.compile(r'^-\s+(.+)$', re.MULTILINE)
-    KEY_VALUE_PATTERN = re.compile(r'^-\s+(\w+):\s*(.+)$', re.MULTILINE)
+    KEY_VALUE_PATTERN = re.compile(r'^-\s+(.+?):\s*(.+)$', re.MULTILINE)
     ARRAY_PATTERN = re.compile(r'\[(.+)\]')
     
     def __init__(self):
@@ -395,7 +395,7 @@ class PYUTMdParser:
         result: Dict[str, Any] = {}
         
         for match in self.KEY_VALUE_PATTERN.finditer(content):
-            key = match.group(1).lower().replace(" ", "_")
+            key = match.group(1).lower().replace(" ", "_").replace("-", "_")
             value = match.group(2).strip()
             
             if value.lower() == "true":
