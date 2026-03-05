@@ -37,6 +37,17 @@ from .integration_manager import (
 from .actions import Action, ActionRegistry
 from .prompts import PromptBuilder, ToolUsagePromptBuilder
 from .tool_service import AgentToolService, create_agent_tool_service
+from .unified_tool_service import (
+    UnifiedToolService,
+    ToolServiceConfig,
+    ToolCall as UnifiedToolCall,
+    ToolState,
+    ExecutionPlan as ToolExecutionPlan,
+    PlanState,
+    OrchestrationResult,
+    DependencyGraph as ToolDependencyGraph,
+    create_unified_tool_service,
+)
 from ..core.protocols import AgentState, AgentResult
 from ..core.error_recovery import (
     ErrorRecoveryManager,
@@ -383,6 +394,15 @@ __all__ = [
     "ToolUsagePromptBuilder",
     "AgentToolService",
     "create_agent_tool_service",
+    "UnifiedToolService",
+    "ToolServiceConfig",
+    "UnifiedToolCall",
+    "ToolState",
+    "ToolExecutionPlan",
+    "PlanState",
+    "OrchestrationResult",
+    "ToolDependencyGraph",
+    "create_unified_tool_service",
     "ErrorRecoveryManager",
     "ErrorCategory",
     "RecoveryStrategy",

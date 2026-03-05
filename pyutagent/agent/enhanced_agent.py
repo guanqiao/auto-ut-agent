@@ -107,6 +107,7 @@ class EnhancedAgent(ReActAgent):
     - Multi-agent collaboration support
     - Performance monitoring
     - Adaptive optimization
+    - Project configuration via PYUT.md
     """
     
     def __init__(
@@ -128,12 +129,28 @@ class EnhancedAgent(ReActAgent):
             container: DI container
             config: Enhanced agent configuration
         """
-        self.config = config or EnhancedAgentConfig()
+        from ..core.project_config import load_project_config
         
-        # Initialize metrics
+        self.project_config = load_project_config(Path(project_path))
+        
+        if config is None:
+            config = EnhancedAgentConfig(
+                enable_multi_agent=self.project_config.agent.enable_multi_agent,
+                enable_error_prediction=self.project_config.agent.enable_error_prediction,
+                enable_self_reflection=self.project_config.agent.enable_self_reflection,
+                enable_pattern_library=self.project_config.agent.enable_pattern_library,
+                enable_chain_of_thought=self.project_config.agent.enable_chain_of_thought,
+                model_name=llm_client.model if hasattr(llm_client, 'model') else 'gpt-4',
+            )
+        
+        self.config = config
+        
+        if working_memory:
+            working_memory.target_coverage = self.project_config.testing.target_coverage
+            working_memory.max_iterations = self.project_config.agent.max_iterations
+        
         self.metrics = get_metrics() if self.config.enable_metrics else MetricsCollector(enabled=False)
         
-        # Initialize multi-agent components if enabled
         self.agent_coordinator: Optional[AgentCoordinator] = None
         self.message_bus: Optional[MessageBus] = None
         self.shared_knowledge: Optional[SharedKnowledgeBase] = None
@@ -142,7 +159,6 @@ class EnhancedAgent(ReActAgent):
         if self.config.enable_multi_agent:
             self._init_multi_agent()
         
-        # Initialize P3 components
         self.error_predictor: Optional[ErrorPredictor] = None
         self.strategy_manager: Optional[AdaptiveStrategyManager] = None
         self.sandbox_executor: Optional[SandboxExecutor] = None

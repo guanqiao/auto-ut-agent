@@ -1,679 +1,700 @@
-"""Project Configuration System - 项目配置系统
+"""Project Configuration System - PYUT.md
 
-类似 Claude Code 的 CLAUDE.md，实现 PYUT.md 项目配置系统，
-让 Agent 能快速理解项目上下文。
+This module provides a project-level configuration system similar to CLAUDE.md.
+PYUT.md files allow users to persist project understanding and Agent preferences.
+
+Example PYUT.md:
+```markdown
+# Project Configuration
+
+## Build
+- Tool: Maven
+- Java Version: 17
+- Build Command: mvn clean install -DskipTests
+
+## Testing
+- Framework: TestNG
+- Target Coverage: 80%
+- Test Directory: src/test/java
+
+## Agent Preferences
+- Enable Multi-Agent: true
+- Preferred Strategies: [boundary, mutation]
+- Max Iterations: 10
+
+## Code Style
+- Naming Convention: camelCase
+- Max Line Length: 120
+
+## Dependencies
+- Spring Boot: 3.0.0
+- Lombok: enabled
+```
 """
 
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Any, Optional, Union
-from pathlib import Path
-from enum import Enum
-import json
 import logging
-import time
-from xml.etree import ElementTree as ET
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
+from enum import Enum
 
 logger = logging.getLogger(__name__)
 
 
 class BuildTool(Enum):
-    """构建工具枚举"""
+    """Supported build tools."""
     MAVEN = "maven"
     GRADLE = "gradle"
-    BAZEL = "bazel"
-    ANT = "ant"
     UNKNOWN = "unknown"
 
 
 class TestFramework(Enum):
-    """测试框架枚举"""
-    JUNIT5 = "junit5"
+    """Supported test frameworks."""
     JUNIT4 = "junit4"
+    JUNIT5 = "junit5"
     TESTNG = "testng"
-    SPOCK = "spock"
     UNKNOWN = "unknown"
 
 
 class MockFramework(Enum):
-    """Mock 框架枚举"""
+    """Supported mock frameworks."""
     MOCKITO = "mockito"
     EASYMOCK = "easymock"
     JMOCK = "jmock"
-    POWERMOCK = "powermock"
+    NONE = "none"
     UNKNOWN = "unknown"
 
 
 @dataclass
-class BuildCommands:
-    """构建命令配置"""
-    build: str = "mvn compile"
-    test: str = "mvn test"
-    test_single: str = "mvn test -Dtest={test_class}"
-    coverage: str = "mvn jacoco:report"
-    clean: str = "mvn clean"
-    package: str = "mvn package"
-    install: str = "mvn install"
-    
-    def format_command(self, command: str, **kwargs) -> str:
-        """格式化命令"""
-        cmd = getattr(self, command, "")
-        return cmd.format(**kwargs) if kwargs else cmd
+class BuildConfig:
+    """Build configuration."""
+    tool: BuildTool = BuildTool.MAVEN
+    java_version: str = "17"
+    build_command: str = "mvn clean install -DskipTests"
+    test_command: str = "mvn test"
+    compile_command: str = "mvn compile"
 
 
 @dataclass
-class CodingStandards:
-    """编码规范配置"""
-    style_guide: str = "google_java_format"
+class TestConfig:
+    """Testing configuration."""
+    framework: TestFramework = TestFramework.JUNIT5
+    target_coverage: float = 0.8
+    test_directory: str = "src/test/java"
+    test_suffix: str = "Test"
+    generate_integration_tests: bool = False
+    mock_framework: str = "mockito"
+
+
+@dataclass
+class AgentPreferences:
+    """Agent behavior preferences."""
+    enable_multi_agent: bool = False
+    enable_error_prediction: bool = True
+    enable_self_reflection: bool = True
+    enable_pattern_library: bool = True
+    enable_chain_of_thought: bool = True
+    max_iterations: int = 10
+    preferred_strategies: List[str] = field(default_factory=lambda: ["boundary", "positive"])
+    timeout_per_file: int = 300
+    parallel_workers: int = 1
+
+
+@dataclass
+class CodeStyle:
+    """Code style preferences."""
+    naming_convention: str = "camelCase"
     max_line_length: int = 120
     indent_size: int = 4
-    use_tabs: bool = False
-    
-    # 命名规范
-    class_naming: str = "PascalCase"
-    method_naming: str = "camelCase"
-    constant_naming: str = "UPPER_SNAKE_CASE"
-    
-    # 代码质量
-    require_javadoc: bool = True
-    max_method_lines: int = 50
-    max_class_lines: int = 500
+    use_lombok: bool = False
+    generate_javadoc: bool = False
 
 
 @dataclass
-class TestPreferences:
-    """测试偏好配置"""
-    test_framework: TestFramework = TestFramework.JUNIT5
-    mock_framework: MockFramework = MockFramework.MOCKITO
-    coverage_threshold: float = 0.8
-    
-    # 测试命名
-    test_class_suffix: str = "Test"
-    test_method_prefix: str = "test"
-    
-    # 测试策略
-    generate_positive_cases: bool = True
-    generate_negative_cases: bool = True
-    generate_edge_cases: bool = True
-    generate_boundary_cases: bool = True
-    
-    # 测试模式
-    prefer_parametrized_tests: bool = False
-    use_given_when_then: bool = False
-    use_arrange_act_assert: bool = True
+class DependencyInfo:
+    """Dependency information."""
+    name: str
+    version: str = ""
+    enabled: bool = True
 
 
 @dataclass
 class ProjectContext:
-    """项目上下文配置"""
-    # 基本信息
+    """Project context information for agent operations.
+    
+    This class provides a simplified view of project information
+    that can be easily passed to agents and other components.
+    """
     name: str = ""
     description: str = ""
-    version: str = "1.0.0"
-    
-    # 技术栈
     language: str = "java"
+    build_tool: str = "maven"
     java_version: str = "17"
-    build_tool: BuildTool = BuildTool.MAVEN
-    
-    # 配置对象
-    build_commands: BuildCommands = field(default_factory=BuildCommands)
-    coding_standards: CodingStandards = field(default_factory=CodingStandards)
-    test_preferences: TestPreferences = field(default_factory=TestPreferences)
-    
-    # 项目结构
-    source_dirs: List[str] = field(default_factory=lambda: ["src/main/java"])
-    test_dirs: List[str] = field(default_factory=lambda: ["src/test/java"])
-    resource_dirs: List[str] = field(default_factory=lambda: ["src/main/resources"])
-    
-    # 模块信息
-    key_modules: List[str] = field(default_factory=list)
-    external_dependencies: List[str] = field(default_factory=list)
-    
-    # 测试配置
-    test_patterns: List[str] = field(default_factory=lambda: ["**/*Test.java"])
-    exclude_patterns: List[str] = field(default_factory=list)
-    
-    # 工作流
-    common_workflows: Dict[str, str] = field(default_factory=dict)
-    
-    # 架构信息
-    architecture: str = ""
-    design_patterns: List[str] = field(default_factory=list)
-    
-    # 元数据
-    created_at: float = field(default_factory=time.time)
-    updated_at: float = field(default_factory=time.time)
+    test_framework: str = "junit5"
+    mock_framework: str = "mockito"
+    project_root: Path = None
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
-        data = asdict(self)
-        # 转换枚举类型
-        data['build_tool'] = self.build_tool.value
-        data['test_preferences']['test_framework'] = self.test_preferences.test_framework.value
-        data['test_preferences']['mock_framework'] = self.test_preferences.mock_framework.value
-        return data
+        """Convert to dictionary."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "language": self.language,
+            "build_tool": self.build_tool,
+            "java_version": self.java_version,
+            "test_framework": self.test_framework,
+            "mock_framework": self.mock_framework,
+            "project_root": str(self.project_root) if self.project_root else None,
+        }
+
+
+@dataclass
+class ProjectConfig:
+    """Complete project configuration from PYUT.md."""
+    project_name: str = ""
+    project_root: Path = None
+    
+    build: BuildConfig = field(default_factory=BuildConfig)
+    testing: TestConfig = field(default_factory=TestConfig)
+    agent: AgentPreferences = field(default_factory=AgentPreferences)
+    code_style: CodeStyle = field(default_factory=CodeStyle)
+    dependencies: Dict[str, DependencyInfo] = field(default_factory=dict)
+    
+    custom_instructions: List[str] = field(default_factory=list)
+    ignore_patterns: List[str] = field(default_factory=list)
+    
+    def to_context(self) -> ProjectContext:
+        """Convert to ProjectContext."""
+        return ProjectContext(
+            name=self.project_name,
+            language="java",
+            build_tool=self.build.tool.value if self.build.tool else "maven",
+            java_version=self.build.java_version,
+            test_framework=self.testing.framework.value if self.testing.framework else "junit5",
+            mock_framework=self.testing.mock_framework,
+            project_root=self.project_root,
+        )
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ProjectContext':
-        """从字典创建"""
-        # 处理枚举
-        if 'build_tool' in data:
-            data['build_tool'] = BuildTool(data['build_tool'])
-        if 'test_preferences' in data:
-            tp = data['test_preferences']
-            if 'test_framework' in tp:
-                tp['test_framework'] = TestFramework(tp['test_framework'])
-            if 'mock_framework' in tp:
-                tp['mock_framework'] = MockFramework(tp['mock_framework'])
+    def from_dict(cls, data: Dict[str, Any], project_root: Path = None) -> "ProjectConfig":
+        """Create ProjectConfig from dictionary."""
+        config = cls(project_root=project_root)
         
-        # 处理嵌套 dataclass
-        if 'build_commands' in data:
-            data['build_commands'] = BuildCommands(**data['build_commands'])
-        if 'coding_standards' in data:
-            data['coding_standards'] = CodingStandards(**data['coding_standards'])
-        if 'test_preferences' in data:
-            data['test_preferences'] = TestPreferences(**data['test_preferences'])
+        if "build" in data:
+            build_data = data["build"]
+            config.build = BuildConfig(
+                tool=BuildTool(build_data.get("tool", "maven").lower()),
+                java_version=build_data.get("java_version", "17"),
+                build_command=build_data.get("build_command", "mvn clean install -DskipTests"),
+                test_command=build_data.get("test_command", "mvn test"),
+                compile_command=build_data.get("compile_command", "mvn compile"),
+            )
         
-        return cls(**data)
+        if "testing" in data:
+            test_data = data["testing"]
+            config.testing = TestConfig(
+                framework=TestFramework(test_data.get("framework", "junit5").lower()),
+                target_coverage=test_data.get("target_coverage", 0.8),
+                test_directory=test_data.get("test_directory", "src/test/java"),
+                test_suffix=test_data.get("test_suffix", "Test"),
+                generate_integration_tests=test_data.get("generate_integration_tests", False),
+                mock_framework=test_data.get("mock_framework", "mockito"),
+            )
+        
+        if "agent" in data:
+            agent_data = data["agent"]
+            config.agent = AgentPreferences(
+                enable_multi_agent=agent_data.get("enable_multi_agent", False),
+                enable_error_prediction=agent_data.get("enable_error_prediction", True),
+                enable_self_reflection=agent_data.get("enable_self_reflection", True),
+                enable_pattern_library=agent_data.get("enable_pattern_library", True),
+                enable_chain_of_thought=agent_data.get("enable_chain_of_thought", True),
+                max_iterations=agent_data.get("max_iterations", 10),
+                preferred_strategies=agent_data.get("preferred_strategies", ["boundary", "positive"]),
+                timeout_per_file=agent_data.get("timeout_per_file", 300),
+                parallel_workers=agent_data.get("parallel_workers", 1),
+            )
+        
+        if "code_style" in data:
+            style_data = data["code_style"]
+            config.code_style = CodeStyle(
+                naming_convention=style_data.get("naming_convention", "camelCase"),
+                max_line_length=style_data.get("max_line_length", 120),
+                indent_size=style_data.get("indent_size", 4),
+                use_lombok=style_data.get("use_lombok", False),
+                generate_javadoc=style_data.get("generate_javadoc", False),
+            )
+        
+        if "dependencies" in data:
+            for name, dep_data in data["dependencies"].items():
+                if isinstance(dep_data, dict):
+                    config.dependencies[name] = DependencyInfo(
+                        name=name,
+                        version=dep_data.get("version", ""),
+                        enabled=dep_data.get("enabled", True),
+                    )
+                elif isinstance(dep_data, str):
+                    config.dependencies[name] = DependencyInfo(
+                        name=name,
+                        version=dep_data,
+                    )
+        
+        if "custom_instructions" in data:
+            config.custom_instructions = data["custom_instructions"]
+        
+        if "ignore_patterns" in data:
+            config.ignore_patterns = data["ignore_patterns"]
+        
+        return config
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "project_name": self.project_name,
+            "build": {
+                "tool": self.build.tool.value,
+                "java_version": self.build.java_version,
+                "build_command": self.build.build_command,
+                "test_command": self.build.test_command,
+                "compile_command": self.build.compile_command,
+            },
+            "testing": {
+                "framework": self.testing.framework.value,
+                "target_coverage": self.testing.target_coverage,
+                "test_directory": self.testing.test_directory,
+                "test_suffix": self.testing.test_suffix,
+                "generate_integration_tests": self.testing.generate_integration_tests,
+                "mock_framework": self.testing.mock_framework,
+            },
+            "agent": {
+                "enable_multi_agent": self.agent.enable_multi_agent,
+                "enable_error_prediction": self.agent.enable_error_prediction,
+                "enable_self_reflection": self.agent.enable_self_reflection,
+                "enable_pattern_library": self.agent.enable_pattern_library,
+                "enable_chain_of_thought": self.agent.enable_chain_of_thought,
+                "max_iterations": self.agent.max_iterations,
+                "preferred_strategies": self.agent.preferred_strategies,
+                "timeout_per_file": self.agent.timeout_per_file,
+                "parallel_workers": self.agent.parallel_workers,
+            },
+            "code_style": {
+                "naming_convention": self.code_style.naming_convention,
+                "max_line_length": self.code_style.max_line_length,
+                "indent_size": self.code_style.indent_size,
+                "use_lombok": self.code_style.use_lombok,
+                "generate_javadoc": self.code_style.generate_javadoc,
+            },
+            "dependencies": {
+                name: {"version": dep.version, "enabled": dep.enabled}
+                for name, dep in self.dependencies.items()
+            },
+            "custom_instructions": self.custom_instructions,
+            "ignore_patterns": self.ignore_patterns,
+        }
+
+
+class PYUTMdParser:
+    """Parser for PYUT.md files."""
+    
+    SECTION_PATTERN = re.compile(r'^##\s+(.+)$', re.MULTILINE)
+    LIST_ITEM_PATTERN = re.compile(r'^-\s+(.+)$', re.MULTILINE)
+    KEY_VALUE_PATTERN = re.compile(r'^-\s+(\w+):\s*(.+)$', re.MULTILINE)
+    ARRAY_PATTERN = re.compile(r'\[(.+)\]')
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+    
+    def parse(self, content: str) -> Dict[str, Any]:
+        """Parse PYUT.md content into a dictionary.
+        
+        Args:
+            content: PYUT.md file content
+            
+        Returns:
+            Parsed configuration dictionary
+        """
+        result: Dict[str, Any] = {}
+        
+        sections = self._split_sections(content)
+        
+        for section_name, section_content in sections.items():
+            section_name_lower = section_name.lower().replace(" ", "_")
+            
+            if section_name_lower == "build":
+                result["build"] = self._parse_build_section(section_content)
+            elif section_name_lower == "testing":
+                result["testing"] = self._parse_testing_section(section_content)
+            elif section_name_lower == "agent_preferences":
+                result["agent"] = self._parse_agent_section(section_content)
+            elif section_name_lower == "code_style":
+                result["code_style"] = self._parse_style_section(section_content)
+            elif section_name_lower == "dependencies":
+                result["dependencies"] = self._parse_dependencies_section(section_content)
+            elif section_name_lower == "custom_instructions":
+                result["custom_instructions"] = self._parse_list_section(section_content)
+            elif section_name_lower == "ignore":
+                result["ignore_patterns"] = self._parse_list_section(section_content)
+            else:
+                result[section_name_lower] = self._parse_generic_section(section_content)
+        
+        return result
+    
+    def _split_sections(self, content: str) -> Dict[str, str]:
+        """Split content into sections by ## headers."""
+        sections: Dict[str, str] = {}
+        
+        lines = content.split('\n')
+        current_section = "header"
+        current_content: List[str] = []
+        
+        for line in lines:
+            if line.startswith('## '):
+                if current_content:
+                    sections[current_section] = '\n'.join(current_content).strip()
+                current_section = line[3:].strip()
+                current_content = []
+            else:
+                current_content.append(line)
+        
+        if current_content:
+            sections[current_section] = '\n'.join(current_content).strip()
+        
+        return sections
+    
+    def _parse_build_section(self, content: str) -> Dict[str, Any]:
+        """Parse Build section."""
+        result: Dict[str, Any] = {}
+        
+        for match in self.KEY_VALUE_PATTERN.finditer(content):
+            key = match.group(1).lower().replace(" ", "_")
+            value = match.group(2).strip()
+            result[key] = value
+        
+        return result
+    
+    def _parse_testing_section(self, content: str) -> Dict[str, Any]:
+        """Parse Testing section."""
+        result: Dict[str, Any] = {}
+        
+        for match in self.KEY_VALUE_PATTERN.finditer(content):
+            key = match.group(1).lower().replace(" ", "_")
+            value = match.group(2).strip()
+            
+            if key == "target_coverage":
+                value = float(value.rstrip('%')) / 100 if '%' in value else float(value)
+            elif key == "framework":
+                value = value.lower()
+            
+            result[key] = value
+        
+        return result
+    
+    def _parse_agent_section(self, content: str) -> Dict[str, Any]:
+        """Parse Agent Preferences section."""
+        result: Dict[str, Any] = {}
+        
+        for match in self.KEY_VALUE_PATTERN.finditer(content):
+            key = match.group(1).lower().replace(" ", "_")
+            value = match.group(2).strip()
+            
+            if value.lower() == "true":
+                value = True
+            elif value.lower() == "false":
+                value = False
+            elif self.ARRAY_PATTERN.match(value):
+                array_match = self.ARRAY_PATTERN.match(value)
+                if array_match:
+                    items = array_match.group(1).split(',')
+                    value = [item.strip().strip('"\'') for item in items]
+            elif value.isdigit():
+                value = int(value)
+            
+            result[key] = value
+        
+        return result
+    
+    def _parse_style_section(self, content: str) -> Dict[str, Any]:
+        """Parse Code Style section."""
+        result: Dict[str, Any] = {}
+        
+        for match in self.KEY_VALUE_PATTERN.finditer(content):
+            key = match.group(1).lower().replace(" ", "_")
+            value = match.group(2).strip()
+            
+            if value.lower() == "true":
+                value = True
+            elif value.lower() == "false":
+                value = False
+            elif value.isdigit():
+                value = int(value)
+            
+            result[key] = value
+        
+        return result
+    
+    def _parse_dependencies_section(self, content: str) -> Dict[str, Any]:
+        """Parse Dependencies section."""
+        result: Dict[str, Any] = {}
+        
+        for match in self.KEY_VALUE_PATTERN.finditer(content):
+            key = match.group(1)
+            value = match.group(2).strip()
+            
+            if value.lower() == "enabled":
+                result[key] = {"version": "", "enabled": True}
+            elif value.lower() == "disabled":
+                result[key] = {"version": "", "enabled": False}
+            else:
+                result[key] = {"version": value, "enabled": True}
+        
+        return result
+    
+    def _parse_list_section(self, content: str) -> List[str]:
+        """Parse a simple list section."""
+        result: List[str] = []
+        
+        for match in self.LIST_ITEM_PATTERN.finditer(content):
+            result.append(match.group(1).strip())
+        
+        return result
+    
+    def _parse_generic_section(self, content: str) -> Dict[str, Any]:
+        """Parse a generic section."""
+        result: Dict[str, Any] = {}
+        
+        for match in self.KEY_VALUE_PATTERN.finditer(content):
+            key = match.group(1).lower().replace(" ", "_")
+            value = match.group(2).strip()
+            result[key] = value
+        
+        list_items = self._parse_list_section(content)
+        if list_items and not result:
+            return {"items": list_items}
+        
+        return result
+
+
+class ProjectConfigLoader:
+    """Loader for project configuration."""
+    
+    CONFIG_FILENAMES = ["PYUT.md", ".pyut.md", "pyut.md"]
+    
+    def __init__(self):
+        self.parser = PYUTMdParser()
+        self.logger = logging.getLogger(__name__)
+    
+    def find_config_file(self, project_path: Path) -> Optional[Path]:
+        """Find PYUT.md file in project directory.
+        
+        Args:
+            project_path: Project root directory
+            
+        Returns:
+            Path to config file or None
+        """
+        for filename in self.CONFIG_FILENAMES:
+            config_path = project_path / filename
+            if config_path.exists():
+                return config_path
+        
+        return None
+    
+    def load(self, project_path: Path) -> ProjectConfig:
+        """Load project configuration.
+        
+        Args:
+            project_path: Project root directory
+            
+        Returns:
+            ProjectConfig instance
+        """
+        config_path = self.find_config_file(project_path)
+        
+        if config_path:
+            self.logger.info(f"[ProjectConfig] Loading config from: {config_path}")
+            
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                data = self.parser.parse(content)
+                config = ProjectConfig.from_dict(data, project_path)
+                config.project_name = project_path.name
+                
+                self.logger.info(f"[ProjectConfig] Loaded configuration for: {config.project_name}")
+                return config
+                
+            except Exception as e:
+                self.logger.warning(f"[ProjectConfig] Failed to load config: {e}")
+        
+        self.logger.info("[ProjectConfig] No config file found, using defaults")
+        return ProjectConfig(project_root=project_path, project_name=project_path.name)
+    
+    def create_template(self, output_path: Path) -> None:
+        """Create a template PYUT.md file.
+        
+        Args:
+            output_path: Path to create the template
+        """
+        template = '''# Project Configuration
+
+This file configures the PyUT Agent for this project.
+
+## Build
+- Tool: Maven
+- Java Version: 17
+- Build Command: mvn clean install -DskipTests
+- Test Command: mvn test
+- Compile Command: mvn compile
+
+## Testing
+- Framework: junit5
+- Target Coverage: 80%
+- Test Directory: src/test/java
+- Test Suffix: Test
+- Generate Integration Tests: false
+- Mock Framework: mockito
+
+## Agent Preferences
+- Enable Multi-Agent: false
+- Enable Error Prediction: true
+- Enable Self Reflection: true
+- Enable Pattern Library: true
+- Enable Chain Of Thought: true
+- Max Iterations: 10
+- Preferred Strategies: [boundary, positive, negative]
+- Timeout Per File: 300
+- Parallel Workers: 1
+
+## Code Style
+- Naming Convention: camelCase
+- Max Line Length: 120
+- Indent Size: 4
+- Use Lombok: false
+- Generate Javadoc: false
+
+## Dependencies
+- Spring Boot: 3.0.0
+- Lombok: enabled
+
+## Custom Instructions
+- Always use @DisplayName annotations
+- Generate tests for edge cases
+- Use AssertJ assertions
+
+## Ignore
+- **/generated/**
+- **/target/**
+- **/*_Test.java
+'''
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(template)
+        
+        self.logger.info(f"[ProjectConfig] Created template at: {output_path}")
+
+
+_global_loader: Optional[ProjectConfigLoader] = None
+
+
+def get_project_config_loader() -> ProjectConfigLoader:
+    """Get global project config loader."""
+    global _global_loader
+    if _global_loader is None:
+        _global_loader = ProjectConfigLoader()
+    return _global_loader
+
+
+def load_project_config(project_path: Path) -> ProjectConfig:
+    """Load project configuration.
+    
+    Args:
+        project_path: Project root directory
+        
+    Returns:
+        ProjectConfig instance
+    """
+    return get_project_config_loader().load(project_path)
+
+
+def create_config_template(output_path: Path) -> None:
+    """Create a template PYUT.md file.
+    
+    Args:
+        output_path: Path to create the template
+    """
+    get_project_config_loader().create_template(output_path)
+
+
+@dataclass
+class ProjectContext:
+    """Project context for test generation."""
+    project_path: Path = None
+    project_name: str = ""
+    build_config: BuildConfig = field(default_factory=BuildConfig)
+    test_config: TestConfig = field(default_factory=TestConfig)
+    agent_preferences: AgentPreferences = field(default_factory=AgentPreferences)
+    code_style: CodeStyle = field(default_factory=CodeStyle)
+    dependencies: Dict[str, DependencyInfo] = field(default_factory=dict)
+    custom_instructions: List[str] = field(default_factory=list)
+    
+    @classmethod
+    def from_project_config(cls, config: ProjectConfig) -> "ProjectContext":
+        """Create ProjectContext from ProjectConfig."""
+        return cls(
+            project_path=config.project_root,
+            project_name=config.project_name,
+            build_config=config.build,
+            test_config=config.testing,
+            agent_preferences=config.agent,
+            code_style=config.code_style,
+            dependencies=config.dependencies,
+            custom_instructions=config.custom_instructions
+        )
 
 
 class ProjectConfigManager:
-    """项目配置管理器
+    """Manager for project configuration."""
     
-    管理 PYUT.md 配置文件，类似于 Claude Code 的 CLAUDE.md
-    """
-    
-    CONFIG_FILENAME = "PYUT.md"
-    CONFIG_JSON = ".pyutagent/config.json"
-    
-    def __init__(self, project_root: Union[str, Path]):
-        self.project_root = Path(project_root).resolve()
-        self.config_path = self.project_root / self.CONFIG_FILENAME
-        self.json_config_path = self.project_root / self.CONFIG_JSON
+    def __init__(self, project_path: str):
+        self.project_path = Path(project_path)
+        self._config: Optional[ProjectConfig] = None
         self._context: Optional[ProjectContext] = None
     
-    def init_config(self, force: bool = False) -> bool:
-        """初始化项目配置文件
-        
-        类似于 Claude Code 的 /init 命令
-        
-        Args:
-            force: 是否强制覆盖已有配置
-            
-        Returns:
-            bool: 是否成功创建配置
-        """
-        if self.config_path.exists() and not force:
-            logger.info(f"Config already exists: {self.config_path}")
-            return False
-        
-        try:
-            # 分析项目结构
-            context = self._analyze_project()
-            
-            # 生成配置文件
-            self._write_config(context)
-            
-            logger.info(f"Created config: {self.config_path}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to init config: {e}")
-            return False
-    
-    def _analyze_project(self) -> ProjectContext:
-        """分析项目结构"""
-        context = ProjectContext(
-            name=self.project_root.name,
-            description=f"Project {self.project_root.name}"
-        )
-        
-        # 检测构建工具
-        context.build_tool = self._detect_build_tool()
-        context.build_commands = self._get_build_commands(context.build_tool)
-        
-        # 检测 Java 版本
-        context.java_version = self._detect_java_version(context.build_tool)
-        
-        # 检测测试框架
-        context.test_preferences.test_framework = self._detect_test_framework()
-        context.test_preferences.mock_framework = self._detect_mock_framework()
-        
-        # 分析项目结构
-        context.key_modules = self._detect_modules()
-        context.source_dirs = self._detect_source_dirs()
-        context.test_dirs = self._detect_test_dirs()
-        
-        # 检测外部依赖
-        context.external_dependencies = self._detect_external_dependencies()
-        
-        return context
-    
-    def _detect_build_tool(self) -> BuildTool:
-        """检测构建工具"""
-        if (self.project_root / "pom.xml").exists():
-            return BuildTool.MAVEN
-        elif (self.project_root / "build.gradle").exists():
-            return BuildTool.GRADLE
-        elif (self.project_root / "build.gradle.kts").exists():
-            return BuildTool.GRADLE
-        elif (self.project_root / "BUILD").exists() or (self.project_root / "WORKSPACE").exists():
-            return BuildTool.BAZEL
-        elif (self.project_root / "build.xml").exists():
-            return BuildTool.ANT
-        return BuildTool.UNKNOWN
-    
-    def _get_build_commands(self, build_tool: BuildTool) -> BuildCommands:
-        """获取构建命令"""
-        commands_map = {
-            BuildTool.MAVEN: BuildCommands(
-                build="mvn compile",
-                test="mvn test",
-                test_single="mvn test -Dtest={test_class}",
-                coverage="mvn jacoco:report",
-                clean="mvn clean",
-                package="mvn package",
-                install="mvn install"
-            ),
-            BuildTool.GRADLE: BuildCommands(
-                build="gradle build",
-                test="gradle test",
-                test_single="gradle test --tests {test_class}",
-                coverage="gradle jacocoTestReport",
-                clean="gradle clean",
-                package="gradle jar",
-                install="gradle publishToMavenLocal"
-            ),
-            BuildTool.BAZEL: BuildCommands(
-                build="bazel build //...",
-                test="bazel test //...",
-                test_single="bazel test {test_class}",
-                coverage="bazel coverage //...",
-                clean="bazel clean",
-                package="bazel build //:package",
-                install=""
-            ),
-            BuildTool.ANT: BuildCommands(
-                build="ant compile",
-                test="ant test",
-                test_single="ant test -Dtest.class={test_class}",
-                coverage="",
-                clean="ant clean",
-                package="ant jar",
-                install=""
-            ),
-            BuildTool.UNKNOWN: BuildCommands()
-        }
-        return commands_map.get(build_tool, BuildCommands())
-    
-    def _detect_java_version(self, build_tool: BuildTool) -> str:
-        """检测 Java 版本"""
-        if build_tool == BuildTool.MAVEN:
-            pom_path = self.project_root / "pom.xml"
-            if pom_path.exists():
-                try:
-                    tree = ET.parse(pom_path)
-                    root = tree.getroot()
-                    
-                    # 查找 java.version 或 maven.compiler.source
-                    ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
-                    
-                    # 先查找 properties
-                    for prop in root.findall('.//m:properties/*', ns):
-                        if prop.tag.endswith('java.version') or prop.tag.endswith('maven.compiler.source'):
-                            return prop.text or "17"
-                    
-                    # 再查找 plugin configuration
-                    for config in root.findall('.//m:configuration/*', ns):
-                        if config.tag.endswith('source') or config.tag.endswith('target'):
-                            return config.text or "17"
-                            
-                except Exception as e:
-                    logger.warning(f"Failed to parse pom.xml: {e}")
-        
-        elif build_tool == BuildTool.GRADLE:
-            gradle_path = self.project_root / "build.gradle"
-            if gradle_path.exists():
-                content = gradle_path.read_text()
-                # 查找 sourceCompatibility 或 JavaVersion
-                if 'sourceCompatibility' in content:
-                    import re
-                    match = re.search(r'sourceCompatibility\s*=\s*[\'"]?([\d.]+)[\'"]?', content)
-                    if match:
-                        return match.group(1)
-        
-        return "17"  # 默认 Java 17
-    
-    def _detect_test_framework(self) -> TestFramework:
-        """检测测试框架"""
-        pom_path = self.project_root / "pom.xml"
-        if pom_path.exists():
-            content = pom_path.read_text()
-            if 'junit-jupiter' in content or 'junit5' in content:
-                return TestFramework.JUNIT5
-            elif 'junit' in content:
-                return TestFramework.JUNIT4
-            elif 'testng' in content:
-                return TestFramework.TESTNG
-            elif 'spock' in content:
-                return TestFramework.SPOCK
-        
-        gradle_path = self.project_root / "build.gradle"
-        if gradle_path.exists():
-            content = gradle_path.read_text()
-            if 'junit-jupiter' in content:
-                return TestFramework.JUNIT5
-            elif 'testng' in content:
-                return TestFramework.TESTNG
-            elif 'spock' in content:
-                return TestFramework.SPOCK
-        
-        return TestFramework.JUNIT5
-    
-    def _detect_mock_framework(self) -> MockFramework:
-        """检测 Mock 框架"""
-        pom_path = self.project_root / "pom.xml"
-        if pom_path.exists():
-            content = pom_path.read_text()
-            if 'mockito' in content:
-                return MockFramework.MOCKITO
-            elif 'easymock' in content:
-                return MockFramework.EASYMOCK
-            elif 'jmock' in content:
-                return MockFramework.JMOCK
-            elif 'powermock' in content:
-                return MockFramework.POWERMOCK
-        
-        gradle_path = self.project_root / "build.gradle"
-        if gradle_path.exists():
-            content = gradle_path.read_text()
-            if 'mockito' in content:
-                return MockFramework.MOCKITO
-            elif 'easymock' in content:
-                return MockFramework.EASYMOCK
-        
-        return MockFramework.MOCKITO
-    
-    def _detect_modules(self) -> List[str]:
-        """检测项目模块"""
-        modules = []
-        
-        # 检查 Maven 多模块项目
-        pom_path = self.project_root / "pom.xml"
-        if pom_path.exists():
-            try:
-                tree = ET.parse(pom_path)
-                root = tree.getroot()
-                ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
-                
-                for module in root.findall('.//m:modules/m:module', ns):
-                    if module.text:
-                        modules.append(module.text)
-                
-                if modules:
-                    return modules
-            except Exception:
-                pass
-        
-        # 检查源码目录
-        src_main = self.project_root / "src" / "main" / "java"
-        if src_main.exists():
-            for item in src_main.iterdir():
-                if item.is_dir():
-                    modules.append(item.name)
-        
-        return modules[:10]  # 最多返回10个
-    
-    def _detect_source_dirs(self) -> List[str]:
-        """检测源码目录"""
-        dirs = []
-        
-        # 标准 Maven/Gradle 结构
-        if (self.project_root / "src" / "main" / "java").exists():
-            dirs.append("src/main/java")
-        
-        # 检查其他常见位置
-        for path in ["src", "java", "source", "sources"]:
-            if (self.project_root / path).is_dir():
-                dirs.append(path)
-        
-        return dirs if dirs else ["src/main/java"]
-    
-    def _detect_test_dirs(self) -> List[str]:
-        """检测测试目录"""
-        dirs = []
-        
-        # 标准 Maven/Gradle 结构
-        if (self.project_root / "src" / "test" / "java").exists():
-            dirs.append("src/test/java")
-        
-        return dirs if dirs else ["src/test/java"]
-    
-    def _detect_external_dependencies(self) -> List[str]:
-        """检测外部依赖"""
-        dependencies = []
-        
-        pom_path = self.project_root / "pom.xml"
-        if pom_path.exists():
-            try:
-                tree = ET.parse(pom_path)
-                root = tree.getroot()
-                ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
-                
-                for dep in root.findall('.//m:dependencies/m:dependency', ns):
-                    group_id = dep.find('m:groupId', ns)
-                    artifact_id = dep.find('m:artifactId', ns)
-                    if group_id is not None and artifact_id is not None:
-                        dependencies.append(f"{group_id.text}:{artifact_id.text}")
-            except Exception:
-                pass
-        
-        return dependencies[:20]  # 最多返回20个
-    
-    def _write_config(self, context: ProjectContext) -> None:
-        """写入配置文件"""
-        # 生成 Markdown 配置
-        md_content = self._generate_md_config(context)
-        self.config_path.write_text(md_content, encoding='utf-8')
-        
-        # 同时写入 JSON 格式便于程序读取
-        self.json_config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.json_config_path.write_text(
-            json.dumps(context.to_dict(), indent=2, ensure_ascii=False),
-            encoding='utf-8'
-        )
-    
-    def _generate_md_config(self, context: ProjectContext) -> str:
-        """生成 Markdown 格式配置"""
-        tf = context.test_preferences.test_framework.value
-        mf = context.test_preferences.mock_framework.value
-        bt = context.build_tool.value
-        
-        return f"""# PyUT Agent Configuration
-
-## Project Context
-
-When working with this codebase, prioritize readability over cleverness.
-Ask clarifying questions when requirements are ambiguous.
-
-### Project Information
-- **Name**: {context.name}
-- **Description**: {context.description}
-- **Version**: {context.version}
-- **Language**: {context.language}
-- **Build Tool**: {bt}
-- **Java Version**: {context.java_version}
-- **Test Framework**: {tf}
-- **Mock Framework**: {mf}
-
-### Architecture
-{context.architecture or "Standard " + bt + " project structure"}
-
-### Key Modules
-{chr(10).join(f"- {m}" for m in context.key_modules) or "- Main source module"}
-
-### Source Directories
-{chr(10).join(f"- {d}" for d in context.source_dirs)}
-
-### Test Directories
-{chr(10).join(f"- {d}" for d in context.test_dirs)}
-
-## Build Commands
-
-```bash
-# Build the project
-{context.build_commands.build}
-
-# Run all tests
-{context.build_commands.test}
-
-# Run single test class
-{context.build_commands.test_single}
-
-# Generate coverage report
-{context.build_commands.coverage}
-
-# Clean build artifacts
-{context.build_commands.clean}
-
-# Package the project
-{context.build_commands.package}
-
-# Install to local repository
-{context.build_commands.install}
-```
-
-## Coding Standards
-
-- Follow existing code style in the project
-- Use meaningful variable and method names
-- Add Javadoc for public APIs
-- Keep methods focused and small
-- Write unit tests for new functionality
-- Maximum line length: {context.coding_standards.max_line_length}
-- Indent size: {context.coding_standards.indent_size}
-
-## Test Generation Preferences
-
-- Use **{tf}** for all new tests
-- Mock external dependencies with **{mf}**
-- Target **{context.test_preferences.coverage_threshold*100:.0f}%** code coverage
-- Include positive and negative test cases
-- Use descriptive test method names
-- Test class suffix: `{context.test_preferences.test_class_suffix}`
-
-## Common Workflows
-
-### Generate tests for a class
-```
-Generate unit tests for UserService
-```
-
-### Fix compilation errors
-```
-Fix compilation errors in OrderServiceTest
-```
-
-### Improve coverage
-```
-Improve test coverage for payment module
-```
-
-### Refactor code
-```
-Refactor UserService to use dependency injection
-```
-
-### Fix a bug
-```
-Fix the null pointer exception in OrderProcessor
-```
-
-## External Dependencies
-
-{chr(10).join(f"- {dep}" for dep in context.external_dependencies[:10]) or "- See pom.xml or build.gradle for full list"}
-
----
-
-*This configuration was auto-generated by PyUT Agent.*
-*Last updated: {time.strftime("%Y-%m-%d %H:%M:%S")}*
-"""
+    def load_config(self) -> ProjectConfig:
+        """Load project configuration."""
+        if self._config is None:
+            self._config = load_project_config(self.project_path)
+        return self._config
     
     def load_context(self) -> Optional[ProjectContext]:
-        """加载项目上下文"""
-        if self._context is not None:
-            return self._context
-        
-        # 优先读取 JSON 配置
-        if self.json_config_path.exists():
-            try:
-                data = json.loads(self.json_config_path.read_text())
-                self._context = ProjectContext.from_dict(data)
-                logger.info(f"Loaded config from {self.json_config_path}")
-                return self._context
-            except Exception as e:
-                logger.warning(f"Failed to load JSON config: {e}")
-        
-        # 回退到重新分析项目
-        logger.info("Analyzing project structure...")
-        self._context = self._analyze_project()
+        """Load project context."""
+        if self._context is None:
+            config = self.load_config()
+            self._context = ProjectContext.from_project_config(config)
         return self._context
     
-    def reload_context(self) -> Optional[ProjectContext]:
-        """重新加载项目上下文"""
-        self._context = None
-        return self.load_context()
+    def get_test_framework(self) -> TestFramework:
+        """Get test framework."""
+        config = self.load_config()
+        return config.testing.framework
     
-    def save_context(self, context: ProjectContext) -> bool:
-        """保存项目上下文"""
+    def get_mock_framework(self) -> MockFramework:
+        """Get mock framework."""
+        config = self.load_config()
+        mock_name = config.testing.mock_framework.lower()
         try:
-            context.updated_at = time.time()
-            self._write_config(context)
-            self._context = context
-            return True
-        except Exception as e:
-            logger.error(f"Failed to save context: {e}")
-            return False
+            return MockFramework(mock_name)
+        except ValueError:
+            return MockFramework.MOCKITO
     
-    def get_prompt_context(self) -> str:
-        """获取用于 LLM prompt 的上下文"""
-        context = self.load_context()
-        if not context:
-            return ""
-        
-        return f"""
-Project Context:
-- Name: {context.name}
-- Language: {context.language}
-- Build Tool: {context.build_tool.value}
-- Java Version: {context.java_version}
-- Test Framework: {context.test_preferences.test_framework.value}
-- Mock Framework: {context.test_preferences.mock_framework.value}
-
-Build Commands:
-- Build: {context.build_commands.build}
-- Test: {context.build_commands.test}
-- Coverage: {context.build_commands.coverage}
-
-Key Modules: {', '.join(context.key_modules[:5])}
-"""
+    def get_build_command(self) -> str:
+        """Get build command."""
+        config = self.load_config()
+        return config.build.build_command
     
-    def config_exists(self) -> bool:
-        """检查配置是否存在"""
-        return self.config_path.exists() or self.json_config_path.exists()
-    
-    def get_config_path(self) -> Path:
-        """获取配置文件路径"""
-        return self.config_path if self.config_path.exists() else self.json_config_path
-
-
-# 全局配置管理器缓存
-_config_managers: Dict[str, ProjectConfigManager] = {}
-
-
-def get_config_manager(project_root: Union[str, Path]) -> ProjectConfigManager:
-    """获取项目配置管理器（带缓存）"""
-    path = str(Path(project_root).resolve())
-    if path not in _config_managers:
-        _config_managers[path] = ProjectConfigManager(path)
-    return _config_managers[path]
+    def get_test_command(self) -> str:
+        """Get test command."""
+        config = self.load_config()
+        return config.build.test_command

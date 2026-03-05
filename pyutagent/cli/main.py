@@ -11,6 +11,7 @@ from .commands.config import config_group
 from .commands.history import history_group
 from .commands.hooks import hooks_group
 from .commands.skills import skills_group
+from .commands.project import project_group
 
 console = Console()
 
@@ -32,6 +33,7 @@ cli.add_command(config_group, name='config')
 cli.add_command(history_group, name='history')
 cli.add_command(hooks_group, name='hooks')
 cli.add_command(skills_group, name='skills')
+cli.add_command(project_group, name='project')
 
 
 def main():
