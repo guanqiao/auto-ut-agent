@@ -6,7 +6,7 @@ behavior across all retry mechanisms and prevent infinite loops.
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple, Type
 
 
 class RetryStrategy(Enum):
@@ -55,6 +55,33 @@ class RetryConfig:
         "test_failure": True,
         "llm_api": True,
     })
+
+    # LLM API error classification for intelligent retry
+    non_retryable_error_types: List[str] = field(default_factory=lambda: [
+        "AuthenticationError",
+        "PermissionError",
+        "InvalidRequestError",
+        "ModelNotFoundError",
+        "InvalidAPIKeyError",
+        "QuotaExceededError",
+    ])
+
+    long_backoff_error_types: List[str] = field(default_factory=lambda: [
+        "RateLimitError",
+        "ServiceUnavailable",
+        "ServerError",
+    ])
+
+    non_retryable_error_messages: List[str] = field(default_factory=lambda: [
+        "invalid api key",
+        "unauthorized",
+        "forbidden",
+        "access denied",
+        "quota exceeded",
+        "billing issue",
+        "model not found",
+        "invalid model",
+    ])
     
     def get_delay(self, attempt: int) -> float:
         """Calculate delay for given attempt number.
@@ -148,14 +175,47 @@ class RetryConfig:
     
     def should_stop_reset(self, reset_count: int) -> bool:
         """Check if should stop due to too many resets.
-        
+
         Args:
             reset_count: Current reset count
-            
+
         Returns:
             True if should stop
         """
         return reset_count >= self.max_reset_count
+
+    def classify_exception(self, error: Exception) -> Tuple[bool, float, str]:
+        """Classify an exception and determine retry strategy.
+
+        Args:
+            error: The exception to classify
+
+        Returns:
+            Tuple of (should_retry, delay, reason)
+        """
+        error_type = type(error).__name__
+        error_msg = str(error).lower()
+
+        # Check for non-retryable error types
+        if error_type in self.non_retryable_error_types:
+            return False, 0.0, f"Non-retryable error type: {error_type}"
+
+        # Check for non-retryable error messages
+        for keyword in self.non_retryable_error_messages:
+            if keyword in error_msg:
+                return False, 0.0, f"Non-retryable error: {keyword}"
+
+        # Check for rate limiting or service unavailable (longer backoff)
+        if error_type in self.long_backoff_error_types:
+            return True, self.backoff_max * 2, f"Long backoff for: {error_type}"
+
+        # Check for rate limiting keywords
+        rate_limit_keywords = ["rate limit", "too many requests", "throttled"]
+        if any(kw in error_msg for kw in rate_limit_keywords):
+            return True, self.backoff_max * 2, "Rate limit detected"
+
+        # Default: retry with standard backoff
+        return True, self.backoff_base, "Retryable error"
     
     def with_overrides(self, **kwargs) -> 'RetryConfig':
         """Create a new RetryConfig with overridden values.

@@ -102,6 +102,72 @@ class WorkingMemory:
             self.current_coverage >= self.target_coverage or
             self.iteration_count >= self.max_iterations
         )
+
+    def has_coverage_stalled(self, window_size: int = 3, threshold: float = 0.01) -> bool:
+        """Check if coverage has stalled (no significant improvement).
+
+        Args:
+            window_size: Number of recent iterations to check
+            threshold: Minimum coverage improvement threshold
+
+        Returns:
+            True if coverage has stalled, False otherwise
+        """
+        if len(self.coverage_history) < window_size:
+            return False
+
+        recent = self.coverage_history[-window_size:]
+        coverages = [h["coverage"] for h in recent]
+
+        max_coverage = max(coverages)
+        min_coverage = min(coverages)
+
+        stalled = (max_coverage - min_coverage) < threshold
+
+        if stalled:
+            logger.info(f"[WorkingMemory] Coverage stalled: {min_coverage:.1%} -> {max_coverage:.1%} "
+                       f"(window={window_size}, threshold={threshold:.1%})")
+
+        return stalled
+
+    def get_coverage_trend(self, window_size: int = 3) -> Dict[str, Any]:
+        """Get coverage trend information.
+
+        Args:
+            window_size: Number of recent iterations to analyze
+
+        Returns:
+            Dict with trend information
+        """
+        if len(self.coverage_history) < 2:
+            return {"trend": "insufficient_data", "improvement": 0.0}
+
+        recent = self.coverage_history[-window_size:] if len(self.coverage_history) >= window_size else self.coverage_history
+        coverages = [h["coverage"] for h in recent]
+
+        if len(coverages) < 2:
+            return {"trend": "insufficient_data", "improvement": 0.0}
+
+        first = coverages[0]
+        last = coverages[-1]
+        improvement = last - first
+
+        if improvement > 0.05:
+            trend = "improving"
+        elif improvement > 0.01:
+            trend = "slight_improvement"
+        elif improvement > -0.01:
+            trend = "stable"
+        else:
+            trend = "declining"
+
+        return {
+            "trend": trend,
+            "improvement": improvement,
+            "start_coverage": first,
+            "current_coverage": last,
+            "window_size": len(coverages)
+        }
     
     def get_progress(self) -> Dict[str, Any]:
         """Get current progress information."""

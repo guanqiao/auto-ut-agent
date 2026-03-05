@@ -46,91 +46,119 @@ class FeedbackLoopExecutor:
     
     async def run_feedback_loop(self, target_file: str) -> AgentResult:
         """Run the complete feedback loop for UT generation.
-        
+
         Args:
             target_file: Path to target Java file
-            
+
         Returns:
             AgentResult with final status
         """
         logger.info(f"[FeedbackLoopExecutor] 🎯 Starting test generation for: {Path(target_file).name}")
         logger.info(f"[FeedbackLoopExecutor] 📊 Configuration - MaxIterations: {self.agent_core.max_iterations}, TargetCoverage: {self.agent_core.target_coverage:.1%}")
-        
+
         if hasattr(self.agent_core, 'incremental_mode') and self.agent_core.incremental_mode:
             logger.info("[FeedbackLoopExecutor] 🔄 Incremental mode enabled")
-        
+
         await self._check_pause()
         if self.agent_core._terminated:
             return self.agent_core._create_terminated_result("before starting")
-        
+
         parse_result = await self._phase_parse_target(target_file)
         if not parse_result.success:
             return parse_result
-        
+
         use_incremental = await self._check_incremental_mode(target_file)
-        
+
+        # Check if existing tests already meet requirements (optimization)
+        if (not use_incremental and
+            hasattr(self.agent_core, 'incremental_mode') and
+            self.agent_core.incremental_mode and
+            self.agent_core.working_memory.current_coverage >= self.agent_core.target_coverage):
+            logger.info("[FeedbackLoopExecutor] ✅ Existing tests already meet requirements, skipping generation")
+            return self.agent_core._create_success_result(
+                self.agent_core.working_memory.current_coverage,
+                "existing_tests",
+                1.0
+            )
+
         if use_incremental:
             generate_result = await self._phase_generate_incremental_tests()
         else:
             generate_result = await self._phase_generate_initial_tests()
-        
+
         if not generate_result.success:
             return generate_result
-        
+
         self._save_initial_checkpoint(target_file)
-        
+
         return await self._phase_feedback_loop()
     
     async def _check_incremental_mode(self, target_file: str) -> bool:
         """Check if incremental mode should be used.
-        
+
         Args:
             target_file: Path to target Java file
-            
+
         Returns:
             True if incremental mode should be used
         """
         if not hasattr(self.agent_core, 'incremental_mode') or not self.agent_core.incremental_mode:
             return False
-        
+
         if not hasattr(self.agent_core, 'incremental_manager') or not self.agent_core.incremental_manager:
             logger.warning("[FeedbackLoopExecutor] Incremental mode enabled but no manager available")
             return False
-        
+
         logger.info("[FeedbackLoopExecutor] 🔍 Checking for existing tests...")
-        
+
         existing_test_file = self.agent_core.incremental_manager.detect_existing_test(
             target_file,
             self.agent_core.target_class_info
         )
-        
+
         if not existing_test_file:
             logger.info("[FeedbackLoopExecutor] No existing test file found, using normal generation")
             return False
-        
+
         skip_analysis = getattr(self.agent_core, 'skip_test_analysis', False)
-        
+
         analysis = await self.agent_core.incremental_manager.analyze_existing_tests(
             existing_test_file,
             run_tests=not skip_analysis
         )
-        
+
+        # Optimization: Check if existing tests already meet target coverage
+        if analysis.current_coverage >= self.agent_core.target_coverage:
+            if not analysis.has_failing_tests and not analysis.has_compilation_errors:
+                logger.info(
+                    f"[FeedbackLoopExecutor] ✅ Existing tests already meet target coverage "
+                    f"({analysis.current_coverage:.1%} >= {self.agent_core.target_coverage:.1%}) "
+                    f"with all tests passing. Skipping generation."
+                )
+                # Update working memory to reflect success
+                self.agent_core.working_memory.update_coverage(
+                    analysis.current_coverage, "existing_tests", 1.0
+                )
+                # Return False to indicate we don't need incremental mode
+                # The caller should check coverage and return success
+                return False
+
         if not self.agent_core.incremental_manager.should_use_incremental_mode(analysis):
             logger.info("[FeedbackLoopExecutor] Incremental mode not recommended, using normal generation")
             return False
-        
+
         self._incremental_context = self.agent_core.incremental_manager.build_incremental_context(
             analysis=analysis,
             class_info=self.agent_core.target_class_info,
             source_code=self.agent_core.target_class_info.get("source", ""),
             target_coverage=self.agent_core.target_coverage
         )
-        
+
         logger.info(
             f"[FeedbackLoopExecutor] ✅ Using incremental mode - "
             f"Preserving {len(self._incremental_context.preserved_test_names)} tests"
         )
-        
+
         return True
     
     async def _phase_parse_target(self, target_file: str) -> AgentResult:
@@ -283,7 +311,7 @@ class FeedbackLoopExecutor:
                 is_stopped=self.agent_core._stop_requested,
                 is_terminated=self.agent_core._terminated
             )
-            
+
             if term_state.should_stop:
                 logger.info(f"[FeedbackLoopExecutor] Termination requested - {term_state.message}")
                 if term_state.reason == TerminationReason.TARGET_COVERAGE_REACHED:
@@ -296,7 +324,20 @@ class FeedbackLoopExecutor:
                 elif term_state.reason == TerminationReason.MAX_ITERATIONS:
                     self.agent_core._update_state(AgentState.COMPLETED, term_state.message)
                 break
-            
+
+            # Check for coverage stall (optimization: stop if no improvement)
+            if self.agent_core.current_iteration > 3:
+                trend = self.agent_core.working_memory.get_coverage_trend(window_size=3)
+                if trend["trend"] == "stable" or trend["trend"] == "declining":
+                    logger.warning(f"[FeedbackLoopExecutor] Coverage stall detected - Trend: {trend['trend']}, "
+                                  f"Improvement: {trend['improvement']:.1%}. Stopping iteration.")
+                    self.agent_core._update_state(
+                        AgentState.COMPLETED,
+                        f"Coverage stalled at {self.agent_core.working_memory.current_coverage:.1%}. "
+                        f"No significant improvement in recent iterations."
+                    )
+                    break
+
             iteration_result = await self._execute_iteration()
             if iteration_result:
                 return iteration_result
