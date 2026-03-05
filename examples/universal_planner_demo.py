@@ -3,6 +3,10 @@
 演示如何使用通用任务规划器处理不同类型的编程任务。
 """
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 import json
 from typing import Dict, Any

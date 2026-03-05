@@ -14,6 +14,20 @@ from .unified_agent_base import (
 from .react_agent import ReActAgent
 from .enhanced_agent import EnhancedAgent, EnhancedAgentConfig
 from .test_generator import TestGeneratorAgent
+from .unified_autonomous_loop import (
+    UnifiedAutonomousLoop,
+    LoopConfig,
+    LoopState as UnifiedLoopState,
+    LoopFeature,
+    DecisionStrategy,
+    Observation,
+    Thought,
+    Action as LoopAction,
+    Verification,
+    LearningEntry,
+    LoopResult,
+    create_loop_config,
+)
 from .integration_manager import (
     IntegrationManager,
     get_integration_manager,
@@ -331,6 +345,20 @@ __all__ = [
     "AgentMixin",
     "ProgressUpdate",
     "create_agent_config",
+    
+    # Unified Autonomous Loop
+    "UnifiedAutonomousLoop",
+    "LoopConfig",
+    "UnifiedLoopState",
+    "LoopFeature",
+    "DecisionStrategy",
+    "Observation",
+    "Thought",
+    "LoopAction",
+    "Verification",
+    "LearningEntry",
+    "LoopResult",
+    "create_loop_config",
     
     "ReActAgent",
     "EnhancedAgent",
