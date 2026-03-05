@@ -427,6 +427,10 @@ class BatchGenerateDialog(QDialog):
                 "Fast: Generate all without checks → Compile once (fastest, manual fix may be needed)"
             )
     
+    def log(self, message: str, level: str = "INFO"):
+        """Log a message to the log area."""
+        self.on_log_message(message, level)
+    
     def on_incremental_changed(self, state):
         """Handle incremental mode checkbox change."""
         enabled = state == Qt.CheckState.Checked.value

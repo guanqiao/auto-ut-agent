@@ -11,6 +11,7 @@ from pyutagent.core.protocols import AgentState
 from pyutagent.core.config import get_settings
 from pyutagent.core.retry_config import RetryConfig, DEFAULT_RETRY_CONFIG
 from pyutagent.core.error_classification import get_error_classification_service
+from pyutagent.core.failure_pattern_tracker import FailurePatternTracker
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +49,17 @@ class StepExecutor:
         
         self.retry_config = retry_config
         self.error_classifier = get_error_classification_service()
-        
+
+        # Initialize failure pattern tracker for intelligent retry
+        self.failure_tracker = FailurePatternTracker(
+            max_repeated_failures=3,
+            pattern_expiry_seconds=600
+        )
+
         self._global_attempt_count: int = 0
         self._step_attempt_counts: Dict[str, int] = {}
-        
-        logger.debug("[StepExecutor] Initialized")
+
+        logger.debug("[StepExecutor] Initialized with failure pattern tracking")
     
     def reset_attempt_counts(self):
         """Reset all attempt counters."""
@@ -192,7 +199,29 @@ class StepExecutor:
                     
             except Exception as e:
                 logger.exception(f"[StepExecutor] Step execution exception - Step: {step_name}, Attempt: {attempt}, Error: {e}")
-                
+
+                # Record failure pattern for intelligent retry
+                self.failure_tracker.record_failure(e, step_name, {"attempt": attempt})
+
+                # Check if we should stop retrying this pattern
+                if self.failure_tracker.should_stop_retrying(e, step_name):
+                    recommendation = self.failure_tracker.get_recommendation(e, step_name)
+                    logger.warning(f"[StepExecutor] Repeated failure detected - Step: {step_name}, Recommendation: {recommendation}")
+
+                    if recommendation == "skip_file":
+                        return StepResult(
+                            success=False,
+                            state=AgentState.FAILED,
+                            message=f"Repeated compilation failures, skipping file"
+                        )
+                    elif recommendation == "accept_partial":
+                        return StepResult(
+                            success=True,
+                            state=AgentState.COMPLETED,
+                            message=f"Accepting partial results after repeated test failures",
+                            data={"partial_success": True}
+                        )
+
                 recovery_result = await self._try_recover(
                     e,
                     {"step": step_name, "attempt": attempt, "reset_count": reset_count}

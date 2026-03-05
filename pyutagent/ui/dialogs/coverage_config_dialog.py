@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ...core.config import CoverageSettings, get_settings, save_app_config
+from ...services.jacoco_config_service import JacocoConfigService
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,29 @@ class CoverageConfigDialog(QDialog):
 
         incremental_group.setLayout(incremental_layout)
         layout.addWidget(incremental_group)
+
+        # JaCoCo configuration group
+        jacoco_group = QGroupBox("JaCoCo 配置")
+        jacoco_layout = QVBoxLayout()
+
+        self.jacoco_status_label = QLabel("检测中...")
+        self.jacoco_status_label.setStyleSheet("color: #666; font-size: 12px; padding: 5px;")
+        jacoco_layout.addWidget(self.jacoco_status_label)
+
+        jacoco_button_layout = QHBoxLayout()
+
+        self.check_jacoco_btn = QPushButton("🔍 检测 JaCoCo")
+        self.check_jacoco_btn.clicked.connect(self.on_check_jacoco)
+        jacoco_button_layout.addWidget(self.check_jacoco_btn)
+
+        self.config_jacoco_btn = QPushButton("⚙️ 配置 JaCoCo")
+        self.config_jacoco_btn.clicked.connect(self.on_config_jacoco)
+        jacoco_button_layout.addWidget(self.config_jacoco_btn)
+
+        jacoco_layout.addLayout(jacoco_button_layout)
+
+        jacoco_group.setLayout(jacoco_layout)
+        layout.addWidget(jacoco_group)
 
         # Description
         desc = QTextEdit()
@@ -239,3 +263,79 @@ class CoverageConfigDialog(QDialog):
                 "配置已保存，将在下次生成测试时生效。"
             )
             super().accept()
+
+    def on_check_jacoco(self):
+        """Handle check JaCoCo button click."""
+        try:
+            # Get project path from parent or settings
+            project_path = self._get_project_path()
+            if not project_path:
+                QMessageBox.information(
+                    self,
+                    "提示",
+                    "请先打开一个项目"
+                )
+                return
+
+            service = JacocoConfigService(project_path)
+            result = service.check_jacoco_configured()
+
+            if result.is_configured:
+                version = result.plugin_version or "未知"
+                self.jacoco_status_label.setText(f"✅ JaCoCo 已配置 (版本: {version})")
+                self.jacoco_status_label.setStyleSheet("color: #00aa00; font-size: 12px; padding: 5px;")
+            else:
+                self.jacoco_status_label.setText("⚠️ JaCoCo 未配置")
+                self.jacoco_status_label.setStyleSheet("color: #ff6600; font-size: 12px; padding: 5px;")
+
+            if result.issues:
+                issues_text = "\n".join([f"• {issue}" for issue in result.issues])
+                QMessageBox.information(
+                    self,
+                    "JaCoCo 检测结果",
+                    f"配置状态: {'已配置' if result.is_configured else '未配置'}\n\n"
+                    f"检测到的问题:\n{issues_text}"
+                )
+
+        except Exception as e:
+            logger.exception("Failed to check JaCoCo configuration")
+            QMessageBox.critical(
+                self,
+                "错误",
+                f"检测失败: {str(e)}"
+            )
+
+    def on_config_jacoco(self):
+        """Handle configure JaCoCo button click."""
+        try:
+            project_path = self._get_project_path()
+            if not project_path:
+                QMessageBox.information(
+                    self,
+                    "提示",
+                    "请先打开一个项目"
+                )
+                return
+
+            # Import and open JaCoCo config dialog
+            from .jacoco_config_dialog import JacocoConfigDialog
+            dialog = JacocoConfigDialog(project_path, parent=self)
+            dialog.exec()
+
+            # Refresh status after dialog closes
+            self.on_check_jacoco()
+
+        except Exception as e:
+            logger.exception("Failed to open JaCoCo config dialog")
+            QMessageBox.critical(
+                self,
+                "错误",
+                f"打开配置对话框失败: {str(e)}"
+            )
+
+    def _get_project_path(self) -> str:
+        """Get current project path from parent main window."""
+        parent = self.parent()
+        if parent and hasattr(parent, 'current_project'):
+            return parent.current_project
+        return ""

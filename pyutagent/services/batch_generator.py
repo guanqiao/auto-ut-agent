@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Any
 
+from pyutagent.core.failure_pattern_tracker import FailurePatternTracker, SharedFailureKnowledge
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +38,7 @@ class BatchConfig:
     timeout_per_file: int = 300
     continue_on_error: bool = True
     coverage_target: int = 80
-    max_iterations: int = 10
+    max_iterations: int = 2
     defer_compilation: bool = False
     compile_only_at_end: bool = False
     incremental_mode: bool = False
@@ -189,7 +191,11 @@ class BatchGenerator:
         self._progress = BatchProgress()
         self._stop_requested = False
         self._results: List[FileResult] = []
-        
+
+        # Initialize shared failure knowledge for batch processing
+        self.failure_tracker = FailurePatternTracker(max_repeated_failures=3)
+        self.shared_failure_knowledge = SharedFailureKnowledge(max_entries=50)
+
         logger.info(
             f"[BatchGenerator] Initialized - Project: {project_path}, "
             f"ParallelWorkers: {self.config.parallel_workers}, "
@@ -527,16 +533,24 @@ class BatchGenerator:
                 
                 if test_code and test_class_name:
                     test_file_path = await self._write_test_file(file_path, test_class_name, test_code)
-                    
+
+                    # Analyze coverage for the generated test
+                    coverage, coverage_source, coverage_confidence = await self._analyze_coverage_for_file(
+                        file_path, test_file_path
+                    )
+
                     logger.info(
                         f"[BatchGenerator] Multi-agent success for {file_name} - "
+                        f"Coverage: {coverage:.1%}, Source: {coverage_source}, "
                         f"Duration: {duration:.1f}s"
                     )
-                    
+
                     return FileResult(
                         file_path=file_path,
                         success=True,
-                        coverage=0.0,  # Will be determined later
+                        coverage=coverage,
+                        coverage_source=coverage_source,
+                        coverage_confidence=coverage_confidence,
                         iterations=1,
                         test_file=test_file_path,
                         duration=duration
@@ -577,24 +591,99 @@ class BatchGenerator:
         
         test_file_path = test_dir / f"{test_class_name}.java"
         test_file_path.write_text(test_code, encoding='utf-8')
-        
+
         return str(test_file_path)
-    
+
+    async def _analyze_coverage_for_file(
+        self,
+        source_file_path: str,
+        test_file_path: str
+    ) -> tuple[float, str, float]:
+        """Analyze coverage for a generated test file.
+
+        Args:
+            source_file_path: Path to the source file
+            test_file_path: Path to the test file
+
+        Returns:
+            Tuple of (coverage, source, confidence)
+        """
+        try:
+            # Try to use JaCoCo for precise coverage
+            if self.build_runner:
+                # Generate coverage report
+                coverage_success = await self.build_runner.generate_coverage()
+                if coverage_success:
+                    # Parse coverage report
+                    from ..tools.maven_tools import CoverageAnalyzer
+                    coverage_analyzer = CoverageAnalyzer(self.project_path)
+                    report = coverage_analyzer.parse_report()
+
+                    if report:
+                        # Find coverage for our specific file
+                        source_file_name = Path(source_file_path).name.replace('.java', '')
+                        for file_coverage in report.files:
+                            if source_file_name in file_coverage.name:
+                                logger.info(
+                                    f"[BatchGenerator] JaCoCo coverage for {source_file_name}: "
+                                    f"{file_coverage.line_coverage:.1%}"
+                                )
+                                return file_coverage.line_coverage, "jacoco", 1.0
+
+                        # Return overall coverage if specific file not found
+                        logger.info(
+                            f"[BatchGenerator] JaCoCo overall coverage: {report.line_coverage:.1%}"
+                        )
+                        return report.line_coverage, "jacoco", 1.0
+
+            # Fall back to LLM estimation
+            logger.debug("[BatchGenerator] Falling back to LLM coverage estimation")
+            source_code = Path(source_file_path).read_text(encoding='utf-8') if Path(source_file_path).exists() else ""
+            test_code = Path(test_file_path).read_text(encoding='utf-8') if Path(test_file_path).exists() else ""
+
+            if source_code and test_code and self.llm_client:
+                from ..agent.llm_coverage_evaluator import LLMCoverageEvaluator
+                evaluator = LLMCoverageEvaluator(self.llm_client)
+                llm_report = await evaluator.evaluate_coverage(source_code, test_code)
+
+                logger.info(
+                    f"[BatchGenerator] LLM estimated coverage: {llm_report.line_coverage:.1%} "
+                    f"(confidence: {llm_report.confidence:.1%})"
+                )
+                return llm_report.line_coverage, "llm_estimated", llm_report.confidence
+
+        except Exception as e:
+            logger.warning(f"[BatchGenerator] Coverage analysis failed: {e}")
+
+        # Default fallback
+        return 0.0, "unknown", 0.0
+
     async def _generate_single_standard(self, file_path: str) -> FileResult:
         """Generate tests using standard ReActAgent.
-        
+
         Args:
             file_path: Path to the Java file
-            
+
         Returns:
             FileResult with generation result
         """
         start_time = time.time()
         file_name = Path(file_path).name
-        
+
+        # Check shared failure knowledge for similar files
+        should_skip, skip_reason = self.shared_failure_knowledge.should_skip_file(file_path)
+        if should_skip:
+            logger.info(f"[BatchGenerator] Skipping {file_name} based on shared failure knowledge: {skip_reason}")
+            return FileResult(
+                file_path=file_path,
+                success=False,
+                error=f"Skipped based on shared knowledge: {skip_reason}",
+                duration=0.0
+            )
+
         logger.info(f"[BatchGenerator] Starting standard generation for: {file_name}")
         self._update_progress(file_name, "Starting...")
-        
+
         try:
             from ..agent.react_agent import ReActAgent
             from ..agent.enhanced_agent import EnhancedAgent, EnhancedAgentConfig
@@ -710,10 +799,17 @@ class BatchGenerator:
         except Exception as e:
             duration = time.time() - start_time
             logger.exception(f"[BatchGenerator] Exception for {file_name}: {e}")
-            
+
+            # Record failure in shared knowledge
+            self.failure_tracker.record_failure(e, "generation", {"file": file_name})
+            should_skip_future = self.failure_tracker.should_stop_retrying(e, "generation")
+            self.shared_failure_knowledge.record_failure(
+                file_name, e, "generation", skip_recommended=should_skip_future
+            )
+
             if not self.config.continue_on_error:
                 self._stop_requested = True
-            
+
             return FileResult(
                 file_path=file_path,
                 success=False,
@@ -733,7 +829,7 @@ class BatchGenerator:
         try:
             # Use Maven to compile all test classes at once
             if self.build_runner:
-                compile_success = await self.build_runner.compile_tests()
+                compile_success, _ = await self.build_runner.compile_tests_async()
                 
                 elapsed = time.time() - start_time
                 

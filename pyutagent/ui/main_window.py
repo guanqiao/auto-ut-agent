@@ -25,6 +25,7 @@ from .dialogs.project_stats_dialog import ProjectStatsDialog
 from .dialogs.config_overview_dialog import ConfigOverviewDialog
 from .dialogs.test_history_dialog import TestHistoryDialog
 from .dialogs.setup_wizard import run_setup_wizard
+from .dialogs.jacoco_config_dialog import JacocoConfigDialog
 from .batch_generate_dialog import BatchGenerateDialog
 from .dialogs.intelligence_analysis_dialog import IntelligenceAnalysisDialog
 from .log_handler import LogEmitter
@@ -748,6 +749,10 @@ class MainWindow(QMainWindow):
         coverage_config_action.triggered.connect(self.on_coverage_config)
         settings_menu.addAction(coverage_config_action)
 
+        jacoco_config_action = QAction("&JaCoCo Configuration...", self)
+        jacoco_config_action.triggered.connect(self.on_jacoco_config)
+        settings_menu.addAction(jacoco_config_action)
+
         aider_config_action = QAction("&Aider Advanced Configuration...", self)
         aider_config_action.triggered.connect(self.on_aider_config)
         settings_menu.addAction(aider_config_action)
@@ -1235,6 +1240,24 @@ class MainWindow(QMainWindow):
                 )
         except Exception as e:
             logger.exception("Failed to open coverage config dialog")
+
+    def on_jacoco_config(self):
+        """Handle JaCoCo config action."""
+        try:
+            if not self.current_project:
+                QMessageBox.information(
+                    self,
+                    "Information",
+                    "Please open a project first"
+                )
+                return
+
+            dialog = JacocoConfigDialog(self.current_project, self.llm_client, self)
+            dialog.exec()
+            self.status_bar.showMessage("JaCoCo configuration dialog closed")
+            logger.info("JaCoCo config dialog closed")
+        except Exception as e:
+            logger.exception("Failed to open JaCoCo config dialog")
 
     def on_scan_project(self):
         """Handle scan project action."""

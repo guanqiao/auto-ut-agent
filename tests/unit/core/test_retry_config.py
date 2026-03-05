@@ -150,17 +150,76 @@ class TestGlobalFunctions:
     
     def test_get_default_retry_config(self):
         config = get_default_retry_config()
-        
+
         assert isinstance(config, RetryConfig)
         assert config is DEFAULT_RETRY_CONFIG
-    
+
     def test_create_retry_config(self):
         config = create_retry_config(
             max_total_attempts=100,
             max_step_attempts=10,
             backoff_base=3.0
         )
-        
+
         assert config.max_total_attempts == 100
         assert config.max_step_attempts == 10
         assert config.backoff_base == 3.0
+
+
+class TestClassifyException:
+    """Tests for classify_exception method."""
+
+    def test_non_retryable_error_types(self):
+        """Test that non-retryable error types are detected."""
+        config = RetryConfig()
+
+        # Test authentication error
+        class AuthenticationError(Exception):
+            pass
+
+        should_retry, delay, reason = config.classify_exception(AuthenticationError("Invalid key"))
+        assert should_retry is False
+        assert delay == 0.0
+        assert "Non-retryable error type" in reason
+
+    def test_non_retryable_error_messages(self):
+        """Test that non-retryable error messages are detected."""
+        config = RetryConfig()
+
+        # Test invalid api key message
+        error = Exception("Invalid api key provided")
+        should_retry, delay, reason = config.classify_exception(error)
+        assert should_retry is False
+        assert "Non-retryable error" in reason
+
+    def test_rate_limit_error(self):
+        """Test that rate limit errors get longer backoff."""
+        config = RetryConfig()
+
+        class RateLimitError(Exception):
+            pass
+
+        should_retry, delay, reason = config.classify_exception(RateLimitError("Too many requests"))
+        assert should_retry is True
+        assert delay == config.backoff_max * 2
+        assert "Long backoff" in reason
+
+    def test_rate_limit_keywords(self):
+        """Test rate limit detection by keywords."""
+        config = RetryConfig()
+
+        error = Exception("Rate limit exceeded")
+        should_retry, delay, reason = config.classify_exception(error)
+        assert should_retry is True
+        assert delay == config.backoff_max * 2
+        assert "Rate limit detected" in reason
+
+    def test_retryable_error(self):
+        """Test that normal errors are retryable."""
+        config = RetryConfig()
+
+        error = ValueError("Some transient error")
+        should_retry, delay, reason = config.classify_exception(error)
+        assert should_retry is True
+        assert delay == config.backoff_base
+        assert "Retryable error" in reason
