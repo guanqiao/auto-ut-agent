@@ -300,6 +300,11 @@ class PromptOptimizer:
         
         logger.info(f"[PromptOptimizer] Initialized with database: {self.db_path}")
     
+    def close(self):
+        """Close database connections and cleanup resources."""
+        import gc
+        gc.collect()
+    
     def _init_database(self):
         """Initialize database schema."""
         with sqlite3.connect(self.db_path) as conn:

@@ -192,6 +192,70 @@ public class Test {
         if result:
             # Simple method has complexity 1, complex has more
             assert result["complexity"] >= 4  # Base + if + if + for
+    
+    def test_cache_mechanism(self, agent):
+        """Test analysis result caching."""
+        # Initial cache stats
+        initial_stats = agent.get_cache_stats()
+        assert initial_stats["cache_size"] == 0
+        assert initial_stats["cache_hits"] == 0
+        assert initial_stats["cache_misses"] == 0
+        
+        # First analysis (cache miss)
+        java_code = "public class TestCache { public void method() {} }"
+        result1 = agent._get_from_cache("TestCache.java", java_code)
+        assert result1 is None  # Not in cache yet
+        
+        # Add to cache
+        mock_result = {"class_name": "TestCache", "methods": [{"name": "method"}]}
+        agent._add_to_cache("TestCache.java", java_code, mock_result, None)
+        
+        # Second analysis (cache hit)
+        result2 = agent._get_from_cache("TestCache.java", java_code)
+        assert result2 is not None
+        assert result2["class_name"] == "TestCache"
+        
+        # Check cache stats
+        stats = agent.get_cache_stats()
+        assert stats["cache_hits"] >= 1
+        assert stats["cache_misses"] >= 1
+        assert stats["cache_size"] >= 1
+    
+    def test_cache_ttl_expiration(self, agent):
+        """Test cache TTL expiration."""
+        # Add entry with very short TTL
+        agent._cache_ttl_seconds = 0.001  # 1ms TTL for testing
+        
+        mock_result = {"class_name": "TestTTL"}
+        agent._add_to_cache("TestTTL.java", "code", mock_result, None)
+        
+        # Should be in cache immediately
+        assert agent._get_from_cache("TestTTL.java", "code") is not None
+        
+        # Wait for expiration
+        import time
+        time.sleep(0.01)  # Wait 10ms
+        
+        # Should be expired now
+        assert agent._get_from_cache("TestTTL.java", "code") is None
+        
+        # Restore normal TTL
+        agent._cache_ttl_seconds = 300
+    
+    def test_cache_key_generation(self, agent):
+        """Test cache key generation."""
+        # Same file, different content = different keys
+        key1 = agent._generate_cache_key("Test.java", "code1")
+        key2 = agent._generate_cache_key("Test.java", "code2")
+        assert key1 != key2
+        
+        # Same file, same content = same key
+        key3 = agent._generate_cache_key("Test.java", "code1")
+        assert key1 == key3
+        
+        # No content = file path only
+        key4 = agent._generate_cache_key("Test.java", None)
+        assert key4 == "Test.java"
 
 
 class TestTestGenerationAgent:

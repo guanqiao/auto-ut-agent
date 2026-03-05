@@ -5,14 +5,29 @@ Specialized agent for analyzing Java code and extracting test-relevant informati
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Set
+import time
+from typing import Dict, List, Optional, Any, Set, Tuple
 from pathlib import Path
+from dataclasses import dataclass, field
 
 from .specialized_agent import SpecializedAgent, AgentCapability, AgentTask
 from .message_bus import MessageBus
 from .shared_knowledge import SharedKnowledgeBase, ExperienceReplay
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CacheEntry:
+    """Cache entry with metadata."""
+    result: Dict[str, Any]
+    timestamp: float = field(default_factory=time.time)
+    file_mtime: Optional[float] = None
+    access_count: int = 0
+    
+    def is_expired(self, ttl_seconds: float) -> bool:
+        """Check if cache entry has expired."""
+        return time.time() - self.timestamp > ttl_seconds
 
 
 class CodeAnalysisAgent(SpecializedAgent):
@@ -54,9 +69,13 @@ class CodeAnalysisAgent(SpecializedAgent):
         )
         
         self.java_parser = java_parser
-        self._analysis_cache: Dict[str, Any] = {}
+        self._analysis_cache: Dict[str, CacheEntry] = {}
+        self._cache_ttl_seconds = 300  # 5 minutes TTL
+        self._max_cache_size = 1000  # Maximum cache entries
+        self._cache_hits = 0
+        self._cache_misses = 0
         
-        logger.info(f"[CodeAnalysisAgent:{agent_id}] Initialized")
+        logger.info(f"[CodeAnalysisAgent:{agent_id}] Initialized with cache (TTL={self._cache_ttl_seconds}s, max_size={self._max_cache_size})")
     
     async def execute_task(self, task: AgentTask) -> Dict[str, Any]:
         """Execute code analysis task.
@@ -108,29 +127,33 @@ class CodeAnalysisAgent(SpecializedAgent):
         if not file_path:
             return {"success": False, "error": "No file_path provided"}
         
-        # Check cache
-        cache_key = f"{file_path}:{hash(source_code) if source_code else 'file'}"
-        if cache_key in self._analysis_cache:
-            logger.debug(f"[CodeAnalysisAgent:{self.agent_id}] Using cached analysis for {file_path}")
+        # Check cache first
+        cache_result = self._get_from_cache(file_path, source_code)
+        if cache_result:
+            logger.debug(f"[CodeAnalysisAgent:{self.agent_id}] Cache hit for {file_path}")
             return {
                 "success": True,
-                "output": self._analysis_cache[cache_key]
+                "output": cache_result
             }
+        
+        logger.debug(f"[CodeAnalysisAgent:{self.agent_id}] Cache miss for {file_path}")
         
         try:
             # Read file if source not provided
+            file_mtime = None
             if source_code is None:
                 path = Path(file_path)
                 if path.exists():
                     source_code = path.read_text(encoding='utf-8')
+                    file_mtime = path.stat().st_mtime
                 else:
                     return {"success": False, "error": f"File not found: {file_path}"}
             
             # Parse code using java_parser if available
             analysis_result = await self._parse_java_code(file_path, source_code)
             
-            # Cache result
-            self._analysis_cache[cache_key] = analysis_result
+            # Cache result with metadata
+            self._add_to_cache(file_path, source_code, analysis_result, file_mtime)
             
             # Share knowledge
             self.share_knowledge(
@@ -153,6 +176,134 @@ class CodeAnalysisAgent(SpecializedAgent):
         except Exception as e:
             logger.exception(f"Code analysis failed for {file_path}: {e}")
             return {"success": False, "error": str(e)}
+    
+    def _get_from_cache(self, file_path: str, source_code: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Get analysis result from cache if valid.
+        
+        Args:
+            file_path: Path to the file
+            source_code: Optional source code content
+            
+        Returns:
+            Cached result or None
+        """
+        cache_key = self._generate_cache_key(file_path, source_code)
+        
+        if cache_key not in self._analysis_cache:
+            self._cache_misses += 1
+            return None
+        
+        entry = self._analysis_cache[cache_key]
+        
+        # Check TTL
+        if entry.is_expired(self._cache_ttl_seconds):
+            logger.debug(f"[CodeAnalysisAgent:{self.agent_id}] Cache entry expired for {file_path}")
+            del self._analysis_cache[cache_key]
+            self._cache_misses += 1
+            return None
+        
+        # Check file modification time
+        if entry.file_mtime is not None:
+            try:
+                current_mtime = Path(file_path).stat().st_mtime
+                if current_mtime != entry.file_mtime:
+                    logger.debug(f"[CodeAnalysisAgent:{self.agent_id}] File modified, invalidating cache for {file_path}")
+                    del self._analysis_cache[cache_key]
+                    self._cache_misses += 1
+                    return None
+            except (OSError, FileNotFoundError):
+                # File may have been deleted
+                del self._analysis_cache[cache_key]
+                self._cache_misses += 1
+                return None
+        
+        # Cache hit
+        entry.access_count += 1
+        self._cache_hits += 1
+        return entry.result
+    
+    def _add_to_cache(
+        self,
+        file_path: str,
+        source_code: Optional[str],
+        result: Dict[str, Any],
+        file_mtime: Optional[float]
+    ) -> None:
+        """Add analysis result to cache.
+        
+        Args:
+            file_path: Path to the file
+            source_code: Optional source code content
+            result: Analysis result
+            file_mtime: File modification time
+        """
+        # Clean up cache if too large
+        if len(self._analysis_cache) >= self._max_cache_size:
+            self._cleanup_cache()
+        
+        cache_key = self._generate_cache_key(file_path, source_code)
+        self._analysis_cache[cache_key] = CacheEntry(
+            result=result,
+            file_mtime=file_mtime
+        )
+    
+    def _generate_cache_key(self, file_path: str, source_code: Optional[str]) -> str:
+        """Generate cache key for file.
+        
+        Args:
+            file_path: Path to the file
+            source_code: Optional source code content
+            
+        Returns:
+            Cache key string
+        """
+        if source_code:
+            return f"{file_path}:{hash(source_code)}"
+        else:
+            return file_path
+    
+    def _cleanup_cache(self) -> None:
+        """Clean up expired and least used cache entries."""
+        current_time = time.time()
+        
+        # Remove expired entries
+        expired_keys = [
+            key for key, entry in self._analysis_cache.items()
+            if entry.is_expired(self._cache_ttl_seconds)
+        ]
+        for key in expired_keys:
+            del self._analysis_cache[key]
+        
+        # If still too large, remove least accessed entries
+        if len(self._analysis_cache) >= self._max_cache_size:
+            sorted_entries = sorted(
+                self._analysis_cache.items(),
+                key=lambda x: (x[1].access_count, x[1].timestamp)
+            )
+            # Remove 20% of entries
+            entries_to_remove = int(self._max_cache_size * 0.2)
+            for key, _ in sorted_entries[:entries_to_remove]:
+                del self._analysis_cache[key]
+        
+        logger.debug(f"[CodeAnalysisAgent:{self.agent_id}] Cache cleanup complete, size: {len(self._analysis_cache)}")
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics.
+        
+        Returns:
+            Cache statistics
+        """
+        total_requests = self._cache_hits + self._cache_misses
+        hit_rate = self._cache_hits / total_requests if total_requests > 0 else 0.0
+        
+        return {
+            "cache_size": len(self._analysis_cache),
+            "cache_hits": self._cache_hits,
+            "cache_misses": self._cache_misses,
+            "hit_rate": hit_rate,
+            "ttl_seconds": self._cache_ttl_seconds,
+            "max_size": self._max_cache_size
+        }
     
     async def _parse_java_code(self, file_path: str, source_code: str) -> Dict[str, Any]:
         """Parse Java code to extract structure.

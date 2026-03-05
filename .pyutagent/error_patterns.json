@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-03-04T22:35:04.231979",
+  "updated_at": "2026-03-05T13:18:15.974704",
   "patterns": [
     {
       "pattern_id": "ec1cdc7393654620",
@@ -133,9 +133,9 @@
         "Compilation[a-f0-9]+iled:\\ ע:\\ ��������·���з�����һ�����������������������\\\n��ע������δ�����а��\\ javac\\ ���ܻ�����"
       ],
       "created_at": "2026-03-04T19:26:22.443432",
-      "updated_at": "2026-03-04T22:35:04.230355",
-      "occurrence_count": 9,
-      "success_count": 9,
+      "updated_at": "2026-03-05T13:18:15.974704",
+      "occurrence_count": 10,
+      "success_count": 10,
       "failure_count": 0
     }
   ],
@@ -1264,6 +1264,19 @@
           "reset_count": 0
         },
         "time_to_recover": 258.3925075531006,
+        "attempts_needed": 1
+      },
+      {
+        "strategy": "ANALYZE_AND_FIX",
+        "success": true,
+        "timestamp": "2026-03-05T13:18:15.974704",
+        "context": {
+          "step": "compilation",
+          "attempt": 1,
+          "compiler_output": "ע: ��������·���з�����һ�����������������������\n��ע������δ�����а�� javac ���ܻ������ע������\n�������ٰ�����ָ����һ���������� (-processor)��\n��ָ��������·�� (--processor-path, --processor-module-path)��\n����ʽ��������ע���� (-proc:only, -proc:full)��\n��ʹ�� -Xlint:-options ���ش���Ϣ��\n��ʹ�� -proc:none ������ע������\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:3: ����: �����org.junit.jupiter.api������\nimport org.junit.jupiter.api.DisplayName;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:4: ����: �����org.junit.jupiter.api������\nimport org.junit.jupiter.api.Test;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:10: ����: �����org.assertj.core.api������\nimport static org.assertj.core.api.Assertions.assertThat;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:10: ����: ������ͽӿھ�̬����\nimport static org.assertj.core.api.Assertions.assertThat;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:11: ����: �����org.assertj.core.api������\nimport static org.assertj.core.api.Assertions.assertThatThrownBy;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:11: ����: ������ͽӿھ�̬����\nimport static org.assertj.core.api.Assertions.assertThatThrownBy;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:12: ����: �����org.mockito������\nimport static org.mockito.Mockito.mockStatic;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:12: ����: ������ͽӿھ�̬����\nimport static org.mockito.Mockito.mockStatic;\n^\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:17: ����: �Ҳ�������\n@DisplayName(\"Unit tests for MD5Utils\")\n^\n����: �� DisplayName\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:24: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:25: ����: �Ҳ�������\n@DisplayName(\"should return correct hash when encrypting standard string\")\n^\n����:   �� DisplayName\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:42: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:43: ����: �Ҳ�������\n@DisplayName(\"should return correct hash when encrypting empty string\")\n^\n����:   �� DisplayName\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:60: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:61: ����: �Ҳ�������\n@DisplayName(\"should return correct hash when encrypting byte array\")\n^\n����:   �� DisplayName\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:78: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:79: ����: �Ҳ�������\n@DisplayName(\"should return correct hash when encrypting empty byte array\")\n^\n����:   �� DisplayName\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:96: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:97: ����: �Ҳ�������\n@DisplayName(\"should return correct hash when encrypting string with special characters\")\n^\n����:   �� DisplayName\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:118: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:119: ����: �Ҳ�������\n@DisplayName(\"should throw NullPointerException when encrypting null string\")\n^\n����:   �� DisplayName\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:133: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:134: ����: �Ҳ�������\n@DisplayName(\"should throw MagicAPIException when encrypting null byte array\")\n^\n����:   �� DisplayName\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:150: ����: �Ҳ�������\n@Test\n^\n����:   �� Test\nλ��: �� MD5UtilsTest\nD:\\opensource\\magic-api-master\\magic-api\\src\\test\\java\\org\\ssssssss\\magicapi\\utils\\MD5UtilsTest.java:151: ����: �Ҳ�������\n@DisplayName(\"should throw MagicAPIException when MessageDigest throws NoSuchAlgorithmException\")\n^\n����:   �� DisplayName\nλ��: �� MD5UtilsTest\n25 ������",
+          "reset_count": 0
+        },
+        "time_to_recover": 172.22677731513977,
         "attempts_needed": 1
       }
     ]
