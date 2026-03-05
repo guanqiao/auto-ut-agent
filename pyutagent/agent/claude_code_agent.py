@@ -215,7 +215,11 @@ class ClaudeCodeAgent:
             # 触发计划创建钩子
             await self.hook_manager.trigger(
                 HookType.ON_PLAN_CREATED,
-                data={'plan': plan}
+                data={
+                    'plan_id': plan.task_id,
+                    'task_type': plan.understanding.task_type.value,
+                    'subtask_count': len(plan.subtasks)
+                }
             )
             
             # 5. 检查是否需要使用 Subagent
@@ -251,7 +255,7 @@ class ClaudeCodeAgent:
                 'success': result.get('success', False),
                 'result': result,
                 'execution_time': execution_time,
-                'session_id': self.state.session_id
+                'session_id': self.state.session_id if self.state else None
             }
             
         except Exception as e:
@@ -266,7 +270,8 @@ class ClaudeCodeAgent:
             return {
                 'success': False,
                 'error': str(e),
-                'execution_time': time.time() - start_time
+                'execution_time': time.time() - start_time,
+                'session_id': self.state.session_id if self.state else None
             }
     
     async def _execute_plan(
