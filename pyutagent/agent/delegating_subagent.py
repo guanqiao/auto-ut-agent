@@ -14,7 +14,7 @@ from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Union
 from uuid import uuid4
 
-from .subagents import (
+from .subagent_base import (
     SubAgent,
     SubAgentConfig,
     AgentStatus,

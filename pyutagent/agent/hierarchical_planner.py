@@ -347,7 +347,7 @@ class HierarchicalTaskPlanner:
         self,
         llm_client: Optional[Any] = None,
         max_depth: int = 3,
-        max_subtasks: int = 20
+        max_subtasks: int = 50
     ):
         """Initialize the planner.
 

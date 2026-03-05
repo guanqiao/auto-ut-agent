@@ -31,6 +31,7 @@ class SkillCategory(Enum):
     TESTING = auto()
     DOCUMENTATION = auto()
     DEPLOYMENT = auto()
+    CODE_EXPLANATION = auto()
     CUSTOM = auto()
 
 

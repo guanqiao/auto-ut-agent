@@ -105,14 +105,14 @@ class AutonomousPlanner:
     def __init__(
         self,
         llm_client: Any,
-        max_subtasks: int = 10,
+        max_subtasks: int = 50,
         refinement_threshold: float = 0.7
     ):
         """Initialize autonomous planner.
         
         Args:
             llm_client: LLM client for reasoning
-            max_subtasks: Maximum number of subtasks
+            max_subtasks: Maximum number of subtasks (default: 50)
             refinement_threshold: Confidence threshold for refinement
         """
         self.llm_client = llm_client

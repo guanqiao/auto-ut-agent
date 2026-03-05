@@ -1,11 +1,27 @@
-"""Services package for PyUT Agent."""
+"""Services module for PyUT Agent.
 
-from .batch_generator import BatchGenerator, BatchConfig, BatchProgress, BatchResult, FileResult
+This module provides:
+- CloudExecutor: Execute tasks in cloud environment
+- TaskQueue: Local task queue management
+- WebhookNotifier: Webhook notifications
+"""
+
+from .cloud_executor import (
+    CloudExecutor,
+    CloudTask,
+    CloudConfig,
+    TaskStatus,
+    TaskPriority,
+    TaskQueue,
+    WebhookNotifier,
+)
 
 __all__ = [
-    "BatchGenerator",
-    "BatchConfig",
-    "BatchProgress",
-    "BatchResult",
-    "FileResult",
+    "CloudExecutor",
+    "CloudTask",
+    "CloudConfig",
+    "TaskStatus",
+    "TaskPriority",
+    "TaskQueue",
+    "WebhookNotifier",
 ]

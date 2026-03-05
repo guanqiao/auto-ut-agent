@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<idea-plugin>
+    <id>com.pyutagent.intellij</id>
+    <name>PyUT Agent</name>
+    <vendor email="support@pyutagent.com" url="https://github.com/pyutagent">PyUT Agent</vendor>
+    
+    <description><![CDATA[
+    <p>Intelligent Java Unit Test Generation Plugin powered by AI.</p>
+    <p>Features:</p>
+    <ul>
+        <li>AI-Powered Test Generation</li>
+        <li>Smart Code Analysis</li>
+        <li>One-Click Testing</li>
+        <li>Coverage Integration</li>
+        <li>Multi-LLM Support</li>
+    </ul>
+    ]]></description>
+    
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+    
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Tool Window -->
+        <toolWindow id="PyUT Agent"
+                    secondary="true"
+                    icon="/META-INF/pluginIcon.svg"
+                    anchor="right"
+                    factoryClass="com.pyutagent.intellij.ui.PyUTToolWindowFactory"/>
+        
+        <!-- Settings -->
+        <applicationConfigurable parentId="tools"
+                                 instance="com.pyutagent.intellij.settings.PyUTConfigurable"
+                                 id="com.pyutagent.intellij.settings.PyUTConfigurable"
+                                 displayName="PyUT Agent"/>
+        
+        <!-- Actions -->
+        <action id="PyUTAgent.GenerateTest"
+                class="com.pyutagent.intellij.actions.GenerateTestAction"
+                text="Generate Unit Tests"
+                description="Generate unit tests for the current Java file">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift T"/>
+        </action>
+        
+        <action id="PyUTAgent.GenerateTestPackage"
+                class="com.pyutagent.intellij.actions.GeneratePackageTestsAction"
+                text="Generate Unit Tests for Package"
+                description="Generate unit tests for all files in the package">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="first"/>
+        </action>
+        
+        <!-- Notification Group -->
+        <notificationGroup id="PyUT Agent Notifications"
+                          displayType="BALLOON"
+                          key="notifications.group.name"/>
+    </extensions>
+    
+    <applicationListeners>
+        <listener class="com.pyutagent.intellij.listeners.ProjectOpenListener"
+                  topic="com.intellij.openapi.project.ProjectManagerListener"/>
+    </applicationListeners>
+</idea-plugin>

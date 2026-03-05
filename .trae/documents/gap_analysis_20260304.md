@@ -799,6 +799,34 @@ class UniversalPlanner:
   - 支持IDEA集成
 - **VSCode扩展**: `pyutagent-vscode/` 目录
 
+### 11.7 Grep工具增强
+
+#### ✅ 语义搜索工具
+- **文件**: `pyutagent/tools/semantic_grep.py`
+- **实现**:
+  - `SemanticGrepTool`: AI增强的语义搜索
+  - `SmartGrepTool`: 增强版grep
+- **功能**:
+  - 自然语言查询理解
+  - 上下文感知结果
+  - LLM结果解释
+  - 查询扩展
+
+### 11.8 Skills机制增强
+
+#### ✅ 渐进式加载
+- **文件**: `pyutagent/agent/enhanced_skills.py`
+- **实现**:
+  - `EnhancedSkillLoader`: 支持渐进式加载
+  - `SkillSummary`: 轻量级技能摘要
+  - `ClaudeCodeSkillAdapter`: Claude Code格式兼容
+  - `SkillMatcher`: 智能触发匹配器
+- **功能**:
+  - 按需加载减少上下文消耗
+  - 支持scripts/目录
+  - 支持templates/目录
+  - 自动发现Skills
+
 ---
 
 **参考资料**：

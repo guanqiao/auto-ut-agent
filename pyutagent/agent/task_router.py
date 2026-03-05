@@ -14,7 +14,7 @@ from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from uuid import uuid4
 
-from .subagents import SubAgent, Task, AgentCapability, AgentStatus
+from .subagent_base import SubAgent, Task, AgentCapability, AgentStatus
 
 logger = logging.getLogger(__name__)
 

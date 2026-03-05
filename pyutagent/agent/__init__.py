@@ -126,6 +126,9 @@ from .task_understanding import (
     SuccessCriterion,
     TaskUnderstanding,
     TaskClassifier,
+    EnhancedTaskClassifier,
+    Intent,
+    EntityExtractionResult,
 )
 from .task_planner import (
     SubTaskStatus,
@@ -134,11 +137,172 @@ from .task_planner import (
     ExecutionPlan,
     TaskPlanner,
     PlanExecutor,
+    EnhancedTaskPlanner,
+    EnhancedPlanExecutor,
 )
 from .universal_agent import (
     AgentMode,
     TaskResult,
     UniversalCodingAgent,
+)
+
+# Skills Framework (P0 Gap Fill)
+from .skills import (
+    SkillCategory,
+    SkillMetadata,
+    SkillInput,
+    SkillOutput,
+    Skill,
+    SkillRegistry,
+    SkillLoader,
+    EnhancedSkillExecutor,
+    SkillStep,
+    SkillExample,
+)
+from .builtin_skills import (
+    GenerateUnitTestSkill,
+    FixCompilationErrorSkill,
+    AnalyzeCodeSkill,
+    RefactorCodeSkill,
+    GenerateDocSkill,
+    ExplainCodeSkill,
+    DebugTestSkill,
+)
+
+# Voice Interaction (P1 Gap Fill)
+from .voice import (
+    VoiceConfig,
+    VoiceProvider,
+    TTSProvider,
+    VoiceInputHandler,
+    VoiceOutputHandler,
+    VoiceCommandParser,
+    VoiceCommand,
+    create_voice_handlers,
+)
+
+# Safety & Security (P1 Gap Fill)
+from .safety import (
+    SafetyPolicy,
+    SafetyValidator,
+    UserInterventionHandler,
+    ValidationResult,
+    UserDecision,
+    InterruptType,
+    ProposedAction,
+    UserResponse,
+    UserInterrupt,
+    ValidationContext,
+    ValidationResponse,
+    create_default_policy,
+)
+
+# IDE Integration (P1 Gap Fill)
+from .acp_client import (
+    ACPClient,
+    ACPClientConfig,
+    ACPMessage,
+    ACPMessageType,
+    create_acp_client,
+)
+
+# SubAgent Enhancement (P2 Gap Fill)
+from .delegating_subagent import (
+    DelegatingSubAgent,
+    DelegationContext,
+    DelegationMode,
+    DelegationResult,
+    ProgressUpdate,
+    create_delegating_subagent,
+)
+from .subagent_factory import (
+    SubAgentFactory,
+    AgentType,
+    AgentTemplate,
+    AgentPoolConfig,
+    AgentInfo,
+    create_subagent_factory,
+)
+from .subagent_orchestrator import (
+    SubAgentOrchestrator,
+    OrchestrationMode,
+    OrchestrationResult,
+    OrchestrationStatus,
+    create_subagent_orchestrator,
+)
+
+# Coordination (P2 Gap Fill)
+from .hierarchical_planner import (
+    HierarchicalTaskPlanner,
+    TaskTree,
+    DependencyGraph,
+    ExecutionPlan,
+    Subtask,
+    SubtaskType,
+    SubtaskStatus,
+    create_hierarchical_planner,
+)
+from .task_router import (
+    IntelligentTaskRouter,
+    RoutingStrategy,
+    RoutingDecision,
+    RoutingScore,
+    AgentProfile,
+    create_task_router,
+)
+from .conflict_resolver import (
+    ConflictResolver,
+    ConflictType,
+    ConflictSeverity,
+    ConflictStatus,
+    ResolutionStrategy,
+    Conflict,
+    ConflictParty,
+    ConflictResource,
+    Resolution,
+    ConflictRecord,
+    create_conflict_resolver,
+)
+
+# Context & Results (P2 Gap Fill)
+from .shared_context import (
+    SharedContextManager,
+    AgentContext,
+    ContextSnapshot,
+    ContextEntry,
+    ContextScope,
+    ContextVisibility,
+    create_shared_context_manager,
+)
+from .result_aggregator import (
+    ResultAggregator,
+    AggregationStrategy,
+    AggregatedResult,
+    ValidationResult,
+    Inconsistency,
+    InconsistencyType,
+    SummaryReport,
+    create_result_aggregator,
+)
+from .delegation_mixin import (
+    AgentDelegationMixin,
+    DelegationOptions,
+    DelegationMode as MixinDelegationMode,
+    DelegationRecord,
+    create_delegation_mixin,
+)
+
+# Collaboration (P2 Gap Fill)
+from .collaboration import (
+    CollaborationMode,
+    UserResponse,
+    ProposedAction,
+    ActionResult,
+    UserDecision,
+    ContentPreview,
+    UserInteractionHandler,
+    CollaborationManager,
+    create_collaboration_handler,
 )
 
 __all__ = [
@@ -256,7 +420,140 @@ __all__ = [
     "ExecutionPlan",
     "TaskPlanner",
     "PlanExecutor",
+    "EnhancedTaskPlanner",
+    "EnhancedPlanExecutor",
     "AgentMode",
     "TaskResult",
     "UniversalCodingAgent",
+
+    # Skills Framework
+    "SkillCategory",
+    "SkillMetadata",
+    "SkillInput",
+    "SkillOutput",
+    "Skill",
+    "SkillRegistry",
+    "SkillLoader",
+    "EnhancedSkillExecutor",
+    "SkillStep",
+    "SkillExample",
+    "GenerateUnitTestSkill",
+    "FixCompilationErrorSkill",
+    "AnalyzeCodeSkill",
+    "RefactorCodeSkill",
+    "GenerateDocSkill",
+    "ExplainCodeSkill",
+    "DebugTestSkill",
+
+    # Voice Interaction
+    "VoiceConfig",
+    "VoiceProvider",
+    "TTSProvider",
+    "VoiceInputHandler",
+    "VoiceOutputHandler",
+    "VoiceCommandParser",
+    "VoiceCommand",
+    "create_voice_handlers",
+
+    # Safety & Security
+    "SafetyPolicy",
+    "SafetyValidator",
+    "UserInterventionHandler",
+    "ValidationResult",
+    "UserDecision",
+    "InterruptType",
+    "ProposedAction",
+    "UserResponse",
+    "UserInterrupt",
+    "ValidationContext",
+    "ValidationResponse",
+    "create_default_policy",
+
+    # IDE Integration
+    "ACPClient",
+    "ACPClientConfig",
+    "ACPMessage",
+    "ACPMessageType",
+    "create_acp_client",
+
+    # SubAgent Enhancement
+    "DelegatingSubAgent",
+    "DelegationContext",
+    "DelegationMode",
+    "DelegationResult",
+    "ProgressUpdate",
+    "create_delegating_subagent",
+    "SubAgentFactory",
+    "AgentType",
+    "AgentTemplate",
+    "AgentPoolConfig",
+    "AgentInfo",
+    "create_subagent_factory",
+    "SubAgentOrchestrator",
+    "OrchestrationMode",
+    "OrchestrationResult",
+    "OrchestrationStatus",
+    "create_subagent_orchestrator",
+
+    # Coordination
+    "HierarchicalTaskPlanner",
+    "TaskTree",
+    "DependencyGraph",
+    "ExecutionPlan",
+    "Subtask",
+    "SubtaskType",
+    "SubtaskStatus",
+    "create_hierarchical_planner",
+    "IntelligentTaskRouter",
+    "RoutingStrategy",
+    "RoutingDecision",
+    "RoutingScore",
+    "AgentProfile",
+    "create_task_router",
+    "ConflictResolver",
+    "ConflictType",
+    "ConflictSeverity",
+    "ConflictStatus",
+    "ResolutionStrategy",
+    "Conflict",
+    "ConflictParty",
+    "ConflictResource",
+    "Resolution",
+    "ConflictRecord",
+    "create_conflict_resolver",
+
+    # Context & Results
+    "SharedContextManager",
+    "AgentContext",
+    "ContextSnapshot",
+    "ContextEntry",
+    "ContextScope",
+    "ContextVisibility",
+    "create_shared_context_manager",
+    "ResultAggregator",
+    "AggregationStrategy",
+    "AggregatedResult",
+    "ValidationResult",
+    "Inconsistency",
+    "InconsistencyType",
+    "SummaryReport",
+    "create_result_aggregator",
+    "AgentDelegationMixin",
+    "DelegationOptions",
+    "DelegationMode as MixinDelegationMode",
+    "DelegationRecord",
+    "create_delegation_mixin",
+
+    # Collaboration
+    "CollaborationMode",
+    "CollaborationManager",
+    "UserInteractionHandler",
+    "UserResponse",
+    "ProposedAction",
+    "ActionResult",
+    "UserDecision",
+    "ContentPreview",
+    "create_collaboration_handler",
 ]
+
+

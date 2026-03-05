@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from uuid import uuid4
 
 if TYPE_CHECKING:
-    from .subagents import SubAgent, Task
+    from .subagent_base import SubAgent, Task
     from .delegating_subagent import DelegatingSubAgent, DelegationResult
     from .subagent_factory import SubAgentFactory
     from .hierarchical_planner import Subtask

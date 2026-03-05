@@ -15,7 +15,7 @@ from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Set
 from uuid import uuid4
 
-from .subagents import SubAgent, Task, AgentStatus
+from .subagent_base import SubAgent, Task, AgentStatus
 from .delegating_subagent import DelegatingSubAgent, DelegationResult
 from .subagent_factory import SubAgentFactory, AgentType
 from .hierarchical_planner import (

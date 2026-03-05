@@ -25,7 +25,12 @@ class AgentConstants:
     
     # Coverage
     DEFAULT_TARGET_COVERAGE = 0.8
-    DEFAULT_MAX_ITERATIONS = 5
+    DEFAULT_MAX_ITERATIONS = 50
+    
+    # Subtask Execution
+    DEFAULT_MAX_SUBTASKS = 50
+    DEFAULT_BATCH_SIZE = 10
+    DEFAULT_CHECKPOINT_INTERVAL = 5
     
     # LLM Generation
     DEFAULT_TEMPERATURE = 0.7

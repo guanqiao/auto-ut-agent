@@ -10,6 +10,7 @@ from .conversation import ConversationManager, MessageRole
 from ..memory.working_memory import WorkingMemory
 from ..core.config import LLMConfig
 from ..core.i18n import t
+from ..core.project_config import ProjectContext, TestFramework, MockFramework, ProjectConfigManager
 from ..tools.java_parser import JavaCodeParser
 from ..tools.maven_tools import MavenRunner, CoverageAnalyzer, ProjectScanner
 from ..tools.error_analyzer import CompilationErrorAnalyzer, ErrorAnalysis
@@ -18,6 +19,7 @@ from ..tools.aider_integration import (
     AiderCodeFixer, AiderTestGenerator, 
     FixResult, apply_diff_edit
 )
+from ..agent.generators import TestNGTestGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +72,18 @@ class TestGeneratorAgent:
         self.error_analyzer = CompilationErrorAnalyzer()
         self.failure_analyzer = TestFailureAnalyzer(project_path)
         
+        # Detect project configuration
+        config_manager = ProjectConfigManager(str(project_path))
+        self.project_config = config_manager.load_context() or ProjectContext()
+        self.test_framework = self.project_config.test_preferences.test_framework
+        self.mock_framework = self.project_config.test_preferences.mock_framework
+        
         # Aider integration
         self._aider_fixer: Optional[AiderCodeFixer] = None
         self._aider_generator: Optional[AiderTestGenerator] = None
+        
+        # TestNG generator (lazy initialization)
+        self._testng_generator: Optional[TestNGTestGenerator] = None
         
         # State
         self.status = TaskStatus.IDLE
@@ -110,6 +121,15 @@ class TestGeneratorAgent:
                 self._get_llm_client()
             )
         return self._aider_generator
+    
+    def _get_testng_generator(self) -> TestNGTestGenerator:
+        """Get or create TestNG test generator."""
+        if self._testng_generator is None:
+            self._testng_generator = TestNGTestGenerator(
+                str(self.project_path),
+                self.mock_framework
+            )
+        return self._testng_generator
     
     def _log(self, message: str):
         """Log message."""
@@ -581,6 +601,29 @@ class TestGeneratorAgent:
         Returns:
             Generated test code
         """
+        # Use appropriate generator based on test framework
+        if self.test_framework == TestFramework.TESTNG:
+            self._log("使用 TestNG 框架生成测试...")
+            try:
+                generator = self._get_testng_generator()
+                class_info = self._convert_java_class_to_info(java_class)
+                return await generator.generate_initial_test(class_info)
+            except Exception as e:
+                self._log(f"TestNG 生成失败，回退到 LLM: {e}")
+                # Fallback to LLM-based generation
+        
+        # Default: Use LLM-based generation
+        return await self._generate_test_code_llm(java_class)
+    
+    async def _generate_test_code_llm(self, java_class) -> str:
+        """Generate test code using LLM.
+        
+        Args:
+            java_class: Parsed Java class
+            
+        Returns:
+            Generated test code
+        """
         # Build prompt
         prompt = self._build_test_generation_prompt(java_class)
         
@@ -592,12 +635,33 @@ class TestGeneratorAgent:
             client.set_progress_callback(self._llm_progress_callback)
             client.reset_cancel()
         
-        system_prompt = """You are a Java unit test expert. Generate JUnit 5 tests following best practices:
-- Use @Test annotation
+        # Customize system prompt based on test framework
+        if self.test_framework == TestFramework.JUNIT5:
+            system_prompt = """You are a Java unit test expert. Generate JUnit 5 tests following best practices:
+- Use @Test, @BeforeEach, @AfterEach annotations
 - Use meaningful test method names
 - Include assertions
 - Mock external dependencies
 - Cover edge cases
+
+Return only the test code without explanations."""
+        elif self.test_framework == TestFramework.JUNIT4:
+            system_prompt = """You are a Java unit test expert. Generate JUnit 4 tests following best practices:
+- Use @Test, @Before, @After annotations
+- Use meaningful test method names
+- Include assertions
+- Mock external dependencies
+- Cover edge cases
+
+Return only the test code without explanations."""
+        else:  # TESTNG or default
+            system_prompt = """You are a Java unit test expert. Generate TestNG tests following best practices:
+- Use @Test, @BeforeMethod, @AfterMethod annotations
+- Use meaningful test method names
+- Include assertions (TestNG Assert or AssertJ)
+- Mock external dependencies
+- Cover edge cases
+- Consider using @DataProvider for parameterized tests
 
 Return only the test code without explanations."""
         
@@ -630,7 +694,43 @@ Return only the test code without explanations."""
         Returns:
             Additional test code
         """
-        prompt = f"""Generate additional JUnit 5 tests for the following uncovered lines:
+        # Use TestNG generator if TestNG framework is detected
+        if self.test_framework == TestFramework.TESTNG:
+            self._log("使用 TestNG 生成补充测试...")
+            try:
+                generator = self._get_testng_generator()
+                class_info = self._convert_java_class_to_info(java_class)
+                return await generator.generate_additional_tests(class_info, uncovered_lines)
+            except Exception as e:
+                self._log(f"TestNG 补充测试生成失败，回退到 LLM: {e}")
+                # Fallback to LLM-based generation
+        
+        # Default: Use LLM-based generation
+        return await self._generate_additional_tests_llm(java_class, uncovered_lines)
+    
+    async def _generate_additional_tests_llm(
+        self,
+        java_class,
+        uncovered_lines: list
+    ) -> str:
+        """Generate additional tests using LLM.
+        
+        Args:
+            java_class: Parsed Java class
+            uncovered_lines: List of uncovered line numbers
+            
+        Returns:
+            Additional test code
+        """
+        # Customize prompt based on test framework
+        if self.test_framework == TestFramework.JUNIT5:
+            framework_name = "JUnit 5"
+        elif self.test_framework == TestFramework.JUNIT4:
+            framework_name = "JUnit 4"
+        else:  # TESTNG
+            framework_name = "TestNG"
+        
+        prompt = f"""Generate additional {framework_name} tests for the following uncovered lines:
 Class: {java_class.name}
 Uncovered lines: {uncovered_lines}
 
@@ -812,3 +912,49 @@ public class {test_class_name} {{
         agent.status = TaskStatus[state.get("status", "IDLE")]
         
         return agent
+    
+    def _convert_java_class_to_info(self, java_class) -> Dict[str, Any]:
+        """Convert JavaClass object to info dictionary for generators.
+        
+        Args:
+            java_class: Parsed JavaClass object
+            
+        Returns:
+            Class information dictionary
+        """
+        # Extract methods information
+        methods = []
+        for method in java_class.methods:
+            method_info = {
+                'name': method.name,
+                'return_type': method.return_type or 'void',
+                'parameters': [
+                    {'name': param[1], 'type': param[0]}
+                    for param in method.parameters
+                ],
+                'line_number': method.line_number,
+                'end_line': getattr(method, 'end_line', method.line_number + 10),
+                'throws_exceptions': getattr(method, 'exceptions', [])
+            }
+            methods.append(method_info)
+        
+        # Extract dependencies (fields that might be dependencies)
+        dependencies = []
+        for field in getattr(java_class, 'fields', []):
+            # Simple heuristic: if field type is not primitive, it's a dependency
+            if field.type not in ['int', 'long', 'double', 'float', 'boolean', 'char', 'byte', 'short']:
+                dependencies.append({
+                    'name': field.name,
+                    'type': field.type
+                })
+        
+        return {
+            'package': java_class.package,
+            'name': java_class.name,
+            'methods': methods,
+            'dependencies': dependencies,
+            'fields': [
+                {'name': f.name, 'type': f.type}
+                for f in getattr(java_class, 'fields', [])
+            ]
+        }
