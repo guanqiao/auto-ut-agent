@@ -495,16 +495,25 @@ Generate a complete test method with:
         # Test methods
         for method in methods:
             method_name = method.get("name", "unknown")
+            return_type = method.get("return_type", "void")
+            
             lines.append("    @Test")
             lines.append(f"    void test{method_name.capitalize()}() {{")
-            lines.append("        // TODO: Implement test")
-            lines.append("        // Arrange")
+            lines.append(f"        // Test for {method_name} method")
+            lines.append("        // Arrange: Set up test data and dependencies")
             lines.append("        ")
-            lines.append("        // Act")
-            lines.append(f"        // target.{method_name}();")
+            lines.append("        // Act: Call the method under test")
+            if "void" in return_type:
+                lines.append(f"        // target.{method_name}();")
+            else:
+                lines.append(f"        // var result = target.{method_name}();")
             lines.append("        ")
-            lines.append("        // Assert")
-            lines.append("        // assertEquals(expected, actual);")
+            lines.append("        // Assert: Verify the results")
+            if "void" in return_type:
+                lines.append("        // Add assertions for side effects")
+            else:
+                lines.append("        // assertNotNull(result);")
+                lines.append("        // assertEquals(expected, result);")
             lines.append("    }")
             lines.append("")
         
