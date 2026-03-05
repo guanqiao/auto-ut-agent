@@ -194,13 +194,13 @@ def task_types_command():
     
     task_descriptions = {
         TaskType.UT_GENERATION: "Generate unit tests for source code",
-        TaskType.REFACTORING: "Refactor code for better quality and maintainability",
+        TaskType.CODE_REFACTORING: "Refactor code for better quality and maintainability",
         TaskType.BUG_FIX: "Fix bugs in the codebase",
-        TaskType.FEATURE_ADDITION: "Add new features to existing code",
+        TaskType.FEATURE_ADD: "Add new features to existing code",
         TaskType.CODE_REVIEW: "Review code quality and suggest improvements",
         TaskType.DOCUMENTATION: "Generate documentation for code",
         TaskType.CODE_EXPLANATION: "Explain code behavior and logic",
-        TaskType.TEST_DEBUGGING: "Debug failing tests",
+        TaskType.TEST_DEBUG: "Debug failing tests",
         TaskType.PERFORMANCE_OPTIMIZATION: "Optimize code performance",
         TaskType.SECURITY_AUDIT: "Perform security analysis and fixes",
         TaskType.UNKNOWN: "Unknown or unclassified task type",
