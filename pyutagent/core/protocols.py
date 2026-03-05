@@ -360,6 +360,8 @@ class AgentResult(Generic[T]):
     data: Optional[T] = None
     test_file: Optional[str] = None
     coverage: float = 0.0
+    coverage_source: str = "jacoco"
+    coverage_confidence: float = 1.0
     iterations: int = 0
     errors: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)

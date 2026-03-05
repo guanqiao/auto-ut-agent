@@ -70,7 +70,9 @@ class AgentWorker(QThread):
         project_path: str,
         target_file: str,
         target_coverage: float = 0.8,
-        max_iterations: int = 2
+        max_iterations: int = 2,
+        incremental_mode: bool = False,
+        skip_test_analysis: bool = False
     ):
         super().__init__()
         self.llm_client = llm_client
@@ -78,6 +80,8 @@ class AgentWorker(QThread):
         self.target_file = target_file
         self.target_coverage = target_coverage
         self.max_iterations = max_iterations
+        self.incremental_mode = incremental_mode
+        self.skip_test_analysis = skip_test_analysis
         self._is_running = True
         self._is_paused = False
         self.agent: Optional[ReActAgent] = None
@@ -102,7 +106,9 @@ class AgentWorker(QThread):
                 working_memory=working_memory,
                 project_path=self.project_path,
                 progress_callback=self._on_progress,
-                model_name=self.llm_client.model
+                model_name=self.llm_client.model,
+                incremental_mode=self.incremental_mode,
+                skip_test_analysis=self.skip_test_analysis
             )
 
             try:
@@ -125,13 +131,21 @@ class AgentWorker(QThread):
                 )
 
             if result.success:
-                self.completed.emit({
+                result_data = {
                     "success": True,
                     "message": result.message,
                     "test_file": result.test_file,
                     "coverage": result.coverage,
-                    "iterations": result.iterations
-                })
+                    "iterations": result.iterations,
+                    "incremental_mode": self.incremental_mode
+                }
+                if hasattr(result, 'metadata') and result.metadata:
+                    result_data.update({
+                        "preserved_tests": result.metadata.get("preserved_tests", 0),
+                        "new_tests": result.metadata.get("new_tests", 0),
+                        "fixed_tests": result.metadata.get("fixed_tests", 0)
+                    })
+                self.completed.emit(result_data)
             else:
                 self.error.emit(result.message)
 
@@ -220,6 +234,7 @@ class ProjectTreeWidget(QWidget):
     """Enhanced tree widget for displaying project structure with search."""
 
     file_selected = pyqtSignal(str)
+    generate_incremental = pyqtSignal(str, bool, bool)  # file_path, incremental, skip_analysis
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -369,6 +384,14 @@ class ProjectTreeWidget(QWidget):
         generate_action = menu.addAction("🧪 Generate Tests")
         generate_action.triggered.connect(lambda: self.file_selected.emit(path))
         
+        generate_incr_action = menu.addAction("🔄 Generate Tests (Incremental)")
+        generate_incr_action.setToolTip("Preserve existing passing tests")
+        generate_incr_action.triggered.connect(lambda: self.generate_incremental.emit(path, True, False))
+        
+        generate_skip_action = menu.addAction("⚡ Generate Tests (Skip Analysis)")
+        generate_skip_action.setToolTip("Skip running existing tests, just analyze file content")
+        generate_skip_action.triggered.connect(lambda: self.generate_incremental.emit(path, True, True))
+        
         menu.addSeparator()
         
         copy_path_action = menu.addAction("📋 Copy Path")
@@ -516,9 +539,21 @@ class ProgressWidget(QWidget):
         if message:
             self.status_label.setText(message)
 
-    def update_coverage(self, coverage: float, target: float):
-        """Update coverage display."""
-        self.coverage_label.setText(f"Coverage: {coverage:.1%} / Target: {target:.1%}")
+    def update_coverage(self, coverage: float, target: float, source: str = "jacoco", confidence: float = 1.0):
+        """Update coverage display with source information.
+        
+        Args:
+            coverage: Current coverage percentage
+            target: Target coverage percentage
+            source: Coverage source ("jacoco" or "llm_estimated")
+            confidence: Confidence level for LLM estimation
+        """
+        if source == "llm_estimated":
+            text = f"Coverage: {coverage:.1%} (LLM估算, 置信度: {confidence:.0%}) / Target: {target:.1%}"
+        else:
+            text = f"Coverage: {coverage:.1%} / Target: {target:.1%}"
+        
+        self.coverage_label.setText(text)
 
         if coverage >= target:
             self.coverage_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
@@ -617,6 +652,7 @@ class MainWindow(QMainWindow):
 
         self.project_tree = ProjectTreeWidget()
         self.project_tree.file_selected.connect(self.on_file_selected)
+        self.project_tree.generate_incremental.connect(self.on_generate_incremental)
         self.project_tree.setMaximumWidth(350)
         splitter.addWidget(self.project_tree)
 
@@ -1293,6 +1329,28 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.exception("Failed to start test generation")
 
+    def on_generate_incremental(self, file_path: str, incremental: bool, skip_analysis: bool):
+        """Handle generate tests with incremental mode.
+        
+        Args:
+            file_path: Target Java file path
+            incremental: Enable incremental mode
+            skip_analysis: Skip running existing tests
+        """
+        try:
+            if not self.llm_client:
+                QMessageBox.warning(
+                    self,
+                    "Warning",
+                    "LLM client not initialized, please configure LLM first"
+                )
+                return
+
+            self.start_generation(file_path, incremental=incremental, skip_analysis=skip_analysis)
+            logger.info(f"Incremental test generation started for: {file_path} (skip_analysis={skip_analysis})")
+        except Exception as e:
+            logger.exception("Failed to start incremental test generation")
+
     def on_generate_all_tests(self):
         """Handle generate all tests action."""
         try:
@@ -1380,11 +1438,13 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.exception("Failed to terminate generation")
 
-    def start_generation(self, target_file: str):
+    def start_generation(self, target_file: str, incremental: bool = False, skip_analysis: bool = False):
         """Start test generation.
 
         Args:
             target_file: Target Java file path
+            incremental: Enable incremental mode (preserve existing passing tests)
+            skip_analysis: Skip running existing tests, just analyze file content
         """
         try:
             if self.agent_worker and self.agent_worker.isRunning():
@@ -1401,13 +1461,22 @@ class MainWindow(QMainWindow):
             self._current_generation = {
                 'source_file': target_file,
                 'start_time': datetime.now(),
-                'model_used': self.llm_client.model if self.llm_client else 'unknown'
+                'model_used': self.llm_client.model if self.llm_client else 'unknown',
+                'incremental_mode': incremental,
+                'skip_analysis': skip_analysis
             }
             
             # 添加初始日志信息
             self.progress_widget.add_log(f"🚀 Starting test generation for {file_name}", "INFO")
             self.progress_widget.add_log(f"📊 Target coverage: {settings.coverage.target_coverage:.1%}", "INFO")
             self.progress_widget.add_log(f"🔄 Max iterations: {settings.coverage.max_iterations}", "INFO")
+            
+            # 显示增量模式状态
+            if incremental:
+                self.progress_widget.add_log("🔄 Incremental mode: ENABLED (will preserve existing passing tests)", "INFO")
+                if skip_analysis:
+                    self.progress_widget.add_log("⚡ Skip test analysis: ENABLED (will not run existing tests)", "INFO")
+            
             self.progress_widget.add_log("⏳ This process may take several minutes. Please wait...", "WARNING")
             
             self.agent_worker = AgentWorker(
@@ -1415,7 +1484,9 @@ class MainWindow(QMainWindow):
                 project_path=self.current_project,
                 target_file=target_file,
                 target_coverage=settings.coverage.target_coverage,
-                max_iterations=settings.coverage.max_iterations
+                max_iterations=settings.coverage.max_iterations,
+                incremental_mode=incremental,
+                skip_test_analysis=skip_analysis
             )
 
             self.agent_worker.progress_updated.connect(self.on_agent_progress)
@@ -1500,6 +1571,10 @@ class MainWindow(QMainWindow):
             test_file = result.get("test_file", "")
             coverage = result.get("coverage", 0.0)
             iterations = result.get("iterations", 0)
+            incremental_mode = result.get("incremental_mode", False)
+            preserved_tests = result.get("preserved_tests", 0)
+            new_tests = result.get("new_tests", 0)
+            fixed_tests = result.get("fixed_tests", 0)
 
             # Reset button states
             self.chat_widget.set_running_state(False, is_paused=False)
@@ -1516,12 +1591,33 @@ class MainWindow(QMainWindow):
                 self.progress_widget.add_log(f"📊 Coverage: {coverage:.1%}", "INFO")
                 self.progress_widget.add_log(f"🔄 Iterations: {iterations}", "INFO")
                 
-                self.chat_widget.add_agent_message(
+                # 显示增量模式统计
+                if incremental_mode:
+                    self.progress_widget.add_log(f"🔄 Incremental mode statistics:", "INFO")
+                    if preserved_tests > 0:
+                        self.progress_widget.add_log(f"  ✓ Preserved tests: {preserved_tests}", "INFO")
+                    if new_tests > 0:
+                        self.progress_widget.add_log(f"  ✓ New tests: {new_tests}", "INFO")
+                    if fixed_tests > 0:
+                        self.progress_widget.add_log(f"  ✓ Fixed tests: {fixed_tests}", "INFO")
+                
+                # 构建完成消息
+                completion_msg = (
                     f"🎉 Test generation completed!\n\n"
                     f"{message}\n"
                     f"Test file: {test_file}\n"
                     f"Iterations: {iterations}"
                 )
+                if incremental_mode and (preserved_tests > 0 or new_tests > 0 or fixed_tests > 0):
+                    completion_msg += f"\n\n🔄 Incremental Mode Statistics:"
+                    if preserved_tests > 0:
+                        completion_msg += f"\n  ✓ Preserved: {preserved_tests} tests"
+                    if new_tests > 0:
+                        completion_msg += f"\n  ✓ New: {new_tests} tests"
+                    if fixed_tests > 0:
+                        completion_msg += f"\n  ✓ Fixed: {fixed_tests} tests"
+                
+                self.chat_widget.add_agent_message(completion_msg)
                 self.progress_widget.update_progress(100, "✅ Completed")
                 logger.info(f"Test generation completed successfully: {test_file}, coverage: {coverage:.1%}")
                 

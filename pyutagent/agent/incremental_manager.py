@@ -190,6 +190,7 @@ class IncrementalTestManager:
         config: Optional[IncrementalConfig] = None,
         maven_runner=None,
         coverage_analyzer=None,
+        llm_client=None,
     ):
         """Initialize incremental test manager.
         
@@ -198,18 +199,44 @@ class IncrementalTestManager:
             config: Incremental configuration
             maven_runner: Maven runner for test execution
             coverage_analyzer: Coverage analyzer
+            llm_client: LLM client for fallback coverage estimation
         """
         self.project_path = Path(project_path)
         self.config = config or IncrementalConfig()
         self.maven_runner = maven_runner
         self.coverage_analyzer = coverage_analyzer
+        self.llm_client = llm_client
         self.parser = TestCodeParser()
         self.partial_handler = PartialSuccessHandler()
+        
+        self._source_code: Optional[str] = None
+        self._test_code: Optional[str] = None
+        self._class_info: Optional[Dict[str, Any]] = None
         
         logger.info(
             f"[IncrementalTestManager] Initialized - "
             f"Project: {project_path}, Enabled: {self.config.enabled}"
         )
+    
+    def set_context(
+        self,
+        source_code: Optional[str] = None,
+        test_code: Optional[str] = None,
+        class_info: Optional[Dict[str, Any]] = None
+    ):
+        """Set context for LLM-based coverage estimation.
+        
+        Args:
+            source_code: Source code being tested
+            test_code: Test code
+            class_info: Class information from parsing
+        """
+        if source_code:
+            self._source_code = source_code
+        if test_code:
+            self._test_code = test_code
+        if class_info:
+            self._class_info = class_info
     
     def detect_existing_test(
         self,
@@ -508,11 +535,14 @@ class IncrementalTestManager:
     def _analyze_coverage(self) -> Optional[Dict[str, Any]]:
         """Analyze current test coverage.
         
+        First attempts to use JaCoCo for precise coverage.
+        Falls back to LLM estimation if JaCoCo is not available.
+        
         Returns:
             Coverage information dictionary with uncovered lines
         """
         if not self.coverage_analyzer:
-            return None
+            return self._fallback_to_llm_coverage()
         
         try:
             report = self.coverage_analyzer.parse_report()
@@ -533,9 +563,52 @@ class IncrementalTestManager:
                     "method_coverage": report.method_coverage,
                     "uncovered_lines": uncovered_lines,
                     "uncovered_branches": uncovered_branches,
+                    "source": "jacoco",
+                    "confidence": 1.0,
                 }
         except Exception as e:
             logger.warning(f"[IncrementalTestManager] Coverage analysis error: {e}")
+        
+        return self._fallback_to_llm_coverage()
+    
+    def _fallback_to_llm_coverage(self) -> Optional[Dict[str, Any]]:
+        """Fall back to LLM-based coverage estimation.
+        
+        Returns:
+            Coverage information dictionary or None if estimation not possible
+        """
+        if not self._source_code or not self._test_code:
+            logger.warning("[IncrementalTestManager] Insufficient data for LLM coverage estimation")
+            return None
+        
+        try:
+            from .llm_coverage_evaluator import LLMCoverageEvaluator, CoverageSource
+            
+            evaluator = LLMCoverageEvaluator(self.llm_client)
+            llm_report = evaluator.quick_estimate(
+                self._source_code,
+                self._test_code,
+                self._class_info
+            )
+            
+            logger.info(
+                f"[IncrementalTestManager] LLM coverage estimation - "
+                f"Line: {llm_report.line_coverage:.1%}, "
+                f"Confidence: {llm_report.confidence:.1%}"
+            )
+            
+            return {
+                "line_coverage": llm_report.line_coverage,
+                "branch_coverage": llm_report.branch_coverage,
+                "method_coverage": llm_report.method_coverage,
+                "uncovered_lines": [],
+                "uncovered_branches": [],
+                "source": CoverageSource.LLM_ESTIMATED.value,
+                "confidence": llm_report.confidence,
+                "uncovered_methods": llm_report.uncovered_methods,
+            }
+        except Exception as e:
+            logger.warning(f"[IncrementalTestManager] LLM coverage estimation failed: {e}")
         
         return None
     

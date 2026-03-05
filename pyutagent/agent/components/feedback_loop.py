@@ -289,7 +289,9 @@ class FeedbackLoopExecutor:
                 if term_state.reason == TerminationReason.TARGET_COVERAGE_REACHED:
                     self.agent_core._update_state(AgentState.COMPLETED, term_state.message)
                     return self.agent_core._create_success_result(
-                        self.agent_core.working_memory.current_coverage
+                        self.agent_core.working_memory.current_coverage,
+                        self.agent_core.working_memory.coverage_source,
+                        self.agent_core.working_memory.coverage_confidence
                     )
                 elif term_state.reason == TerminationReason.MAX_ITERATIONS:
                     self.agent_core._update_state(AgentState.COMPLETED, term_state.message)
@@ -378,9 +380,11 @@ class FeedbackLoopExecutor:
             return None
         
         current_coverage = coverage_result.data.get("line_coverage", 0.0)
+        source = coverage_result.data.get("source", "jacoco")
+        confidence = coverage_result.data.get("confidence", 1.0)
         
         if current_coverage >= self.agent_core.target_coverage:
-            return self.agent_core._create_success_result(current_coverage)
+            return self.agent_core._create_success_result(current_coverage, source, confidence)
         
         if await self._check_should_stop("before generating additional tests"):
             return None
@@ -454,7 +458,7 @@ class FeedbackLoopExecutor:
                 source = coverage_result.data.get("source", "llm_estimated")
                 confidence = coverage_result.data.get("confidence", 0.0)
                 
-                self.agent_core.working_memory.update_coverage(estimated_coverage)
+                self.agent_core.working_memory.update_coverage(estimated_coverage, source, confidence)
                 
                 logger.info(
                     f"[FeedbackLoopExecutor] 📈 Estimated coverage: {estimated_coverage:.1%} "
@@ -498,8 +502,11 @@ class FeedbackLoopExecutor:
             return coverage_result
         
         current_coverage = coverage_result.data.get("line_coverage", 0.0)
-        self.agent_core.working_memory.update_coverage(current_coverage)
-        logger.info(f"[FeedbackLoopExecutor] 📈 Current coverage: {current_coverage:.1%} (Target: {self.agent_core.target_coverage:.1%})")
+        source = coverage_result.data.get("source", "jacoco")
+        confidence = coverage_result.data.get("confidence", 1.0)
+        
+        self.agent_core.working_memory.update_coverage(current_coverage, source, confidence)
+        logger.info(f"[FeedbackLoopExecutor] 📈 Current coverage: {current_coverage:.1%} (source: {source}, Target: {self.agent_core.target_coverage:.1%})")
         
         if current_coverage >= self.agent_core.target_coverage:
             logger.info(f"[FeedbackLoopExecutor] 🎉 Target coverage reached at {current_coverage:.1%}, skipping additional test generation")
@@ -571,6 +578,8 @@ class FeedbackLoopExecutor:
             AgentResult with final status
         """
         final_coverage = self.agent_core.working_memory.current_coverage
+        coverage_source = self.agent_core.working_memory.coverage_source
+        coverage_confidence = self.agent_core.working_memory.coverage_confidence
         elapsed = asyncio.get_event_loop().time() - loop_start_time
         
         if self.agent_core._terminated:
@@ -580,6 +589,8 @@ class FeedbackLoopExecutor:
                 message="Generation terminated by user",
                 test_file=self.agent_core.current_test_file,
                 coverage=final_coverage,
+                coverage_source=coverage_source,
+                coverage_confidence=coverage_confidence,
                 iterations=self.agent_core.current_iteration,
                 state=AgentState.FAILED
             )
@@ -591,15 +602,19 @@ class FeedbackLoopExecutor:
                 message="Generation stopped by user",
                 test_file=self.agent_core.current_test_file,
                 coverage=final_coverage,
+                coverage_source=coverage_source,
+                coverage_confidence=coverage_confidence,
                 iterations=self.agent_core.current_iteration,
                 state=AgentState.PAUSED
             )
         
-        logger.info(f"[FeedbackLoopExecutor] ✨ Feedback loop completed - Iterations: {self.agent_core.current_iteration}, Coverage: {final_coverage:.1%}, Time: {elapsed:.1f}s")
+        logger.info(f"[FeedbackLoopExecutor] ✨ Feedback loop completed - Iterations: {self.agent_core.current_iteration}, Coverage: {final_coverage:.1%}, Source: {coverage_source}, Time: {elapsed:.1f}s")
         return AgentResult(
             success=final_coverage > 0,
             message=f"Completed after {self.agent_core.current_iteration} iterations with {final_coverage:.1%} coverage",
             test_file=self.agent_core.current_test_file,
             coverage=final_coverage,
+            coverage_source=coverage_source,
+            coverage_confidence=coverage_confidence,
             iterations=self.agent_core.current_iteration
         )
