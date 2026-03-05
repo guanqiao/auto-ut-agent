@@ -11,9 +11,9 @@ from pyutagent.agent.feedback import (
     LoopResult,
     LoopPhase,
 )
-from pyutagent.agent.core.agent_state import AgentState, StateManager
-from pyutagent.agent.core.agent_context import AgentContext
-from pyutagent.agent.execution.executor import StepExecutor, ExecutionResult
+from pyutagent.core.agent_state import AgentState, StateManager
+from pyutagent.core.agent_context import AgentContext
+from pyutagent.execution.executor import StepExecutor, ExecutionResult
 
 
 class TestFeedbackLoopConfig:

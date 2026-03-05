@@ -248,6 +248,7 @@ class FeedbackLoop:
         self.context.set(ContextKey.MAX_ITERATIONS, self.config.max_iterations)
         
         self._update_phase(LoopPhase.INITIALIZE, f"Starting feedback loop for {Path(target_file).name}")
+        self.state_manager.transition(AgentState.INITIALIZING, "Initializing feedback loop")
         
         try:
             if not await self._check_pause():
