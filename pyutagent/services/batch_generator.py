@@ -25,6 +25,10 @@ class BatchConfig:
         incremental_mode: Enable incremental test generation (preserve existing passing tests)
         preserve_passing_tests: Whether to preserve passing tests in incremental mode
         skip_test_analysis: Skip running existing tests, just analyze file content
+        use_enhanced_agent: Use EnhancedAgent instead of basic ReActAgent
+        enable_error_prediction: Enable error prediction in EnhancedAgent
+        enable_self_reflection: Enable self-reflection in EnhancedAgent
+        enable_pattern_library: Enable pattern library in EnhancedAgent
     """
     parallel_workers: int = 1
     timeout_per_file: int = 300
@@ -36,6 +40,10 @@ class BatchConfig:
     incremental_mode: bool = False
     preserve_passing_tests: bool = True
     skip_test_analysis: bool = False
+    use_enhanced_agent: bool = True
+    enable_error_prediction: bool = True
+    enable_self_reflection: bool = True
+    enable_pattern_library: bool = True
 
 
 @dataclass
@@ -332,6 +340,7 @@ class BatchGenerator:
         
         try:
             from ..agent.react_agent import ReActAgent
+            from ..agent.enhanced_agent import EnhancedAgent, EnhancedAgentConfig
             from ..memory.working_memory import WorkingMemory
             
             working_memory = WorkingMemory(
@@ -340,15 +349,36 @@ class BatchGenerator:
                 current_file=file_path
             )
             
-            agent = ReActAgent(
-                llm_client=self.llm_client,
-                working_memory=working_memory,
-                project_path=self.project_path,
-                progress_callback=lambda p: self._on_agent_progress(file_name, p),
-                incremental_mode=self.config.incremental_mode,
-                preserve_passing_tests=self.config.preserve_passing_tests,
-                skip_test_analysis=self.config.skip_test_analysis,
-            )
+            if self.config.use_enhanced_agent:
+                agent_config = EnhancedAgentConfig(
+                    model_name=self.llm_client.model if hasattr(self.llm_client, 'model') else 'gpt-4',
+                    enable_error_prediction=self.config.enable_error_prediction,
+                    enable_strategy_optimization=True,
+                    enable_self_reflection=self.config.enable_self_reflection,
+                    enable_knowledge_graph=False,
+                    enable_pattern_library=self.config.enable_pattern_library,
+                    enable_chain_of_thought=True,
+                    enable_metrics=True,
+                )
+                agent = EnhancedAgent(
+                    llm_client=self.llm_client,
+                    working_memory=working_memory,
+                    project_path=self.project_path,
+                    progress_callback=lambda p: self._on_agent_progress(file_name, p),
+                    config=agent_config,
+                )
+                logger.info(f"[BatchGenerator] Using EnhancedAgent for {file_name}")
+            else:
+                agent = ReActAgent(
+                    llm_client=self.llm_client,
+                    working_memory=working_memory,
+                    project_path=self.project_path,
+                    progress_callback=lambda p: self._on_agent_progress(file_name, p),
+                    incremental_mode=self.config.incremental_mode,
+                    preserve_passing_tests=self.config.preserve_passing_tests,
+                    skip_test_analysis=self.config.skip_test_analysis,
+                )
+                logger.info(f"[BatchGenerator] Using ReActAgent for {file_name}")
             
             if self.config.incremental_mode:
                 self._update_progress(file_name, "Incremental mode: analyzing existing tests...")

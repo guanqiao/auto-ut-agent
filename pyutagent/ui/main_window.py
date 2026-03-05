@@ -46,6 +46,7 @@ from ..core.config import (
 )
 from ..llm.client import LLMClient
 from ..agent.react_agent import ReActAgent, AgentState
+from ..agent.enhanced_agent import EnhancedAgent, EnhancedAgentConfig
 from ..memory.working_memory import WorkingMemory
 from ..core.test_history import add_generation_record, TestGenerationStatus
 
@@ -70,7 +71,9 @@ class AgentWorker(QThread):
         project_path: str,
         target_file: str,
         target_coverage: float = 0.8,
-        max_iterations: int = 2
+        max_iterations: int = 2,
+        agent_config: Optional[EnhancedAgentConfig] = None,
+        use_enhanced_agent: bool = True
     ):
         super().__init__()
         self.llm_client = llm_client
@@ -78,6 +81,8 @@ class AgentWorker(QThread):
         self.target_file = target_file
         self.target_coverage = target_coverage
         self.max_iterations = max_iterations
+        self.agent_config = agent_config
+        self.use_enhanced_agent = use_enhanced_agent
         self._is_running = True
         self._is_paused = False
         self.agent: Optional[ReActAgent] = None
@@ -97,13 +102,34 @@ class AgentWorker(QThread):
                 current_file=self.target_file
             )
 
-            self.agent = ReActAgent(
-                llm_client=self.llm_client,
-                working_memory=working_memory,
-                project_path=self.project_path,
-                progress_callback=self._on_progress,
-                model_name=self.llm_client.model
-            )
+            if self.use_enhanced_agent:
+                config = self.agent_config or EnhancedAgentConfig(
+                    model_name=self.llm_client.model,
+                    enable_error_prediction=True,
+                    enable_strategy_optimization=True,
+                    enable_self_reflection=True,
+                    enable_knowledge_graph=False,
+                    enable_pattern_library=True,
+                    enable_chain_of_thought=True,
+                    enable_metrics=True,
+                )
+                self.agent = EnhancedAgent(
+                    llm_client=self.llm_client,
+                    working_memory=working_memory,
+                    project_path=self.project_path,
+                    progress_callback=self._on_progress,
+                    config=config
+                )
+                logger.info("[AgentWorker] Using EnhancedAgent with P0-P4 features enabled")
+            else:
+                self.agent = ReActAgent(
+                    llm_client=self.llm_client,
+                    working_memory=working_memory,
+                    project_path=self.project_path,
+                    progress_callback=self._on_progress,
+                    model_name=self.llm_client.model
+                )
+                logger.info("[AgentWorker] Using ReActAgent (basic mode)")
 
             try:
                 loop = asyncio.get_event_loop()

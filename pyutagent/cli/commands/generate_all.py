@@ -28,6 +28,10 @@ console = Console()
 @click.option('--compile-only-at-end', is_flag=True, default=False, help='Only compile once after all files are generated (implies --defer-compilation)')
 @click.option('-i', '--incremental', is_flag=True, default=False, help='Enable incremental mode (preserve existing passing tests)')
 @click.option('--skip-analysis', is_flag=True, default=False, help='Skip running existing tests, just analyze file content')
+@click.option('--basic', is_flag=True, help='Use basic ReActAgent instead of EnhancedAgent')
+@click.option('--enable-error-prediction', is_flag=True, default=True, show_default=True, help='Enable error prediction')
+@click.option('--enable-self-reflection', is_flag=True, default=True, show_default=True, help='Enable self-reflection')
+@click.option('--enable-pattern-library', is_flag=True, default=True, show_default=True, help='Enable pattern library')
 def generate_all_command(
     project_path: str,
     llm: str,
@@ -41,7 +45,11 @@ def generate_all_command(
     defer_compilation: bool,
     compile_only_at_end: bool,
     incremental: bool,
-    skip_analysis: bool
+    skip_analysis: bool,
+    basic: bool,
+    enable_error_prediction: bool,
+    enable_self_reflection: bool,
+    enable_pattern_library: bool
 ):
     """Generate unit tests for all Java files in a Maven project.
     
@@ -88,9 +96,13 @@ def generate_all_command(
         f"Coverage target: {coverage_target}%\n"
         f"Timeout per file: {timeout}s\n"
         f"Continue on error: {continue_on_error}\n"
+        f"Agent mode: {'Basic (ReActAgent)' if basic else 'Enhanced (EnhancedAgent)'}\n"
         f"Defer compilation: {defer_compilation}" + 
         (f"\n[green]✓ Two-phase mode enabled (generate all → compile all)[/green]" if defer_compilation else "") +
-        (f"\n[green]✓ Incremental mode: ENABLED[/green] (preserve existing passing tests)" if incremental else ""),
+        (f"\n[green]✓ Incremental mode: ENABLED[/green] (preserve existing passing tests)" if incremental else "") +
+        (f"\n[green]✓ Error prediction enabled[/green]" if enable_error_prediction and not basic else "") +
+        (f"\n[green]✓ Self-reflection enabled[/green]" if enable_self_reflection and not basic else "") +
+        (f"\n[green]✓ Pattern library enabled[/green]" if enable_pattern_library and not basic else ""),
         title="Configuration"
     ))
     
@@ -125,6 +137,10 @@ def generate_all_command(
             compile_only_at_end=compile_only_at_end,
             incremental_mode=incremental,
             skip_test_analysis=skip_analysis,
+            use_enhanced_agent=not basic,
+            enable_error_prediction=enable_error_prediction,
+            enable_self_reflection=enable_self_reflection,
+            enable_pattern_library=enable_pattern_library,
         )
         
         file_paths = [str(f.relative_to(project_path)) for f in java_files]

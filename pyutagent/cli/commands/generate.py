@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from typing import Optional
 
 import click
 from rich.console import Console
@@ -19,6 +20,12 @@ console = Console()
 @click.option('--watch', is_flag=True, help='Watch progress in real-time')
 @click.option('-i', '--incremental', is_flag=True, help='Enable incremental mode (preserve existing passing tests)')
 @click.option('--skip-analysis', is_flag=True, help='Skip running existing tests, just analyze file content')
+@click.option('--basic', is_flag=True, help='Use basic ReActAgent instead of EnhancedAgent')
+@click.option('--enable-multi-agent', is_flag=True, help='Enable multi-agent collaboration (experimental)')
+@click.option('--enable-error-prediction', is_flag=True, default=True, show_default=True, help='Enable error prediction')
+@click.option('--enable-self-reflection', is_flag=True, default=True, show_default=True, help='Enable self-reflection for code quality')
+@click.option('--enable-pattern-library', is_flag=True, default=True, show_default=True, help='Enable pattern library for test generation')
+@click.option('--enable-chain-of-thought', is_flag=True, default=True, show_default=True, help='Enable chain-of-thought reasoning')
 def generate_command(
     file_path: str,
     llm: str,
@@ -27,7 +34,13 @@ def generate_command(
     max_iterations: int,
     watch: bool,
     incremental: bool,
-    skip_analysis: bool
+    skip_analysis: bool,
+    basic: bool,
+    enable_multi_agent: bool,
+    enable_error_prediction: bool,
+    enable_self_reflection: bool,
+    enable_pattern_library: bool,
+    enable_chain_of_thought: bool
 ):
     """Generate unit tests for a Java file."""
     file_path = Path(file_path)
@@ -40,12 +53,32 @@ def generate_command(
     console.print(f"  LLM: {llm}")
     console.print(f"  Coverage target: {coverage_target}%")
     console.print(f"  Max iterations: {max_iterations}")
+    
+    if basic:
+        console.print(f"  [yellow]Agent mode: Basic (ReActAgent)[/yellow]")
+    else:
+        console.print(f"  [green]Agent mode: Enhanced (EnhancedAgent)[/green]")
+        features = []
+        if enable_multi_agent:
+            features.append("Multi-Agent")
+        if enable_error_prediction:
+            features.append("Error-Prediction")
+        if enable_self_reflection:
+            features.append("Self-Reflection")
+        if enable_pattern_library:
+            features.append("Pattern-Library")
+        if enable_chain_of_thought:
+            features.append("Chain-of-Thought")
+        if features:
+            console.print(f"  [green]Enabled features: {', '.join(features)}[/green]")
+    
     if incremental:
         console.print(f"  [green]Incremental mode: ENABLED[/green] (will preserve existing passing tests)")
     console.print()
 
     try:
         from pyutagent.agent.react_agent import ReActAgent
+        from pyutagent.agent.enhanced_agent import EnhancedAgent, EnhancedAgentConfig
         from pyutagent.memory.working_memory import WorkingMemory
         from pyutagent.config import load_llm_config
         from pyutagent.llm.client import LLMClient
@@ -75,14 +108,35 @@ def generate_command(
         project_path = file_path.parent
         while project_path.parent and not (project_path / 'pom.xml').exists():
             project_path = project_path.parent
-        
-        agent = ReActAgent(
-            llm_client=llm_client,
-            working_memory=working_memory,
-            project_path=str(project_path),
-            incremental_mode=incremental,
-            skip_test_analysis=skip_analysis,
-        )
+
+        if basic:
+            agent = ReActAgent(
+                llm_client=llm_client,
+                working_memory=working_memory,
+                project_path=str(project_path),
+                incremental_mode=incremental,
+                skip_test_analysis=skip_analysis,
+            )
+        else:
+            agent_config = EnhancedAgentConfig(
+                model_name=llm_client.model,
+                enable_multi_agent=enable_multi_agent,
+                enable_error_prediction=enable_error_prediction,
+                enable_strategy_optimization=True,
+                enable_self_reflection=enable_self_reflection,
+                enable_knowledge_graph=False,
+                enable_pattern_library=enable_pattern_library,
+                enable_chain_of_thought=enable_chain_of_thought,
+                enable_metrics=True,
+            )
+            agent = EnhancedAgent(
+                llm_client=llm_client,
+                working_memory=working_memory,
+                project_path=str(project_path),
+                incremental_mode=incremental,
+                skip_test_analysis=skip_analysis,
+                config=agent_config,
+            )
 
         if watch:
             with Progress(
