@@ -1,0 +1,41 @@
+{
+  "id": "0a2b4276",
+  "created_at": "2026-03-05T22:16:17.854481",
+  "step": "initial_generation",
+  "iteration": 0,
+  "state": {
+    "target_file": "D:\\opensource\\magic-api-master\\magic-api\\src\\main\\java\\org\\ssssssss\\magicapi\\utils\\PatternUtils.java",
+    "test_file": "src\\test\\java\\org\\ssssssss\\magicapi\\utils\\PatternUtilsTest.java",
+    "class_info": {
+      "name": "PatternUtils",
+      "package": "org.ssssssss.magicapi.utils",
+      "methods": [
+        {
+          "name": "match",
+          "return_type": null,
+          "parameters": [
+            [
+              "String",
+              "content"
+            ],
+            [
+              "String",
+              "regex"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        }
+      ],
+      "fields": [],
+      "imports": [
+        "java.util.Map",
+        "java.util.concurrent.ConcurrentHashMap",
+        "java.util.regex.Pattern"
+      ],
+      "annotations": [],
+      "source": "package org.ssssssss.magicapi.utils;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.regex.Pattern;\n\n/**\n * 正则相关工具包\n *\n * @author mxd\n */\npublic class PatternUtils {\n\n\tprivate static final Map<String, Pattern> CACHED_PATTERNS = new ConcurrentHashMap<>();\n\n\tpublic static boolean match(String content, String regex) {\n\t\tPattern pattern = CACHED_PATTERNS.get(regex);\n\t\tif (pattern == null) {\n\t\t\tpattern = Pattern.compile(regex);\n\t\t\tCACHED_PATTERNS.put(regex, pattern);\n\t\t}\n\t\treturn pattern.matcher(content).find();\n\t}\n}\n"
+    }
+  },
+  "metadata": {}
+}

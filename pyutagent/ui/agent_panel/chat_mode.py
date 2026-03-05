@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QTextCursor, QColor, QFont, QTextCharFormat
 
+from ..components import MarkdownViewer, StreamingHandler, StreamingConfig, StreamingMode
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,9 +29,11 @@ class ChatMessage:
 
 
 class ChatMessageWidget(QFrame):
-    """Widget for displaying a single chat message."""
+    """Widget for displaying a single chat message with Markdown support."""
     
     copy_requested = pyqtSignal(str)  # message_content
+    code_copy_requested = pyqtSignal(str)  # code_content
+    code_insert_requested = pyqtSignal(str)  # code_content
     
     # Role colors
     ROLE_COLORS = {
@@ -47,6 +51,7 @@ class ChatMessageWidget(QFrame):
     def __init__(self, message: ChatMessage, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._message = message
+        self._markdown_viewer: Optional[MarkdownViewer] = None
         self.setup_ui()
         
     def setup_ui(self):
@@ -93,17 +98,27 @@ class ChatMessageWidget(QFrame):
         
         layout.addLayout(header)
         
-        # Content
-        self._content_label = QLabel()
-        self._content_label.setWordWrap(True)
-        self._content_label.setTextFormat(Qt.TextFormat.PlainText)
-        self._content_label.setText(self._message.content)
-        layout.addWidget(self._content_label)
+        # Content - use Markdown viewer for agent messages, plain text for others
+        if self._message.role == 'agent':
+            self._markdown_viewer = MarkdownViewer()
+            self._markdown_viewer.set_content(self._message.content)
+            self._markdown_viewer.code_copy_requested.connect(self.code_copy_requested.emit)
+            self._markdown_viewer.code_insert_requested.connect(self.code_insert_requested.emit)
+            layout.addWidget(self._markdown_viewer)
+        else:
+            self._content_label = QLabel()
+            self._content_label.setWordWrap(True)
+            self._content_label.setTextFormat(Qt.TextFormat.PlainText)
+            self._content_label.setText(self._message.content)
+            layout.addWidget(self._content_label)
         
     def update_content(self, content: str):
         """Update message content."""
         self._message.content = content
-        self._content_label.setText(content)
+        if self._markdown_viewer:
+            self._markdown_viewer.set_content(content)
+        else:
+            self._content_label.setText(content)
 
 
 class ChatMode(QWidget):
@@ -113,16 +128,23 @@ class ChatMode(QWidget):
     - Message history
     - Input area
     - Message actions (copy, etc.)
+    - Markdown rendering
+    - Streaming response support
     """
     
     message_sent = pyqtSignal(str)  # message_text
     message_edited = pyqtSignal(str, str)  # message_id, new_content
+    code_copy_requested = pyqtSignal(str)  # code_content
+    code_insert_requested = pyqtSignal(str)  # code_content
+    streaming_started = pyqtSignal()
+    streaming_finished = pyqtSignal()
     
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._messages: List[ChatMessage] = []
         self._message_widgets: dict = {}  # id -> widget
         self._current_streaming_message: Optional[str] = None
+        self._streaming_handler: Optional[StreamingHandler] = None
         
         self.setup_ui()
         
@@ -267,6 +289,8 @@ class ChatMode(QWidget):
         
         widget = ChatMessageWidget(message)
         widget.copy_requested.connect(self._copy_to_clipboard)
+        widget.code_copy_requested.connect(self.code_copy_requested.emit)
+        widget.code_insert_requested.connect(self.code_insert_requested.emit)
         
         # Insert before stretch
         index = self._messages_layout.count() - 1
@@ -296,6 +320,8 @@ class ChatMode(QWidget):
         
         widget = ChatMessageWidget(message)
         widget.copy_requested.connect(self._copy_to_clipboard)
+        widget.code_copy_requested.connect(self.code_copy_requested.emit)
+        widget.code_insert_requested.connect(self.code_insert_requested.emit)
         
         index = self._messages_layout.count() - 1
         self._messages_layout.insertWidget(index, widget)
@@ -303,23 +329,47 @@ class ChatMode(QWidget):
         self._message_widgets[message_id] = widget
         self._current_streaming_message = message_id
         
+        # Setup streaming handler
+        config = StreamingConfig(mode=StreamingMode.CHUNK, chunk_delay_ms=10)
+        self._streaming_handler = StreamingHandler(config)
+        self._streaming_handler.content_updated.connect(
+            lambda content: self._update_streaming_content(message_id, content)
+        )
+        self._streaming_handler.streaming_finished.connect(self.streaming_finished.emit)
+        self._streaming_handler.start_streaming()
+        
+        self.streaming_started.emit()
         QTimer.singleShot(50, self._scroll_to_bottom)
         
         return message_id
+        
+    def _update_streaming_content(self, message_id: str, content: str):
+        """Update streaming message content."""
+        if message_id in self._message_widgets:
+            widget = self._message_widgets[message_id]
+            widget.update_content(content)
+            QTimer.singleShot(10, self._scroll_to_bottom)
         
     def append_to_streaming(self, text: str):
         """Append text to the current streaming message."""
         if not self._current_streaming_message:
             return
         
-        message_id = self._current_streaming_message
-        if message_id in self._message_widgets:
-            widget = self._message_widgets[message_id]
-            current_content = widget._message.content
-            widget.update_content(current_content + text)
+        if self._streaming_handler:
+            self._streaming_handler.append_chunk(text)
+        else:
+            # Fallback to direct update
+            message_id = self._current_streaming_message
+            if message_id in self._message_widgets:
+                widget = self._message_widgets[message_id]
+                current_content = widget._message.content
+                widget.update_content(current_content + text)
             
     def finish_streaming(self):
         """Finish the current streaming message."""
+        if self._streaming_handler:
+            self._streaming_handler.stop_streaming()
+            self._streaming_handler = None
         self._current_streaming_message = None
         
     def update_message(self, message_id: str, content: str):
@@ -337,6 +387,11 @@ class ChatMode(QWidget):
         
         self._messages.clear()
         self._message_widgets.clear()
+        self._current_streaming_message = None
+        
+        if self._streaming_handler:
+            self._streaming_handler.stop_streaming()
+            self._streaming_handler = None
         
     def _scroll_to_bottom(self):
         """Scroll to the bottom of messages."""
@@ -364,3 +419,7 @@ class ChatMode(QWidget):
     def get_messages(self) -> List[ChatMessage]:
         """Get all messages."""
         return self._messages.copy()
+        
+    def is_streaming(self) -> bool:
+        """Check if currently streaming."""
+        return self._streaming_handler is not None and self._streaming_handler.is_streaming()

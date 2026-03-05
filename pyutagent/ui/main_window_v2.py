@@ -4,6 +4,7 @@ This is the refactored main window using the new layout system.
 It maintains backward compatibility with the existing agent and config systems.
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
@@ -21,7 +22,7 @@ from .agent_panel import AgentPanel
 from .session import SessionManager
 from .commands import SlashCommandHandler, MentionSystem
 from .styles import get_style_manager
-from .components import get_notification_manager
+from .components import get_notification_manager, ThinkingExpander, ThinkingStep, ThinkingStatus
 
 # Import existing components (backward compatibility)
 from ..core.config import (
@@ -45,6 +46,7 @@ class MainWindowV2(QMainWindow):
     - Multi-language project support
     - Session management
     - Slash commands and @mentions
+    - Streaming AI responses with Markdown rendering
     """
     
     project_opened = pyqtSignal(str)
@@ -62,6 +64,10 @@ class MainWindowV2(QMainWindow):
         self.app_state: AppState = load_app_state()
         self.llm_client: Optional[LLMClient] = None
         
+        # Streaming state
+        self._current_streaming_task: Optional[asyncio.Task] = None
+        self._is_streaming = False
+        
         # Initialize managers
         self._session_manager = SessionManager()
         self._slash_handler = SlashCommandHandler()
@@ -77,8 +83,45 @@ class MainWindowV2(QMainWindow):
         self.apply_styles()
         self.setup_llm_client()
         
+        # Connect chat mode signals
+        self._connect_chat_signals()
+        
         # Create initial session
         self._create_new_session()
+        
+    def _connect_chat_signals(self):
+        """Connect chat mode signals."""
+        chat_mode = self._agent_panel.get_chat_mode()
+        chat_mode.code_copy_requested.connect(self._on_code_copy)
+        chat_mode.code_insert_requested.connect(self._on_code_insert)
+        chat_mode.streaming_started.connect(self._on_streaming_started)
+        chat_mode.streaming_finished.connect(self._on_streaming_finished)
+        
+    def _on_code_copy(self, code: str):
+        """Handle code copy request."""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(code)
+        self._notification_manager.show_success("Code copied to clipboard", duration=2000)
+        
+    def _on_code_insert(self, code: str):
+        """Handle code insert request."""
+        current_file = self._content_panel.get_current_file()
+        if current_file:
+            self._content_panel.insert_text(code)
+            self._notification_manager.show_success("Code inserted into editor", duration=2000)
+        else:
+            self._notification_manager.show_warning("No file open in editor", duration=3000)
+            
+    def _on_streaming_started(self):
+        """Handle streaming started."""
+        self._is_streaming = True
+        logger.info("AI response streaming started")
+        
+    def _on_streaming_finished(self):
+        """Handle streaming finished."""
+        self._is_streaming = False
+        self._current_streaming_task = None
+        logger.info("AI response streaming finished")
         
     def setup_ui(self):
         """Setup the main UI."""
@@ -224,9 +267,14 @@ class MainWindowV2(QMainWindow):
         commands_action.setShortcut("Ctrl+/")
         commands_action.triggered.connect(self._show_slash_commands_help)
         help_menu.addAction(commands_action)
-        
+
         help_menu.addSeparator()
-        
+
+        review_action = QAction("&Review Changes...", self)
+        review_action.setShortcut("Ctrl+Shift+R")
+        review_action.triggered.connect(self.on_review_changes)
+        help_menu.addAction(review_action)
+
         about_action = QAction("&About", self)
         about_action.triggered.connect(self.on_about)
         help_menu.addAction(about_action)
@@ -238,6 +286,19 @@ class MainWindowV2(QMainWindow):
         command_palette_shortcut.setShortcut("Ctrl+Shift+P")
         command_palette_shortcut.triggered.connect(self.on_command_palette)
         self.addAction(command_palette_shortcut)
+        
+        # Cancel streaming shortcut
+        cancel_streaming_shortcut = QAction(self)
+        cancel_streaming_shortcut.setShortcut("Escape")
+        cancel_streaming_shortcut.triggered.connect(self._cancel_streaming)
+        self.addAction(cancel_streaming_shortcut)
+        
+    def _cancel_streaming(self):
+        """Cancel current streaming response."""
+        if self._is_streaming and self.llm_client:
+            logger.info("Cancelling streaming response")
+            self.llm_client.cancel()
+            self._notification_manager.show_info("Response cancelled", duration=2000)
         
     def apply_styles(self):
         """Apply theme styles."""
@@ -474,7 +535,7 @@ class MainWindowV2(QMainWindow):
         logger.info(f"File opened: {file_path}")
         
     def on_message_sent(self, message: str):
-        """Handle user message."""
+        """Handle user message with streaming AI response."""
         logger.info(f"User message: {message}")
         
         # Save to session
@@ -484,18 +545,131 @@ class MainWindowV2(QMainWindow):
         if self._slash_handler.is_command(message):
             return
         
-        # Process with AI (placeholder)
-        self._agent_panel.add_agent_message(
-            "I'm processing your message. This is a placeholder response.\n\n"
-            "In the full implementation, this would:\n"
-            "1. Send your message to the AI\n"
-            "2. Include any mentioned files as context\n"
-            "3. Stream the response back\n"
-            "4. Save the conversation to the current session"
-        )
+        # Check if LLM client is available
+        if not self.llm_client:
+            self._agent_panel.add_agent_message(
+                "⚠️ LLM not configured. Please configure LLM settings first."
+            )
+            return
+        
+        # Start streaming response
+        chat_mode = self._agent_panel.get_chat_mode()
+        message_id = chat_mode.start_streaming_response()
+        
+        # Build context from mentioned files
+        context = self._build_message_context(message)
+        
+        # Create async task for streaming
+        try:
+            import qasync
+            loop = qasync.QEventLoop.instance()
+            self._current_streaming_task = loop.create_task(
+                self._stream_ai_response(message, context, chat_mode, message_id)
+            )
+        except Exception as e:
+            logger.exception("Failed to start streaming task")
+            chat_mode.finish_streaming()
+            chat_mode.update_message(
+                message_id,
+                f"❌ Error: Failed to start AI response - {str(e)}"
+            )
+            
+    async def _stream_ai_response(
+        self, 
+        message: str, 
+        context: str, 
+        chat_mode, 
+        message_id: str
+    ):
+        """Stream AI response asynchronously.
+        
+        Args:
+            message: User message
+            context: Additional context (file contents, etc.)
+            chat_mode: Chat mode widget
+            message_id: Message ID for updates
+        """
+        try:
+            # Build prompt
+            if context:
+                full_prompt = f"Context:\n{context}\n\nUser: {message}"
+            else:
+                full_prompt = message
+            
+            # System prompt
+            system_prompt = (
+                "You are an AI coding assistant. Help the user with their programming tasks.\n"
+                "Use Markdown formatting for your responses.\n"
+                "When providing code, use code blocks with the appropriate language."
+            )
+            
+            logger.info(f"Starting AI stream for message: {message[:50]}...")
+            
+            # Reset cancellation state
+            self.llm_client.reset_cancel()
+            
+            # Stream response
+            full_response = ""
+            async for chunk in self.llm_client.astream(full_prompt, system_prompt):
+                full_response += chunk
+                chat_mode.append_to_streaming(chunk)
+                
+            # Save to session
+            self._session_manager.add_message_to_current('agent', full_response)
+            
+            logger.info(f"AI response completed: {len(full_response)} chars")
+            
+        except asyncio.CancelledError:
+            logger.info("AI response streaming cancelled")
+            chat_mode.append_to_streaming("\n\n[Response cancelled by user]")
+        except Exception as e:
+            logger.exception("AI response streaming failed")
+            error_msg = f"\n\n❌ Error: {str(e)}"
+            chat_mode.append_to_streaming(error_msg)
+        finally:
+            chat_mode.finish_streaming()
+            
+    def _build_message_context(self, message: str) -> str:
+        """Build context from mentioned files and current file.
+        
+        Args:
+            message: User message to check for mentions
+            
+        Returns:
+            Context string with file contents
+        """
+        context_parts = []
+        
+        # Add current file if open
+        current_file = self._content_panel.get_current_file()
+        if current_file:
+            try:
+                with open(current_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                context_parts.append(f"Current file ({Path(current_file).name}):\n```\n{content}\n```")
+            except Exception as e:
+                logger.warning(f"Could not read current file: {e}")
+        
+        # Add context from context manager
+        try:
+            context_manager = self._agent_panel.get_context_manager()
+            for item in context_manager.get_items():
+                if item.file_path and item.file_path != current_file:
+                    try:
+                        with open(item.file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        context_parts.append(
+                            f"File ({Path(item.file_path).name}):\n```\n{content[:2000]}\n```"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not read context file: {e}")
+        except Exception as e:
+            logger.warning(f"Could not get context: {e}")
+        
+        return "\n\n".join(context_parts)
         
     def on_generate_tests(self):
-        """Handle generate tests request."""
+        """Handle generate tests request with streaming."""
         selected_file = self._sidebar_panel.get_file_tree().get_selected_path()
         current_file = self._content_panel.get_current_file()
         
@@ -532,11 +706,94 @@ class MainWindowV2(QMainWindow):
         )
         self._agent_panel.get_agent_mode().add_thinking_step(step2)
         
-        # TODO: Actually generate tests with AI
-        self._agent_panel.add_agent_message(
-            f"I'll generate unit tests for {Path(target_file).name}. "
-            "This is a placeholder - actual implementation would use the AI to generate tests."
-        )
+        # Check if LLM client is available
+        if not self.llm_client:
+            self._agent_panel.add_agent_message(
+                "⚠️ LLM not configured. Please configure LLM settings first."
+            )
+            return
+        
+        # Start streaming response
+        chat_mode = self._agent_panel.get_chat_mode()
+        message_id = chat_mode.start_streaming_response()
+        
+        # Create async task for streaming
+        try:
+            import qasync
+            loop = qasync.QEventLoop.instance()
+            self._current_streaming_task = loop.create_task(
+                self._stream_test_generation(target_file, chat_mode, message_id)
+            )
+        except Exception as e:
+            logger.exception("Failed to start test generation task")
+            chat_mode.finish_streaming()
+            chat_mode.update_message(
+                message_id,
+                f"❌ Error: Failed to start test generation - {str(e)}"
+            )
+            
+    async def _stream_test_generation(
+        self, 
+        target_file: str, 
+        chat_mode, 
+        message_id: str
+    ):
+        """Stream test generation response.
+        
+        Args:
+            target_file: Path to file to generate tests for
+            chat_mode: Chat mode widget
+            message_id: Message ID for updates
+        """
+        try:
+            # Read file content
+            with open(target_file, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            
+            # Build prompt
+            prompt = (
+                f"Generate comprehensive unit tests for the following code:\n\n"
+                f"File: {Path(target_file).name}\n"
+                f"```java\n{file_content}\n```\n\n"
+                f"Please provide:\n"
+                f"1. Test cases for all public methods\n"
+                f"2. Edge case coverage\n"
+                f"3. Mock setup if needed\n"
+                f"4. Use JUnit 5 and Mockito\n\n"
+                f"Output the complete test class code."
+            )
+            
+            system_prompt = (
+                "You are an expert Java developer specializing in unit testing.\n"
+                "Generate high-quality, well-documented test code.\n"
+                "Use Markdown code blocks for the test code."
+            )
+            
+            logger.info(f"Starting test generation stream for: {target_file}")
+            
+            # Reset cancellation state
+            self.llm_client.reset_cancel()
+            
+            # Stream response
+            full_response = ""
+            async for chunk in self.llm_client.astream(prompt, system_prompt):
+                full_response += chunk
+                chat_mode.append_to_streaming(chunk)
+                
+            # Save to session
+            self._session_manager.add_message_to_current('agent', full_response)
+            
+            logger.info(f"Test generation completed: {len(full_response)} chars")
+            
+        except asyncio.CancelledError:
+            logger.info("Test generation cancelled")
+            chat_mode.append_to_streaming("\n\n[Test generation cancelled by user]")
+        except Exception as e:
+            logger.exception("Test generation failed")
+            error_msg = f"\n\n❌ Error: {str(e)}"
+            chat_mode.append_to_streaming(error_msg)
+        finally:
+            chat_mode.finish_streaming()
         
     def on_context_changed(self):
         """Handle context changes."""
@@ -587,11 +844,26 @@ class MainWindowV2(QMainWindow):
             "<li>Test generation</li>"
             "<li>Code explanation</li>"
             "<li>Refactoring assistance</li>"
+            "<li>Streaming AI responses</li>"
+            "<li>Markdown rendering</li>"
             "</ul>"
         )
+
+    def on_review_changes(self):
+        """Show review changes dialog."""
+        logger.info("Review changes requested")
+        dialog = ApprovalDialog(self, "Review Changes")
+        if dialog.exec():
+            approved = dialog.get_approved_files()
+            rejected = dialog.get_rejected_files()
+            logger.info(f"Review completed: {len(approved)} approved, {len(rejected)} rejected")
         
     def closeEvent(self, event):
         """Handle window close."""
+        # Cancel any ongoing streaming
+        if self._is_streaming and self.llm_client:
+            self.llm_client.cancel()
+            
         # Save all sessions
         self._session_manager.save_all_sessions()
         

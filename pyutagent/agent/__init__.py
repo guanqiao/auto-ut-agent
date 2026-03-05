@@ -16,17 +16,43 @@ from .enhanced_agent import EnhancedAgent, EnhancedAgentConfig
 from .test_generator import TestGeneratorAgent
 from .unified_autonomous_loop import (
     UnifiedAutonomousLoop,
-    LoopConfig,
+    LoopConfig as UnifiedLoopConfig,
     LoopState as UnifiedLoopState,
     LoopFeature,
     DecisionStrategy,
+    Observation as UnifiedObservation,
+    Thought as UnifiedThought,
+    Action as LoopAction,
+    Verification as UnifiedVerification,
+    LearningEntry as UnifiedLearningEntry,
+    LoopResult as UnifiedLoopResult,
+    create_loop_config,
+)
+from .autonomous_loop import (
+    # Enums
+    LoopPhase,
+    RiskLevel,
+    ActionPriority,
+    LoopStateEnum,
+    
+    # Data classes
+    LoopState,
     Observation,
     Thought,
-    Action as LoopAction,
+    Action,
     Verification,
     LearningEntry,
+    RiskAssessment,
+    LoopMetrics,
     LoopResult,
-    create_loop_config,
+    LoopConfig,
+    
+    # Classes
+    AutonomousLoop,
+    DefaultAutonomousLoop,
+    
+    # Functions
+    create_autonomous_loop,
 )
 from .integration_manager import (
     IntegrationManager,
@@ -441,17 +467,36 @@ __all__ = [
     
     # Unified Autonomous Loop
     "UnifiedAutonomousLoop",
-    "LoopConfig",
+    "UnifiedLoopConfig",
     "UnifiedLoopState",
     "LoopFeature",
     "DecisionStrategy",
+    "UnifiedObservation",
+    "UnifiedThought",
+    "LoopAction",
+    "UnifiedVerification",
+    "UnifiedLearningEntry",
+    "UnifiedLoopResult",
+    "create_loop_config",
+    
+    # Autonomous Loop (Task 3)
+    "LoopPhase",
+    "RiskLevel",
+    "ActionPriority",
+    "LoopStateEnum",
+    "LoopState",
     "Observation",
     "Thought",
-    "LoopAction",
+    "Action",
     "Verification",
     "LearningEntry",
+    "RiskAssessment",
+    "LoopMetrics",
     "LoopResult",
-    "create_loop_config",
+    "LoopConfig",
+    "AutonomousLoop",
+    "DefaultAutonomousLoop",
+    "create_autonomous_loop",
     
     "ReActAgent",
     "EnhancedAgent",
