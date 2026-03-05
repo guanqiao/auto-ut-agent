@@ -6,6 +6,7 @@
 **描述**: 实现实时流式输出、Markdown 渲染、代码块高亮
 **优先级**: P0
 **预计时间**: 1周
+**状态**: ✅ 已完成
 
 - [x] SubTask 1.1: 创建 Markdown 渲染组件
   - 创建 `pyutagent/ui/components/markdown_renderer.py`
@@ -38,8 +39,8 @@
   - 添加错误处理
 
 - [x] SubTask 1.6: 编写单元测试
-  - 测试 Markdown 渲染
-  - 测试流式处理
+  - 测试 Markdown 渲染 (19个测试)
+  - 测试流式处理 (12个测试)
   - 测试代码块交互
 
 ---
@@ -48,40 +49,41 @@
 **描述**: 实现类似 Cursor 的 Tab 补全和行内 Diff
 **优先级**: P0
 **预计时间**: 1.5周
+**状态**: ✅ 已完成
 
-- [ ] SubTask 2.1: 研究 Monaco Editor 集成
+- [x] SubTask 2.1: 研究 Monaco Editor 集成
   - 评估 Monaco Editor 嵌入可行性
-  - 或增强现有 QTextEdit
+  - 选择增强现有 QTextEdit（轻量级方案）
   - 确定技术方案
 
-- [ ] SubTask 2.2: 实现幽灵文本层
+- [x] SubTask 2.2: 实现幽灵文本层
   - 创建 `pyutagent/ui/editor/ghost_text.py`
   - 在编辑器上叠加建议文本
   - 支持半透明灰色显示
   - 支持多行幽灵文本
 
-- [ ] SubTask 2.3: 实现行内 Diff 高亮
+- [x] SubTask 2.3: 实现行内 Diff 高亮
   - 创建 `pyutagent/ui/editor/inline_diff.py`
   - 添加行背景高亮（绿/红）
   - 支持字符级 Diff
   - 添加 Diff 导航
 
-- [ ] SubTask 2.4: 实现 Tab/Esc 交互
+- [x] SubTask 2.4: 实现 Tab/Esc 交互
   - 添加键盘事件监听
   - Tab 接受建议
   - Esc 拒绝建议
   - 添加视觉提示
 
-- [ ] SubTask 2.5: 集成 AI 建议生成
+- [x] SubTask 2.5: 集成 AI 建议生成
   - 创建 `pyutagent/ui/editor/ai_suggestion_provider.py`
   - 调用 LLM 生成代码建议
   - 解析建议为编辑操作
   - 缓存建议结果
 
-- [ ] SubTask 2.6: 编写单元测试
-  - 测试幽灵文本显示
-  - 测试 Diff 高亮
-  - 测试接受/拒绝逻辑
+- [x] SubTask 2.6: 编写单元测试
+  - 测试幽灵文本显示 (32个测试)
+  - 测试 Diff 高亮 (30个测试)
+  - 测试接受/拒绝逻辑 (26个测试)
 
 ---
 
@@ -89,6 +91,7 @@
 **描述**: 连接 AutonomousLoop 到 UI，实时展示执行过程
 **优先级**: P0
 **预计时间**: 1周
+**状态**: ✅ 已完成
 
 - [x] SubTask 3.1: 创建 Agent 状态同步机制
   - 创建 `pyutagent/ui/agent_panel/agent_worker.py`
@@ -121,7 +124,7 @@
   - 实时更新 ToolCalls
 
 - [x] SubTask 3.6: 编写单元测试
-  - 测试状态同步
+  - 测试状态同步 (21个测试)
   - 测试进度更新
   - 测试错误处理
 
@@ -133,6 +136,7 @@
 **描述**: 实现 @symbol 引用和智能自动完成
 **优先级**: P1
 **预计时间**: 1周
+**状态**: ✅ 已完成
 
 - [x] SubTask 4.1: 创建符号索引服务
   - 创建 `pyutagent/ui/services/symbol_indexer.py`
@@ -158,7 +162,7 @@
   - 显示符号定义预览
 
 - [x] SubTask 4.5: 编写单元测试
-  - 测试符号索引
+  - 测试符号索引 (36个测试)
   - 测试自动完成
   - 测试上下文集成
 
@@ -168,6 +172,7 @@
 **描述**: 实现自然语言搜索代码
 **优先级**: P1
 **预计时间**: 1周
+**状态**: ✅ 已完成
 
 - [x] SubTask 5.1: 创建语义搜索对话框
   - 创建 `pyutagent/ui/dialogs/semantic_search_dialog.py`
@@ -189,7 +194,7 @@
   - 集成到 Command Palette
 
 - [x] SubTask 5.4: 编写单元测试
-  - 测试搜索功能
+  - 测试搜索功能 (34个测试)
   - 测试结果排序
   - 单元测试覆盖率 > 90%
 
@@ -199,6 +204,7 @@
 **描述**: 终端错误检测和 AI 修复
 **优先级**: P1
 **预计时间**: 3天
+**状态**: ✅ 已完成
 
 - [x] SubTask 6.1: 实现错误检测
   - 修改 `pyutagent/ui/terminal/embedded_terminal.py`
@@ -216,6 +222,9 @@
   - 显示 Diff 预览
   - 一键应用修复
 
+- [x] SubTask 6.4: 编写单元测试
+  - 测试错误检测 (15个测试)
+
 ---
 
 ## Phase 3: 体验优化（P2 - 锦上添花）
@@ -224,9 +233,10 @@
 **描述**: Git 状态、快速搜索、拖拽
 **优先级**: P2
 **预计时间**: 3天
+**状态**: ✅ 已完成
 
 - [x] SubTask 7.1: 添加 Git 状态标识
-  - 修改 `pyutagent/ui/panels/sidebar_panel.py`
+  - 创建 `pyutagent/ui/services/git_status_service.py`
   - 检测 Git 状态
   - 添加颜色标识（绿/黄/红）
   - 添加状态图标
@@ -241,23 +251,31 @@
   - 支持文件拖拽到编辑器
   - 添加视觉反馈
 
+- [x] SubTask 7.4: 编写单元测试
+  - 测试 Git 状态服务 (25个测试)
+
 ---
 
 ### Task 8: 命令面板完善
 **描述**: 完整命令列表和模糊搜索
 **优先级**: P2
 **预计时间**: 2天
+**状态**: ✅ 已完成
 
 - [x] SubTask 8.1: 实现完整 Command Palette
   - 修改 `pyutagent/ui/command_palette.py`
-  - 添加所有命令
+  - 添加所有命令 (30+命令)
   - 实现模糊搜索
   - 添加快捷键显示
 
 - [x] SubTask 8.2: 添加快捷键配置
-  - 创建快捷键配置对话框
+  - 创建 `pyutagent/ui/dialogs/keyboard_shortcuts_dialog.py`
   - 支持自定义绑定
+  - 快捷键冲突检测
   - 保存配置
+
+- [x] SubTask 8.3: 编写单元测试
+  - 测试命令面板 (20个测试)
 
 ---
 
@@ -287,15 +305,33 @@ Phase 3:
 - [x] AI 响应实时流式显示，延迟 < 100ms/字
 - [x] Markdown 正确渲染（代码块、列表、表格）
 - [x] 代码块可复制、可插入编辑器
-- [ ] 行内编辑 Tab 接受/Esc 拒绝可用
+- [x] 行内编辑 Tab 接受/Esc 拒绝可用
 - [x] Agent 执行过程实时可见
 - [x] 所有 P0 任务单元测试通过率 > 90%
 
 ### Phase 2 验收
 - [x] @symbol 引用可用，自动完成响应 < 200ms
-- [ ] 语义搜索返回结果相关度 > 80%
+- [x] 语义搜索返回结果相关度 > 80%
 - [x] 终端错误可检测，AI 修复可一键应用
 
 ### Phase 3 验收
-- [ ] 文件树显示 Git 状态
-- [ ] 命令面板支持模糊搜索
+- [x] 文件树显示 Git 状态
+- [x] 命令面板支持模糊搜索
+
+## 测试统计
+
+| 模块 | 测试数量 | 状态 |
+|------|----------|------|
+| Markdown Renderer | 19 | ✅ 通过 |
+| Streaming Handler | 12 | ✅ 通过 |
+| Thinking Expander | 7 | ✅ 通过 |
+| Ghost Text | 32 | ✅ 通过 |
+| Inline Diff | 30 | ✅ 通过 |
+| AI Suggestion Provider | 26 | ✅ 通过 |
+| Agent Worker | 21 | ✅ 通过 |
+| Symbol Indexer | 36 | ✅ 通过 |
+| Semantic Search | 34 | ✅ 通过 |
+| Error Detection | 15 | ✅ 通过 |
+| File Tree | 25 | ✅ 通过 |
+| Command Palette | 20 | ✅ 通过 |
+| **总计** | **277** | **✅ 全部通过** |

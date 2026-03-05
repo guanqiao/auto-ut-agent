@@ -1,423 +1,443 @@
-"""Unit tests for SkillBase and related classes."""
+"""Unit tests for skill_base module."""
 
 import pytest
-from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from pathlib import Path
+from typing import Dict, Any
 
 from pyutagent.skills.skill_base import (
     SkillBase,
     SkillCategory,
-    SkillMeta,
-    SkillResult,
+    SkillLevel,
+    SkillMetadata,
+    SkillContext,
+    SkillInput,
+    SkillOutput,
+    SkillParameter,
     SkillExample,
+    SkillResult,
+    SkillVersion,
     skill,
 )
 
 
-class TestSkillExample:
-    """Tests for SkillExample dataclass."""
+class TestSkillVersion:
+    """Tests for SkillVersion."""
 
-    def test_create_skill_example(self):
-        """Test creating a skill example."""
-        example = SkillExample(
-            task="Build the project",
-            description="Compile all source code",
-            expected_result="BUILD SUCCESS",
-            code_example="mvn compile",
+    def test_default_version(self):
+        """Test default version creation."""
+        version = SkillVersion()
+        assert version.major == 1
+        assert version.minor == 0
+        assert version.patch == 0
+        assert str(version) == "1.0.0"
+
+    def test_version_from_string(self):
+        """Test parsing version from string."""
+        version = SkillVersion.from_string("2.5.3")
+        assert version.major == 2
+        assert version.minor == 5
+        assert version.patch == 3
+
+    def test_version_from_short_string(self):
+        """Test parsing version from short string."""
+        version = SkillVersion.from_string("3.2")
+        assert version.major == 3
+        assert version.minor == 2
+        assert version.patch == 0
+
+    def test_version_compatibility(self):
+        """Test version compatibility checking."""
+        v1 = SkillVersion(1, 0, 0)
+        v2 = SkillVersion(1, 5, 0)
+        v3 = SkillVersion(2, 0, 0)
+
+        assert v1.is_compatible_with(v2)
+        assert v2.is_compatible_with(v1)
+        assert not v1.is_compatible_with(v3)
+
+
+class TestSkillParameter:
+    """Tests for SkillParameter."""
+
+    def test_to_dict(self):
+        """Test parameter to dict conversion."""
+        param = SkillParameter(
+            name="test_param",
+            type="string",
+            description="A test parameter",
+            required=True,
+            default="default_value",
+            enum=["a", "b", "c"],
+            example="example_value",
         )
-        
-        assert example.task == "Build the project"
-        assert example.description == "Compile all source code"
-        assert example.expected_result == "BUILD SUCCESS"
-        assert example.code_example == "mvn compile"
 
-    def test_skill_example_to_dict(self):
-        """Test converting skill example to dictionary."""
-        example = SkillExample(
-            task="Run tests",
-            description="Execute all tests",
+        result = param.to_dict()
+        assert result["name"] == "test_param"
+        assert result["type"] == "string"
+        assert result["description"] == "A test parameter"
+        assert result["required"] is True
+        assert result["default"] == "default_value"
+        assert result["enum"] == ["a", "b", "c"]
+        assert result["example"] == "example_value"
+
+
+class TestSkillInput:
+    """Tests for SkillInput."""
+
+    def test_validate_required(self):
+        """Test validation of required parameters."""
+        input_spec = SkillInput(
+            parameters=[
+                SkillParameter(name="required_param", type="string", description="Required", required=True),
+                SkillParameter(name="optional_param", type="string", description="Optional", required=False),
+            ]
         )
-        
-        result = example.to_dict()
-        
-        assert result["task"] == "Run tests"
-        assert result["description"] == "Execute all tests"
-        assert result["expected_result"] == ""
-        assert result["code_example"] == ""
 
-    def test_skill_example_defaults(self):
-        """Test skill example default values."""
-        example = SkillExample(
-            task="Test",
-            description="Description",
+        # Missing required parameter
+        errors = input_spec.validate({"optional_param": "value"})
+        assert len(errors) == 1
+        assert "required_param" in errors[0]
+
+        # All parameters provided
+        errors = input_spec.validate({"required_param": "value", "optional_param": "value"})
+        assert len(errors) == 0
+
+    def test_validate_enum(self):
+        """Test validation of enum parameters."""
+        input_spec = SkillInput(
+            parameters=[
+                SkillParameter(
+                    name="enum_param",
+                    type="string",
+                    description="Enum param",
+                    enum=["a", "b", "c"],
+                ),
+            ]
         )
-        
-        assert example.expected_result == ""
-        assert example.code_example == ""
+
+        # Valid enum value
+        errors = input_spec.validate({"enum_param": "a"})
+        assert len(errors) == 0
+
+        # Invalid enum value
+        errors = input_spec.validate({"enum_param": "d"})
+        assert len(errors) == 1
+        assert "Invalid value" in errors[0]
 
 
-class TestSkillMeta:
-    """Tests for SkillMeta dataclass."""
+class TestSkillMetadata:
+    """Tests for SkillMetadata."""
 
-    def test_create_skill_meta(self):
-        """Test creating skill metadata."""
-        meta = SkillMeta(
+    def test_to_dict(self):
+        """Test metadata to dict conversion."""
+        metadata = SkillMetadata(
             name="test_skill",
             description="A test skill",
+            version=SkillVersion(1, 2, 3),
             category=SkillCategory.TEST,
+            level=SkillLevel.INTERMEDIATE,
+            tags=["test", "example"],
+            author="Test Author",
         )
-        
-        assert meta.name == "test_skill"
-        assert meta.description == "A test skill"
-        assert meta.category == SkillCategory.TEST
-        assert meta.required_tools == []
-        assert meta.version == "1.0.0"
 
-    def test_skill_meta_with_all_fields(self):
-        """Test skill metadata with all fields."""
-        examples = [SkillExample(task="t1", description="d1")]
-        meta = SkillMeta(
-            name="full_skill",
-            description="Full skill",
-            required_tools=["tool1", "tool2"],
-            category=SkillCategory.BUILD,
-            instructions="Do something",
-            examples=examples,
-            best_practices=["bp1"],
-            common_mistakes=["cm1"],
-            prerequisites=["pre1"],
-            version="2.0.0",
-        )
-        
-        assert meta.name == "full_skill"
-        assert meta.required_tools == ["tool1", "tool2"]
-        assert meta.category == SkillCategory.BUILD
-        assert meta.instructions == "Do something"
-        assert len(meta.examples) == 1
-        assert meta.best_practices == ["bp1"]
-        assert meta.common_mistakes == ["cm1"]
-        assert meta.prerequisites == ["pre1"]
-        assert meta.version == "2.0.0"
+        result = metadata.to_dict()
+        assert result["name"] == "test_skill"
+        assert result["description"] == "A test skill"
+        assert result["version"] == "1.2.3"
+        assert result["category"] == "test"
+        assert result["level"] == "intermediate"
+        assert result["tags"] == ["test", "example"]
+        assert result["author"] == "Test Author"
 
-    def test_skill_meta_to_dict(self):
-        """Test converting skill metadata to dictionary."""
-        meta = SkillMeta(
-            name="dict_skill",
-            description="Dictionary skill",
-            category=SkillCategory.UTILITY,
-            required_tools=["tool1"],
+    def test_get_prompt_context_brief(self):
+        """Test brief prompt context."""
+        metadata = SkillMetadata(
+            name="test_skill",
+            description="A test skill",
         )
-        
-        result = meta.to_dict()
-        
-        assert result["name"] == "dict_skill"
-        assert result["description"] == "Dictionary skill"
-        assert result["category"] == "utility"
-        assert result["required_tools"] == ["tool1"]
 
-    def test_skill_meta_get_prompt_context(self):
-        """Test generating prompt context."""
-        meta = SkillMeta(
-            name="prompt_skill",
-            description="Prompt skill description",
-            prerequisites=["Java 11+"],
-            required_tools=["maven"],
-            instructions="Run mvn compile",
-            examples=[
-                SkillExample(
-                    task="Build",
-                    description="Build project",
-                    code_example="mvn compile",
-                )
-            ],
-            best_practices=["Always clean first"],
-            common_mistakes=["Forgetting to compile"],
+        context = metadata.get_prompt_context("brief")
+        assert "test_skill" in context
+        assert "A test skill" in context
+
+    def test_get_prompt_context_full(self):
+        """Test full prompt context."""
+        metadata = SkillMetadata(
+            name="test_skill",
+            description="A test skill",
+            instructions="Do something useful",
+            best_practices=["Practice 1", "Practice 2"],
+            common_mistakes=["Mistake 1"],
         )
-        
-        context = meta.get_prompt_context()
-        
-        assert "# Skill: prompt_skill" in context
-        assert "Prompt skill description" in context
-        assert "## Prerequisites" in context
-        assert "- Java 11+" in context
-        assert "## Required Tools" in context
-        assert "- maven" in context
-        assert "## Instructions" in context
-        assert "Run mvn compile" in context
-        assert "## Examples" in context
-        assert "## Best Practices" in context
-        assert "- Always clean first" in context
-        assert "## Common Mistakes to Avoid" in context
-        assert "- Forgetting to compile" in context
+
+        context = metadata.get_prompt_context("full")
+        assert "test_skill" in context
+        assert "Do something useful" in context
+        assert "Practice 1" in context
+        assert "Mistake 1" in context
+
+
+class TestSkillContext:
+    """Tests for SkillContext."""
+
+    def test_to_dict(self):
+        """Test context to dict conversion."""
+        context = SkillContext(
+            project_path=Path("/project"),
+            working_dir=Path("/work"),
+            config={"key": "value"},
+            session_id="session_123",
+        )
+
+        result = context.to_dict()
+        # Use Path to handle Windows/Unix path differences
+        assert Path(result["project_path"]).name == "project"
+        assert Path(result["working_dir"]).name == "work"
+        assert result["config"] == {"key": "value"}
+        assert result["session_id"] == "session_123"
+
+    def test_get_tool(self):
+        """Test getting tools from context."""
+        mock_tool = {"name": "mock_tool"}
+        context = SkillContext(
+            tools={"mock_tool": mock_tool}
+        )
+
+        assert context.get_tool("mock_tool") == mock_tool
+        assert context.get_tool("nonexistent") is None
+
+    def test_has_tool(self):
+        """Test checking tool availability."""
+        context = SkillContext(
+            tools={"tool1": {}, "tool2": {}}
+        )
+
+        assert context.has_tool("tool1") is True
+        assert context.has_tool("nonexistent") is False
 
 
 class TestSkillResult:
-    """Tests for SkillResult dataclass."""
+    """Tests for SkillResult."""
 
-    def test_create_success_result(self):
-        """Test creating a successful result."""
+    def test_ok_result(self):
+        """Test successful result creation."""
         result = SkillResult.ok(
-            message="Operation successful",
+            message="Success",
             data={"key": "value"},
-            artifacts=["file1.java"],
+            artifacts=["file1.txt"],
         )
-        
+
         assert result.success is True
-        assert result.message == "Operation successful"
+        assert result.message == "Success"
         assert result.data == {"key": "value"}
-        assert result.artifacts == ["file1.java"]
+        assert result.artifacts == ["file1.txt"]
 
-    def test_create_failure_result(self):
-        """Test creating a failed result."""
+    def test_fail_result(self):
+        """Test failed result creation."""
         result = SkillResult.fail(
-            message="Operation failed",
-            data={"error": "ERROR_CODE"},
+            message="Failed",
+            error_code="ERROR_001",
+            data={"detail": "error detail"},
         )
-        
+
         assert result.success is False
-        assert result.message == "Operation failed"
-        assert result.data == {"error": "ERROR_CODE"}
-        assert result.artifacts == []
+        assert result.message == "Failed"
+        assert result.metadata["error_code"] == "ERROR_001"
+        assert result.data == {"detail": "error detail"}
 
-    def test_skill_result_defaults(self):
-        """Test skill result default values."""
-        result = SkillResult(success=True, message="OK")
-        
-        assert result.data == {}
-        assert result.artifacts == []
-        assert result.duration_ms == 0
-
-    def test_skill_result_to_dict(self):
-        """Test converting skill result to dictionary."""
-        result = SkillResult(
-            success=True,
-            message="Done",
-            data={"count": 5},
-            artifacts=["test.java"],
-            duration_ms=100,
+    def test_partial_result(self):
+        """Test partial result creation."""
+        result = SkillResult.partial(
+            message="Partial success",
+            data={"progress": 50},
+            completed_steps=2,
+            total_steps=4,
         )
-        
-        d = result.to_dict()
-        
-        assert d["success"] is True
-        assert d["message"] == "Done"
-        assert d["data"] == {"count": 5}
-        assert d["artifacts"] == ["test.java"]
-        assert d["duration_ms"] == 100
 
+        assert result.success is True
+        assert result.is_partial() is True
+        assert result.metadata["completed_steps"] == 2
+        assert result.metadata["total_steps"] == 4
 
-class ConcreteSkill(SkillBase):
-    """Concrete skill for testing."""
+    def test_to_dict(self):
+        """Test result to dict conversion."""
+        result = SkillResult.ok(message="Test")
+        result.duration_ms = 100
 
-    name = "concrete_skill"
-    description = "A concrete skill for testing"
-    category = SkillCategory.UTILITY
-    required_tools = ["tool1"]
-
-    def get_instructions(self) -> str:
-        return "Test instructions"
-
-    def get_examples(self):
-        return [
-            SkillExample(task="ex1", description="Example 1"),
-        ]
-
-    def get_best_practices(self):
-        return ["Best practice 1"]
-
-    def get_common_mistakes(self):
-        return ["Mistake 1"]
-
-    def get_prerequisites(self):
-        return ["Prerequisite 1"]
-
-    async def execute(self, task, context, tools):
-        return SkillResult.ok(message=f"Executed: {task}")
+        data = result.to_dict()
+        assert data["success"] is True
+        assert data["message"] == "Test"
+        assert data["duration_ms"] == 100
 
 
 class TestSkillBase:
-    """Tests for SkillBase abstract class."""
-
-    def test_create_skill_instance(self):
-        """Test creating a skill instance."""
-        skill_instance = ConcreteSkill()
-        
-        assert skill_instance.name == "concrete_skill"
-        assert skill_instance.description == "A concrete skill for testing"
-        assert skill_instance.category == SkillCategory.UTILITY
-        assert skill_instance.required_tools == ["tool1"]
+    """Tests for SkillBase."""
 
     def test_skill_metadata(self):
         """Test skill metadata generation."""
-        skill_instance = ConcreteSkill()
-        meta = skill_instance.metadata
-        
-        assert meta.name == "concrete_skill"
-        assert meta.description == "A concrete skill for testing"
-        assert meta.category == SkillCategory.UTILITY
-        assert meta.required_tools == ["tool1"]
-        assert meta.instructions == "Test instructions"
-        assert len(meta.examples) == 1
-        assert meta.best_practices == ["Best practice 1"]
-        assert meta.common_mistakes == ["Mistake 1"]
-        assert meta.prerequisites == ["Prerequisite 1"]
 
-    def test_skill_metadata_caching(self):
-        """Test that metadata is cached."""
-        skill_instance = ConcreteSkill()
-        meta1 = skill_instance.metadata
-        meta2 = skill_instance.metadata
-        
-        assert meta1 is meta2
+        class TestSkill(SkillBase):
+            name = "test_skill"
+            description = "A test skill"
+            category = SkillCategory.TEST
+            version = "1.5.0"
+            author = "Test Author"
+            tags = ["test", "example"]
 
-    def test_skill_repr(self):
-        """Test skill string representation."""
-        skill_instance = ConcreteSkill()
-        
-        assert repr(skill_instance) == "Skill(concrete_skill, category=utility)"
+            def get_instructions(self):
+                return "Test instructions"
 
-    def test_skill_get_prompt_context(self):
-        """Test getting prompt context from skill."""
-        skill_instance = ConcreteSkill()
-        context = skill_instance.get_prompt_context()
-        
-        assert "# Skill: concrete_skill" in context
-        assert "Test instructions" in context
+            async def execute(self, task, context, inputs):
+                return SkillResult.ok()
+
+        skill = TestSkill()
+        metadata = skill.metadata
+
+        assert metadata.name == "test_skill"
+        assert metadata.description == "A test skill"
+        assert metadata.category == SkillCategory.TEST
+        assert str(metadata.version) == "1.5.0"
+        assert metadata.author == "Test Author"
+        assert metadata.tags == ["test", "example"]
+        assert metadata.instructions == "Test instructions"
+
+    def test_validate_inputs(self):
+        """Test input validation."""
+
+        class TestSkill(SkillBase):
+            name = "test_skill"
+            description = "A test skill"
+
+            def get_input_spec(self):
+                return SkillInput(
+                    parameters=[
+                        SkillParameter(name="required", type="string", description="Required", required=True),
+                    ]
+                )
+
+            async def execute(self, task, context, inputs):
+                return SkillResult.ok()
+
+        skill = TestSkill()
+
+        # Missing required input
+        errors = skill.validate_inputs({})
+        assert len(errors) == 1
+
+        # Valid input
+        errors = skill.validate_inputs({"required": "value"})
+        assert len(errors) == 0
 
     @pytest.mark.asyncio
-    async def test_skill_execute(self):
-        """Test skill execution."""
-        skill_instance = ConcreteSkill()
-        result = await skill_instance.execute(
-            task="test task",
-            context={},
-            tools={},
-        )
-        
-        assert result.success is True
-        assert result.message == "Executed: test task"
+    async def test_run_with_validation_error(self):
+        """Test run with validation error."""
+
+        class TestSkill(SkillBase):
+            name = "test_skill"
+            description = "A test skill"
+
+            def get_input_spec(self):
+                return SkillInput(
+                    parameters=[
+                        SkillParameter(name="required", type="string", description="Required", required=True),
+                    ]
+                )
+
+            async def execute(self, task, context, inputs):
+                return SkillResult.ok()
+
+        skill = TestSkill()
+        context = SkillContext()
+
+        result = await skill.run("task", context, {})
+
+        assert result.success is False
+        assert "VALIDATION_ERROR" in result.metadata.get("error_code", "")
 
     @pytest.mark.asyncio
-    async def test_skill_run_with_timing(self):
-        """Test skill run method with timing."""
-        skill_instance = ConcreteSkill()
-        result = await skill_instance.run(
-            task="timed task",
-            context={},
-            tools={},
-        )
-        
+    async def test_run_success(self):
+        """Test successful run."""
+
+        class TestSkill(SkillBase):
+            name = "test_skill"
+            description = "A test skill"
+
+            async def execute(self, task, context, inputs):
+                return SkillResult.ok(message="Success")
+
+        skill = TestSkill()
+        context = SkillContext()
+
+        result = await skill.run("task", context, {})
+
         assert result.success is True
-        assert result.message == "Executed: timed task"
+        assert result.message == "Success"
         assert result.duration_ms >= 0
 
     @pytest.mark.asyncio
-    async def test_skill_run_handles_exception(self):
-        """Test that run method handles exceptions."""
-        class FailingSkill(SkillBase):
-            name = "failing"
-            description = "Failing skill"
-            
-            async def execute(self, task, context, tools):
+    async def test_run_with_exception(self):
+        """Test run with execution exception."""
+
+        class TestSkill(SkillBase):
+            name = "test_skill"
+            description = "A test skill"
+
+            async def execute(self, task, context, inputs):
                 raise ValueError("Test error")
-        
-        skill_instance = FailingSkill()
-        result = await skill_instance.run(
-            task="fail task",
-            context={},
-            tools={},
-        )
-        
+
+        skill = TestSkill()
+        context = SkillContext()
+
+        result = await skill.run("task", context, {})
+
         assert result.success is False
+        assert "EXECUTION_ERROR" in result.metadata.get("error_code", "")
         assert "Test error" in result.message
-        assert result.data["exception_type"] == "ValueError"
 
 
 class TestSkillDecorator:
     """Tests for @skill decorator."""
 
-    def test_skill_decorator_async(self):
-        """Test @skill decorator with async function."""
-        @skill("async_skill", "An async skill", SkillCategory.TEST)
-        async def async_handler(task, context, tools):
-            return SkillResult.ok(message=f"Async: {task}")
-        
-        assert async_handler.name == "async_skill"
-        assert async_handler.description == "An async skill"
-        assert async_handler.category == SkillCategory.TEST
-
     @pytest.mark.asyncio
-    async def test_skill_decorator_async_execution(self):
-        """Test executing async skill from decorator."""
-        @skill("async_exec", "Async execution skill")
-        async def async_exec(task, context, tools):
-            return SkillResult.ok(message=f"Executed async: {task}")
-        
-        instance = async_exec()
-        result = await instance.run("test", {}, {})
-        
+    async def test_skill_decorator(self):
+        """Test skill decorator creates valid skill class."""
+
+        @skill("echo", "Echo the input", category=SkillCategory.UTILITY)
+        async def echo_skill(task, context, inputs):
+            return SkillResult.ok(message=inputs.get("message", ""))
+
+        # Check the created skill class
+        assert echo_skill.name == "echo"
+        assert echo_skill.description == "Echo the input"
+        assert echo_skill.category == SkillCategory.UTILITY
+
+        # Test execution
+        instance = echo_skill()
+        context = SkillContext()
+        result = await instance.run("task", context, {"message": "hello"})
+
         assert result.success is True
-        assert result.message == "Executed async: test"
+        assert result.message == "hello"
 
-    def test_skill_decorator_sync(self):
-        """Test @skill decorator with sync function."""
-        @skill("sync_skill", "A sync skill")
-        def sync_handler(task, context, tools):
-            return SkillResult.ok(message=f"Sync: {task}")
-        
-        assert sync_handler.name == "sync_skill"
-        assert sync_handler.description == "A sync skill"
 
-    @pytest.mark.asyncio
-    async def test_skill_decorator_sync_execution(self):
-        """Test executing sync skill from decorator."""
-        @skill("sync_exec", "Sync execution skill")
-        def sync_exec(task, context, tools):
-            return SkillResult.ok(message=f"Executed sync: {task}")
-        
-        instance = sync_exec()
-        result = await instance.run("test", {}, {})
-        
-        assert result.success is True
-        assert result.message == "Executed sync: test"
+class TestSkillExample:
+    """Tests for SkillExample."""
 
-    def test_skill_decorator_with_required_tools(self):
-        """Test @skill decorator with required tools."""
-        @skill(
-            "tool_skill",
-            "Skill with tools",
-            required_tools=["tool1", "tool2"],
+    def test_to_dict(self):
+        """Test example to dict conversion."""
+        example = SkillExample(
+            task="Test task",
+            description="Test description",
+            expected_result="Test result",
+            code_example="code",
+            inputs={"key": "value"},
+            outputs={"result": "value"},
         )
-        def tool_handler(task, context, tools):
-            return SkillResult.ok()
-        
-        assert tool_handler.required_tools == ["tool1", "tool2"]
 
-
-class TestSkillCategory:
-    """Tests for SkillCategory enum."""
-
-    def test_skill_categories(self):
-        """Test all skill categories exist."""
-        categories = [
-            SkillCategory.BUILD,
-            SkillCategory.TEST,
-            SkillCategory.CODE,
-            SkillCategory.GIT,
-            SkillCategory.SEARCH,
-            SkillCategory.ANALYSIS,
-            SkillCategory.UTILITY,
-        ]
-        
-        for cat in categories:
-            assert isinstance(cat.value, str)
-
-    def test_skill_category_values(self):
-        """Test skill category values."""
-        assert SkillCategory.BUILD.value == "build"
-        assert SkillCategory.TEST.value == "test"
-        assert SkillCategory.CODE.value == "code"
-        assert SkillCategory.GIT.value == "git"
-        assert SkillCategory.SEARCH.value == "search"
-        assert SkillCategory.ANALYSIS.value == "analysis"
-        assert SkillCategory.UTILITY.value == "utility"
+        result = example.to_dict()
+        assert result["task"] == "Test task"
+        assert result["description"] == "Test description"
+        assert result["expected_result"] == "Test result"
+        assert result["code_example"] == "code"
+        assert result["inputs"] == {"key": "value"}
+        assert result["outputs"] == {"result": "value"}

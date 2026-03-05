@@ -1,7 +1,7 @@
 """Context manager for Agent panel - manages files and context selection."""
 
 import logging
-from typing import Optional, List, Dict, Set
+from typing import Optional, List, Dict, Set, Any
 from dataclasses import dataclass, field
 from pathlib import Path
 
