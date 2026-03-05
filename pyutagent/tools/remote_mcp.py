@@ -8,7 +8,6 @@ This module provides:
 
 import asyncio
 import logging
-import websockets
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,6 +15,14 @@ from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Callable
 
 logger = logging.getLogger(__name__)
+
+# Optional websockets import
+try:
+    import websockets
+    WEBSOCKETS_AVAILABLE = True
+except ImportError:
+    websockets = None
+    WEBSOCKETS_AVAILABLE = False
 
 
 class RemoteTransportType(Enum):
@@ -70,11 +77,14 @@ class RemoteMCPClient:
             config: Remote server configuration
             connection_pool_size: Number of connections in pool
         """
+        if not WEBSOCKETS_AVAILABLE:
+            raise ImportError("websockets package is required for RemoteMCPClient")
+
         self.config = config
         self.connection_pool_size = connection_pool_size
 
-        self._connection: Optional[websockets.WebSocketClientProtocol] = None
-        self._connection_pool: List[websockets.WebSocketClientProtocol] = []
+        self._connection: Optional[Any] = None
+        self._connection_pool: List[Any] = []
         self._status = ConnectionStatus(connected=False)
         self._lock = asyncio.Lock()
         self._request_id = 0
