@@ -47,6 +47,18 @@ from pyutagent.core.project_config import (
     load_project_config,
     create_config_template,
 )
+from pyutagent.core.context_compactor import (
+    ContextCompactor,
+    AutoCompactManager,
+    CompactedContext,
+    CompactionStrategy,
+    CompactionEvent,
+)
+from pyutagent.core.checkpoint import (
+    Checkpoint,
+    CheckpointMetadata,
+    CheckpointManager,
+)
 
 __all__ = [
     'EventBus',
@@ -87,4 +99,14 @@ __all__ = [
     'ProjectConfigLoader',
     'load_project_config',
     'create_config_template',
+    # Context Compaction
+    'ContextCompactor',
+    'AutoCompactManager',
+    'CompactedContext',
+    'CompactionStrategy',
+    'CompactionEvent',
+    # Checkpoint
+    'Checkpoint',
+    'CheckpointMetadata',
+    'CheckpointManager',
 ]
