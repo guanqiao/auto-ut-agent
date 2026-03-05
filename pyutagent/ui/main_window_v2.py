@@ -16,8 +16,10 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 
 from .layout import MainLayout
-from .widgets import FileTree, StatusBar
-from .chat_widget import ChatWidget
+from .panels import SidebarPanel, ContentPanel
+from .agent_panel import AgentPanel
+from .session import SessionManager
+from .commands import SlashCommandHandler, MentionSystem
 from .styles import get_style_manager
 from .components import get_notification_manager
 
@@ -41,6 +43,8 @@ class MainWindowV2(QMainWindow):
     - Collapsible panels
     - Multiple layout modes
     - Multi-language project support
+    - Session management
+    - Slash commands and @mentions
     """
     
     project_opened = pyqtSignal(str)
@@ -58,6 +62,11 @@ class MainWindowV2(QMainWindow):
         self.app_state: AppState = load_app_state()
         self.llm_client: Optional[LLMClient] = None
         
+        # Initialize managers
+        self._session_manager = SessionManager()
+        self._slash_handler = SlashCommandHandler()
+        self._mention_system = MentionSystem()
+        
         # Initialize UI components
         self._style_manager = get_style_manager()
         self._notification_manager = get_notification_manager()
@@ -68,6 +77,9 @@ class MainWindowV2(QMainWindow):
         self.apply_styles()
         self.setup_llm_client()
         
+        # Create initial session
+        self._create_new_session()
+        
     def setup_ui(self):
         """Setup the main UI."""
         # Create central widget with new layout
@@ -75,19 +87,56 @@ class MainWindowV2(QMainWindow):
         self.setCentralWidget(self._main_layout)
         
         # Setup sidebar (file tree)
-        self._file_tree = FileTree()
-        self._file_tree.file_selected.connect(self.on_file_selected)
-        self._file_tree.file_activated.connect(self.on_file_activated)
-        self._main_layout.set_panel_widget(MainLayout.SIDEBAR_PANEL, self._file_tree)
+        self._sidebar_panel = SidebarPanel()
+        self._sidebar_panel.file_selected.connect(self.on_file_selected)
+        self._sidebar_panel.file_activated.connect(self.on_file_activated)
+        self._main_layout.set_panel_widget(MainLayout.SIDEBAR_PANEL, self._sidebar_panel)
+        
+        # Setup content panel (editor)
+        self._content_panel = ContentPanel()
+        self._content_panel.file_opened.connect(self.on_file_opened)
+        self._main_layout.set_panel_widget(MainLayout.CONTENT_PANEL, self._content_panel)
         
         # Setup agent panel (chat)
-        self._chat_widget = ChatWidget()
-        self._chat_widget.message_sent.connect(self.on_message_sent)
-        self._chat_widget.generate_clicked.connect(self.on_generate_tests)
-        self._main_layout.set_panel_widget(MainLayout.AGENT_PANEL, self._chat_widget)
+        self._agent_panel = AgentPanel()
+        self._agent_panel.message_sent.connect(self.on_message_sent)
+        self._agent_panel.generate_requested.connect(self.on_generate_tests)
+        self._agent_panel.context_changed.connect(self.on_context_changed)
+        self._main_layout.set_panel_widget(MainLayout.AGENT_PANEL, self._agent_panel)
+        
+        # Setup slash commands and mentions
+        self._setup_chat_input_handlers()
         
         # Connect layout signals
         self._main_layout.panel_collapsed.connect(self.on_panel_collapsed)
+        
+    def _setup_chat_input_handlers(self):
+        """Setup slash command and mention handlers for chat input."""
+        chat_mode = self._agent_panel.get_chat_mode()
+        input_widget = chat_mode._input
+        
+        # Attach slash command handler
+        self._slash_handler.attach_to_input(input_widget, self)
+        self._slash_handler.command_triggered.connect(self._on_slash_command)
+        
+        # Attach mention system
+        self._mention_system.attach_to_input(input_widget, self)
+        self._mention_system.mention_triggered.connect(self._on_mention)
+        self._mention_system.set_project_path(self.current_project)
+        
+        # Override key press to handle popup navigation
+        original_key_press = input_widget.keyPressEvent
+        
+        def custom_key_press(event):
+            # Check if handlers want to handle the event
+            if self._slash_handler.handle_key_press(event):
+                return
+            if self._mention_system.handle_key_press(event):
+                return
+            # Otherwise use original handler
+            original_key_press(event)
+        
+        input_widget.keyPressEvent = custom_key_press
         
     def setup_menu(self):
         """Setup menu bar."""
@@ -103,6 +152,21 @@ class MainWindowV2(QMainWindow):
         
         file_menu.addSeparator()
         
+        # Session submenu
+        session_menu = file_menu.addMenu("&Session")
+        
+        new_session_action = QAction("&New Session", self)
+        new_session_action.setShortcut("Ctrl+N")
+        new_session_action.triggered.connect(self._create_new_session)
+        session_menu.addAction(new_session_action)
+        
+        history_action = QAction("&History...", self)
+        history_action.setShortcut("Ctrl+H")
+        history_action.triggered.connect(self._show_session_history)
+        session_menu.addAction(history_action)
+        
+        file_menu.addSeparator()
+        
         exit_action = QAction("E&xit", self)
         exit_action.setShortcut(QKeySequence.StandardKey.Quit)
         exit_action.triggered.connect(self.close)
@@ -113,27 +177,37 @@ class MainWindowV2(QMainWindow):
         
         toggle_sidebar_action = QAction("Toggle &Sidebar", self)
         toggle_sidebar_action.setShortcut("Ctrl+B")
-        toggle_sidebar_action.triggered.connect(lambda: self._main_layout.toggle_panel(MainLayout.SIDEBAR_PANEL))
+        toggle_sidebar_action.triggered.connect(
+            lambda: self._main_layout.toggle_panel(MainLayout.SIDEBAR_PANEL)
+        )
         view_menu.addAction(toggle_sidebar_action)
         
         toggle_agent_action = QAction("Toggle &Agent Panel", self)
         toggle_agent_action.setShortcut("Ctrl+J")
-        toggle_agent_action.triggered.connect(lambda: self._main_layout.toggle_panel(MainLayout.AGENT_PANEL))
+        toggle_agent_action.triggered.connect(
+            lambda: self._main_layout.toggle_panel(MainLayout.AGENT_PANEL)
+        )
         view_menu.addAction(toggle_agent_action)
         
         view_menu.addSeparator()
         
         # Layout modes
         default_layout_action = QAction("&Default Layout", self)
-        default_layout_action.triggered.connect(lambda: self._main_layout.set_layout_mode(MainLayout.MODE_DEFAULT))
+        default_layout_action.triggered.connect(
+            lambda: self._main_layout.set_layout_mode(MainLayout.MODE_DEFAULT)
+        )
         view_menu.addAction(default_layout_action)
         
         focus_editor_action = QAction("Focus &Editor", self)
-        focus_editor_action.triggered.connect(lambda: self._main_layout.set_layout_mode(MainLayout.MODE_FOCUS_EDITOR))
+        focus_editor_action.triggered.connect(
+            lambda: self._main_layout.set_layout_mode(MainLayout.MODE_FOCUS_EDITOR)
+        )
         view_menu.addAction(focus_editor_action)
         
         focus_agent_action = QAction("Focus A&gent", self)
-        focus_agent_action.triggered.connect(lambda: self._main_layout.set_layout_mode(MainLayout.MODE_FOCUS_AGENT))
+        focus_agent_action.triggered.connect(
+            lambda: self._main_layout.set_layout_mode(MainLayout.MODE_FOCUS_AGENT)
+        )
         view_menu.addAction(focus_agent_action)
         
         # Settings menu
@@ -146,13 +220,20 @@ class MainWindowV2(QMainWindow):
         # Help menu
         help_menu = menubar.addMenu("&Help")
         
+        commands_action = QAction("&Slash Commands", self)
+        commands_action.setShortcut("Ctrl+/")
+        commands_action.triggered.connect(self._show_slash_commands_help)
+        help_menu.addAction(commands_action)
+        
+        help_menu.addSeparator()
+        
         about_action = QAction("&About", self)
         about_action.triggered.connect(self.on_about)
         help_menu.addAction(about_action)
         
     def setup_shortcuts(self):
         """Setup keyboard shortcuts."""
-        # Ctrl+Shift+P for command palette (placeholder)
+        # Command palette shortcut
         command_palette_shortcut = QAction(self)
         command_palette_shortcut.setShortcut("Ctrl+Shift+P")
         command_palette_shortcut.triggered.connect(self.on_command_palette)
@@ -182,6 +263,154 @@ class MainWindowV2(QMainWindow):
             logger.exception("Failed to initialize LLM client")
             self._main_layout.set_status_llm("🔴 LLM: Error")
             
+    def _create_new_session(self):
+        """Create a new chat session."""
+        session = self._session_manager.create_session()
+        self._session_manager.set_current_session(session.id)
+        
+        # Clear chat
+        chat_mode = self._agent_panel.get_chat_mode()
+        chat_mode.clear_messages()
+        
+        # Add welcome message
+        chat_mode.add_agent_message(
+            "New session started! I'm your AI coding assistant.\n\n"
+            "Quick tips:\n"
+            "• Type / to see available commands\n"
+            "• Use @ to mention files\n"
+            "• Select a file and click 'Generate Tests' to get started"
+        )
+        
+        logger.info(f"Created new session: {session.id}")
+        
+    def _show_session_history(self):
+        """Show session history dialog."""
+        from .dialogs.session_history_dialog import SessionHistoryDialog
+        
+        dialog = SessionHistoryDialog(self._session_manager, self)
+        dialog.session_selected.connect(self._on_session_selected_from_history)
+        dialog.exec()
+        
+    def _on_session_selected_from_history(self, session_id: str):
+        """Handle session selection from history."""
+        session = self._session_manager.get_session(session_id)
+        if not session:
+            return
+        
+        self._session_manager.set_current_session(session_id)
+        
+        # Load messages into chat
+        chat_mode = self._agent_panel.get_chat_mode()
+        chat_mode.clear_messages()
+        
+        for msg in session.messages:
+            if msg.role == 'user':
+                chat_mode.add_user_message(msg.content)
+            elif msg.role == 'agent':
+                chat_mode.add_agent_message(msg.content)
+                
+        logger.info(f"Loaded session: {session_id}")
+        
+    def _show_slash_commands_help(self):
+        """Show slash commands help."""
+        commands = self._slash_handler.get_all_commands()
+        
+        help_text = "<h2>Slash Commands</h2><ul>"
+        for cmd in sorted(commands, key=lambda c: c.name):
+            help_text += f"<li><b>{cmd.display_name}</b> - {cmd.description}"
+            if cmd.example:
+                help_text += f"<br><small>Example: {cmd.example}</small>"
+            help_text += "</li>"
+        help_text += "</ul>"
+        
+        QMessageBox.information(self, "Slash Commands", help_text)
+        
+    def _on_slash_command(self, command_name: str, args: str):
+        """Handle slash command execution."""
+        logger.info(f"Slash command: {command_name} with args: {args}")
+        
+        # Handle different commands
+        if command_name == 'test':
+            self.on_generate_tests()
+        elif command_name == 'explain':
+            self._handle_explain_command(args)
+        elif command_name == 'refactor':
+            self._handle_refactor_command(args)
+        elif command_name == 'doc':
+            self._handle_doc_command(args)
+        elif command_name == 'review':
+            self._handle_review_command(args)
+        else:
+            # Generic command handling
+            self._agent_panel.add_agent_message(
+                f"Executing command: /{command_name} {args}\n\n"
+                "(This is a placeholder - actual implementation would process the command)"
+            )
+            
+    def _on_mention(self, mention_type: str, mention_id: str):
+        """Handle @mention."""
+        logger.info(f"Mention: {mention_type} - {mention_id}")
+        
+        # Add to context
+        if mention_type == 'file':
+            self._agent_panel.add_file_to_context(mention_id)
+        elif mention_type == 'current':
+            current_file = self._content_panel.get_current_file()
+            if current_file:
+                self._agent_panel.add_file_to_context(current_file)
+                
+    def _handle_explain_command(self, args: str):
+        """Handle /explain command."""
+        current_file = self._content_panel.get_current_file()
+        if current_file:
+            self._agent_panel.add_agent_message(
+                f"I'll explain the code in {Path(current_file).name}..."
+            )
+            # TODO: Send to AI for explanation
+        else:
+            self._agent_panel.add_agent_message(
+                "Please open a file first or specify what you'd like me to explain."
+            )
+            
+    def _handle_refactor_command(self, args: str):
+        """Handle /refactor command."""
+        current_file = self._content_panel.get_current_file()
+        if current_file:
+            self._agent_panel.add_agent_message(
+                f"I'll refactor the code in {Path(current_file).name}..."
+            )
+            # TODO: Send to AI for refactoring
+        else:
+            self._agent_panel.add_agent_message(
+                "Please open a file first."
+            )
+            
+    def _handle_doc_command(self, args: str):
+        """Handle /doc command."""
+        current_file = self._content_panel.get_current_file()
+        if current_file:
+            self._agent_panel.add_agent_message(
+                f"I'll generate documentation for {Path(current_file).name}..."
+            )
+            # TODO: Send to AI for documentation generation
+        else:
+            self._agent_panel.add_agent_message(
+                "Please open a file first."
+            )
+            
+    def _handle_review_command(self, args: str):
+        """Handle /review command."""
+        current_file = self._content_panel.get_current_file()
+        if current_file:
+            self._agent_panel.add_agent_message(
+                f"I'll review the code in {Path(current_file).name}..."
+            )
+            # TODO: Send to AI for code review
+        else:
+            self._agent_panel.add_agent_message(
+                "Please open a file first."
+            )
+            
     def on_open_project(self):
         """Handle open project action."""
         dir_path = QFileDialog.getExistingDirectory(
@@ -198,8 +427,11 @@ class MainWindowV2(QMainWindow):
         """Open a project by path."""
         try:
             self.current_project = dir_path
-            self._file_tree.load_project(dir_path)
+            self._sidebar_panel.load_project(dir_path)
             self.project_opened.emit(dir_path)
+            
+            # Update mention system
+            self._mention_system.set_project_path(dir_path)
             
             # Update status
             project_name = Path(dir_path).name
@@ -216,7 +448,7 @@ class MainWindowV2(QMainWindow):
                 duration=3000
             )
             
-            self._chat_widget.add_agent_message(
+            self._agent_panel.add_agent_message(
                 f"Project opened: {project_name}\n"
                 "Select a file to start working with the AI assistant."
             )
@@ -230,36 +462,91 @@ class MainWindowV2(QMainWindow):
     def on_file_selected(self, file_path: str):
         """Handle file selection."""
         logger.info(f"File selected: {file_path}")
-        # TODO: Show file in editor
+        # Optionally preview file without opening tab
         
     def on_file_activated(self, file_path: str):
         """Handle file activation (double-click)."""
         logger.info(f"File activated: {file_path}")
-        # TODO: Open file in editor
+        self._content_panel.open_file(file_path)
+        
+    def on_file_opened(self, file_path: str):
+        """Handle file opened in editor."""
+        logger.info(f"File opened: {file_path}")
         
     def on_message_sent(self, message: str):
         """Handle user message."""
         logger.info(f"User message: {message}")
-        # TODO: Process message with agent
-        self._chat_widget.add_agent_message(
-            "I'm your AI coding assistant. I can help you with:\n"
-            "- Generating tests\n"
-            "- Explaining code\n"
-            "- Refactoring\n"
-            "- And more..."
+        
+        # Save to session
+        self._session_manager.add_message_to_current('user', message)
+        
+        # Check if it's a slash command
+        if self._slash_handler.is_command(message):
+            return
+        
+        # Process with AI (placeholder)
+        self._agent_panel.add_agent_message(
+            "I'm processing your message. This is a placeholder response.\n\n"
+            "In the full implementation, this would:\n"
+            "1. Send your message to the AI\n"
+            "2. Include any mentioned files as context\n"
+            "3. Stream the response back\n"
+            "4. Save the conversation to the current session"
         )
         
     def on_generate_tests(self):
         """Handle generate tests request."""
-        selected_file = self._file_tree.get_selected_path()
-        if not selected_file:
-            self._chat_widget.add_agent_message(
+        selected_file = self._sidebar_panel.get_file_tree().get_selected_path()
+        current_file = self._content_panel.get_current_file()
+        
+        target_file = selected_file or current_file
+        
+        if not target_file:
+            self._agent_panel.add_agent_message(
                 "Please select a file first."
             )
             return
             
-        logger.info(f"Generate tests for: {selected_file}")
-        # TODO: Start test generation
+        logger.info(f"Generate tests for: {target_file}")
+        
+        # Switch to agent mode
+        self._agent_panel.start_agent_task("Generating Tests")
+        
+        # Add thinking steps
+        from .agent_panel.thinking_chain import ThinkingStep, StepStatus
+        
+        step1 = ThinkingStep(
+            id="1",
+            title="Analyzing code structure",
+            description=f"Reading {Path(target_file).name}",
+            status=StepStatus.COMPLETED
+        )
+        self._agent_panel.get_agent_mode().add_thinking_step(step1)
+        self._agent_panel.get_agent_mode().complete_step("1")
+        
+        step2 = ThinkingStep(
+            id="2",
+            title="Identifying test cases",
+            description="Finding methods and edge cases to test",
+            status=StepStatus.RUNNING
+        )
+        self._agent_panel.get_agent_mode().add_thinking_step(step2)
+        
+        # TODO: Actually generate tests with AI
+        self._agent_panel.add_agent_message(
+            f"I'll generate unit tests for {Path(target_file).name}. "
+            "This is a placeholder - actual implementation would use the AI to generate tests."
+        )
+        
+    def on_context_changed(self):
+        """Handle context changes."""
+        context_manager = self._agent_panel.get_context_manager()
+        token_count = context_manager.get_total_tokens()
+        item_count = context_manager.get_item_count()
+        
+        self._main_layout.set_status_progress(
+            f"Context: {item_count} files, ~{token_count} tokens"
+        )
         
     def on_panel_collapsed(self, panel_name: str, is_collapsed: bool):
         """Handle panel collapse/expand."""
@@ -267,7 +554,6 @@ class MainWindowV2(QMainWindow):
         
     def on_llm_config(self):
         """Handle LLM config action."""
-        # Import here to avoid circular imports
         from .dialogs.llm_config_dialog import LLMConfigDialog
         from PyQt6.QtWidgets import QDialog
         
@@ -283,8 +569,8 @@ class MainWindowV2(QMainWindow):
             
     def on_command_palette(self):
         """Show command palette."""
-        # TODO: Implement command palette
         logger.info("Command palette requested")
+        # TODO: Implement command palette
         
     def on_about(self):
         """Show about dialog."""
@@ -294,10 +580,22 @@ class MainWindowV2(QMainWindow):
             "<h2>PyUT Agent</h2>"
             "<p>AI-powered Coding Assistant</p>"
             "<p>Version: 2.0.0</p>"
+            "<p>Features:</p>"
+            "<ul>"
+            "<li>Multi-language support</li>"
+            "<li>Intelligent code generation</li>"
+            "<li>Test generation</li>"
+            "<li>Code explanation</li>"
+            "<li>Refactoring assistance</li>"
+            "</ul>"
         )
         
     def closeEvent(self, event):
         """Handle window close."""
+        # Save all sessions
+        self._session_manager.save_all_sessions()
+        
         # Save layout state
         # TODO: Save to app state
+        
         event.accept()
