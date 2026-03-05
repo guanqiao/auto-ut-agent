@@ -377,23 +377,40 @@ class RunTestsAction(Action):
 
 
 class AnalyzeCoverageAction(Action):
-    """Action to analyze test coverage."""
+    """Action to analyze test coverage with LLM fallback support."""
     
-    def __init__(self, coverage_analyzer):
+    def __init__(self, coverage_analyzer, llm_client=None):
         """Initialize analyze coverage action.
         
         Args:
             coverage_analyzer: Coverage analyzer instance
+            llm_client: Optional LLM client for fallback estimation
         """
         super().__init__(
             name="analyze_coverage",
             action_type=ActionType.ANALYZE_COVERAGE,
-            description="Analyze test coverage using JaCoCo"
+            description="Analyze test coverage using JaCoCo with LLM fallback"
         )
         self.coverage_analyzer = coverage_analyzer
+        self.llm_client = llm_client
+        self._source_code = None
+        self._test_code = None
+        self._class_info = None
+    
+    def set_context(self, source_code: str, test_code: str, class_info: dict):
+        """Set context for LLM estimation.
+        
+        Args:
+            source_code: Source code being tested
+            test_code: Test code
+            class_info: Class information from parsing
+        """
+        self._source_code = source_code
+        self._test_code = test_code
+        self._class_info = class_info
     
     async def execute(self, **kwargs) -> ActionResult:
-        """Execute analyze coverage action."""
+        """Execute analyze coverage action with LLM fallback."""
         try:
             report = self.coverage_analyzer.parse_report()
             
@@ -405,21 +422,55 @@ class AnalyzeCoverageAction(Action):
                         "line_coverage": report.line_coverage,
                         "branch_coverage": report.branch_coverage,
                         "method_coverage": report.method_coverage,
-                        "report": report
+                        "report": report,
+                        "source": "jacoco",
+                        "confidence": 1.0
                     },
                     action_type=self.action_type
                 )
             else:
-                return ActionResult(
-                    success=False,
-                    message="Failed to parse coverage report",
-                    data={},
-                    action_type=self.action_type
-                )
+                return await self._fallback_to_llm()
+                
+        except Exception as e:
+            return await self._fallback_to_llm(str(e))
+    
+    async def _fallback_to_llm(self, error: str = "") -> ActionResult:
+        """Fall back to LLM estimation when JaCoCo is not available."""
+        if not self.llm_client or not self._source_code or not self._test_code:
+            return ActionResult(
+                success=False,
+                message=f"Coverage analysis failed: {error}" if error else "Failed to parse coverage report",
+                data={"error": error} if error else {},
+                action_type=self.action_type
+            )
+        
+        try:
+            from .llm_coverage_evaluator import LLMCoverageEvaluator
+            evaluator = LLMCoverageEvaluator(self.llm_client)
+            llm_report = evaluator.quick_estimate(
+                self._source_code,
+                self._test_code,
+                self._class_info
+            )
+            
+            return ActionResult(
+                success=True,
+                message=f"Coverage (LLM estimated): {llm_report.line_coverage:.1%}",
+                data={
+                    "line_coverage": llm_report.line_coverage,
+                    "branch_coverage": llm_report.branch_coverage,
+                    "method_coverage": llm_report.method_coverage,
+                    "report": llm_report,
+                    "source": "llm_estimated",
+                    "confidence": llm_report.confidence,
+                    "uncovered_methods": llm_report.uncovered_methods
+                },
+                action_type=self.action_type
+            )
         except Exception as e:
             return ActionResult(
                 success=False,
-                message=f"Coverage analysis error: {str(e)}",
+                message=f"Coverage analysis failed: {str(e)}",
                 data={"error": str(e)},
                 action_type=self.action_type
             )

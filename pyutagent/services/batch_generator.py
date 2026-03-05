@@ -50,6 +50,8 @@ class FileResult:
         file_path: Path to the source file
         success: Whether generation was successful
         coverage: Achieved coverage percentage
+        coverage_source: Source of coverage data ("jacoco" or "llm_estimated")
+        coverage_confidence: Confidence level for LLM estimation
         iterations: Number of iterations used
         test_file: Path to generated test file
         error: Error message if failed
@@ -62,6 +64,8 @@ class FileResult:
     file_path: str
     success: bool
     coverage: float = 0.0
+    coverage_source: str = "jacoco"
+    coverage_confidence: float = 1.0
     iterations: int = 0
     test_file: Optional[str] = None
     error: Optional[str] = None
@@ -635,7 +639,6 @@ class BatchGenerator:
                     f"Coverage: {result.coverage:.1%}, Duration: {duration:.1f}s"
                 )
                 
-                # Extract incremental mode statistics from result metadata
                 preserved_tests = 0
                 new_tests = 0
                 fixed_tests = 0
@@ -644,10 +647,15 @@ class BatchGenerator:
                     new_tests = result.metadata.get("new_tests", 0)
                     fixed_tests = result.metadata.get("fixed_tests", 0)
                 
+                coverage_source = getattr(result, 'coverage_source', 'jacoco')
+                coverage_confidence = getattr(result, 'coverage_confidence', 1.0)
+                
                 return FileResult(
                     file_path=file_path,
                     success=True,
                     coverage=result.coverage,
+                    coverage_source=coverage_source,
+                    coverage_confidence=coverage_confidence,
                     iterations=result.iterations,
                     test_file=result.test_file,
                     duration=duration,

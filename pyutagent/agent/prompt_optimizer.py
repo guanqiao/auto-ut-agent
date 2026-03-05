@@ -295,6 +295,7 @@ class PromptOptimizer:
             db_path = db_dir / "prompt_optimizer.db"
         
         self.db_path = str(db_path)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_database()
         self._load_default_templates()
         
