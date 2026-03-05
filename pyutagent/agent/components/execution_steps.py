@@ -438,7 +438,7 @@ class StepExecutor:
                                 self.methods.append(method_proxy)
                     
                     java_class_proxy = JavaClassProxy(self.agent_core.target_class_info)
-                    target_file_path = str(Path(self.agent_core.project_path) / self.agent_core.target_file)
+                    target_file_path = str(Path(self.agent_core.project_path) / self.agent_core.working_memory.current_file)
                     
                     enhanced_prompt = self.components["intelligence_enhanced_cot"].generate_enhanced_test_prompt(
                         source_code=source_code,
@@ -1994,7 +1994,7 @@ class StepExecutor:
             
             error_context = {
                 **context,
-                "source_file": self.agent_core.target_file,
+                "source_file": self.agent_core.working_memory.current_file,
                 "test_file": self.agent_core.current_test_file,
             }
             
