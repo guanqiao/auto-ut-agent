@@ -25,6 +25,8 @@ from .styles import get_style_manager
 from .components import get_notification_manager, ThinkingExpander, ThinkingStep, ThinkingStatus
 from .editor.approval_diff_viewer import ApprovalDialog
 from .terminal.embedded_terminal import TerminalWidget
+from .dialogs.plan_mode_dialog import PlanModeDialog
+from .dialogs.code_review_panel import CodeReviewDialog
 from .services.semantic_search import SemanticSearchService
 
 # Import existing components (backward compatibility)
@@ -288,7 +290,7 @@ class MainWindowV2(QMainWindow):
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
-        
+
         commands_action = QAction("&Slash Commands", self)
         commands_action.setShortcut("Ctrl+/")
         commands_action.triggered.connect(self._show_slash_commands_help)
@@ -296,10 +298,22 @@ class MainWindowV2(QMainWindow):
 
         help_menu.addSeparator()
 
+        plan_action = QAction("&Plan Mode...", self)
+        plan_action.setShortcut("Ctrl+Shift+P")
+        plan_action.triggered.connect(self.on_plan_mode)
+        help_menu.addAction(plan_action)
+
         review_action = QAction("&Review Changes...", self)
         review_action.setShortcut("Ctrl+Shift+R")
         review_action.triggered.connect(self.on_review_changes)
         help_menu.addAction(review_action)
+
+        code_review_action = QAction("Code &Review...", self)
+        code_review_action.setShortcut("Ctrl+Shift+C")
+        code_review_action.triggered.connect(self.on_code_review)
+        help_menu.addAction(code_review_action)
+
+        help_menu.addSeparator()
 
         about_action = QAction("&About", self)
         about_action.triggered.connect(self.on_about)
@@ -972,6 +986,43 @@ class MainWindowV2(QMainWindow):
             approved = dialog.get_approved_files()
             rejected = dialog.get_rejected_files()
             logger.info(f"Review completed: {len(approved)} approved, {len(rejected)} rejected")
+
+    def on_plan_mode(self):
+        """Show plan mode dialog."""
+        logger.info("Plan mode requested")
+        dialog = PlanModeDialog(self)
+        dialog.exec()
+
+    def on_code_review(self):
+        """Show code review dialog."""
+        logger.info("Code review requested")
+        from pyutagent.agent.code_reviewer import get_default_reviewer
+
+        reviewer = get_default_reviewer()
+
+        current_editor = self._content_panel.get_current_editor()
+        file_path = self._content_panel.get_current_file()
+        if current_editor and file_path:
+            from pathlib import Path
+            try:
+                content = Path(file_path).read_text(encoding='utf-8')
+                report = reviewer.review_file(file_path, content)
+
+                dialog = CodeReviewDialog(self)
+                dialog.set_review_data(report.to_dict())
+                dialog.exec()
+            except Exception as e:
+                QMessageBox.warning(
+                    self,
+                    "Code Review",
+                    f"Failed to read file: {e}"
+                )
+        else:
+            QMessageBox.information(
+                self,
+                "Code Review",
+                "Please open a file first to review."
+            )
 
     def on_show_terminal(self):
         """Show integrated terminal panel."""
