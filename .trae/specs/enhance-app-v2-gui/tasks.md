@@ -200,18 +200,18 @@
 **优先级**: P1
 **预计时间**: 3天
 
-- [ ] SubTask 6.1: 实现错误检测
+- [x] SubTask 6.1: 实现错误检测
   - 修改 `pyutagent/ui/terminal/embedded_terminal.py`
   - 监控终端输出
-  - 识别错误模式
+  - 识别错误模式 (Python/Java/编译错误)
   - 高亮错误行
 
-- [ ] SubTask 6.2: 添加 "Ask AI" 按钮
-  - 在终端面板添加按钮
+- [x] SubTask 6.2: 添加 "Ask AI" 按钮
+  - 在终端面板添加浮动按钮
   - 点击发送错误到 AI
-  - 显示 AI 建议
+  - 显示 AI 修复建议
 
-- [ ] SubTask 6.3: 实现一键修复
+- [x] SubTask 6.3: 实现一键修复
   - 解析 AI 修复建议
   - 显示 Diff 预览
   - 一键应用修复
@@ -225,18 +225,18 @@
 **优先级**: P2
 **预计时间**: 3天
 
-- [ ] SubTask 7.1: 添加 Git 状态标识
+- [x] SubTask 7.1: 添加 Git 状态标识
   - 修改 `pyutagent/ui/panels/sidebar_panel.py`
   - 检测 Git 状态
   - 添加颜色标识（绿/黄/红）
   - 添加状态图标
 
-- [ ] SubTask 7.2: 实现文件树搜索
+- [x] SubTask 7.2: 实现文件树搜索
   - 添加搜索框
   - 实现模糊匹配
   - 高亮匹配结果
 
-- [ ] SubTask 7.3: 实现拖拽支持
+- [x] SubTask 7.3: 实现拖拽支持
   - 支持文件拖拽到上下文
   - 支持文件拖拽到编辑器
   - 添加视觉反馈
@@ -248,13 +248,13 @@
 **优先级**: P2
 **预计时间**: 2天
 
-- [ ] SubTask 8.1: 实现完整 Command Palette
+- [x] SubTask 8.1: 实现完整 Command Palette
   - 修改 `pyutagent/ui/command_palette.py`
   - 添加所有命令
   - 实现模糊搜索
   - 添加快捷键显示
 
-- [ ] SubTask 8.2: 添加快捷键配置
+- [x] SubTask 8.2: 添加快捷键配置
   - 创建快捷键配置对话框
   - 支持自定义绑定
   - 保存配置
@@ -294,7 +294,7 @@ Phase 3:
 ### Phase 2 验收
 - [x] @symbol 引用可用，自动完成响应 < 200ms
 - [ ] 语义搜索返回结果相关度 > 80%
-- [ ] 终端错误可检测，AI 修复可一键应用
+- [x] 终端错误可检测，AI 修复可一键应用
 
 ### Phase 3 验收
 - [ ] 文件树显示 Git 状态

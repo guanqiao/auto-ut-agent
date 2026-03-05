@@ -859,36 +859,18 @@ class MainWindowV2(QMainWindow):
     def on_command_palette(self):
         """Show command palette."""
         logger.info("Command palette requested")
-        from .command_palette import show_command_palette
-
-        # Add semantic search command if not exists
-        palette = self._create_command_palette_with_search()
-        palette.exec()
-
-    def _create_command_palette_with_search(self):
-        """Create command palette with semantic search command."""
         from .command_palette import CommandPalette
 
         palette = CommandPalette(self)
+        palette.exec()
 
-        # Add semantic search command
-        from PyQt6.QtGui import QAction
-        from PyQt6.QtWidgets import QDialog
+    def _show_shortcuts_dialog(self):
+        """Show keyboard shortcuts configuration dialog."""
+        logger.info("Keyboard shortcuts dialog requested")
+        from .dialogs.keyboard_shortcuts_dialog import KeyboardShortcutsDialog
 
-        # Connect to execute semantic search
-        original_execute = palette._execute
-
-        def enhanced_execute(action: str):
-            if action == "semantic_search":
-                self.on_semantic_search()
-            elif action == "find_in_files":
-                self.on_find_in_files()
-            else:
-                original_execute(action)
-
-        palette._execute = enhanced_execute
-
-        return palette
+        dialog = KeyboardShortcutsDialog(self)
+        dialog.exec()
 
     def on_semantic_search(self):
         """Show semantic search dialog."""

@@ -1,4 +1,4 @@
-"""Enhanced file tree widget with multi-language support."""
+"""Enhanced file tree widget with multi-language support, Git status, and drag-drop."""
 
 import logging
 from pathlib import Path
@@ -6,25 +6,77 @@ from typing import Optional, List, Callable, Dict, Any
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QLineEdit, QLabel, QMenu, QAbstractItemView
+    QLineEdit, QLabel, QMenu, QAbstractItemView, QApplication
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QIcon, QFont
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QMimeData, QByteArray
+from PyQt6.QtGui import QIcon, QFont, QColor, QDrag, QKeyEvent
 
 from ..language.file_icons import FileIconProvider
 from ..language.language_support import LanguageSupport
+from ..services.git_status_service import GitStatusService, GitStatus
 
 logger = logging.getLogger(__name__)
 
 
+class FileTreeItem(QTreeWidgetItem):
+    """Custom tree item with Git status support."""
+    
+    def __init__(self, parent=None, texts=None):
+        super().__init__(parent, texts or [])
+        self._git_status: Optional[GitStatus] = None
+        self._original_text = texts[0] if texts else ""
+        self._is_highlighted = False
+        
+    def set_git_status(self, status: Optional[GitStatus]):
+        """Set Git status for this item."""
+        self._git_status = status
+        self._update_display()
+        
+    def get_git_status(self) -> Optional[GitStatus]:
+        """Get Git status."""
+        return self._git_status
+        
+    def set_highlighted(self, highlighted: bool):
+        """Set highlight state for search matches."""
+        self._is_highlighted = highlighted
+        self._update_display()
+        
+    def _update_display(self):
+        """Update item display based on status."""
+        text = self._original_text
+        
+        # Add Git status indicator
+        if self._git_status and self._git_status != GitStatus.UNMODIFIED:
+            status_icon = self._git_status.icon
+            text = f"{text} [{status_icon}]"
+            
+        self.setText(0, text)
+        
+        # Set foreground color
+        if self._git_status and self._git_status != GitStatus.UNMODIFIED:
+            color = QColor(self._git_status.color)
+            self.setForeground(0, color)
+        elif self._is_highlighted:
+            self.setForeground(0, QColor("#4EC9B0"))
+        else:
+            self.setForeground(0, QColor("#CCCCCC"))
+            
+    def setText(self, column: int, text: str):
+        """Override to track original text."""
+        if column == 0 and not text.endswith("]"):
+            self._original_text = text
+        super().setText(column, text)
+
+
 class FileTree(QWidget):
-    """Enhanced file tree widget with search and multi-language support.
+    """Enhanced file tree widget with search, Git status, and drag-drop support.
     
     Features:
     - Multi-language file detection and icons
-    - Real-time search filtering
+    - Real-time search filtering with fuzzy matching
+    - Git status display (modified/added/deleted)
+    - Drag and drop support
     - Context menu with language-specific actions
-    - File selection signals
     """
     
     # Signals
@@ -32,6 +84,7 @@ class FileTree(QWidget):
     folder_selected = pyqtSignal(str)  # folder_path
     file_activated = pyqtSignal(str)  # file_path (double-click)
     context_menu_requested = pyqtSignal(str, object)  # file_path, menu
+    file_dragged = pyqtSignal(str)  # file_path (drag started)
     
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -39,7 +92,9 @@ class FileTree(QWidget):
         self._all_items: List[tuple] = []  # (name_lower, item, path)
         self._icon_provider = FileIconProvider()
         self._language_support = LanguageSupport()
+        self._git_service = GitStatusService()
         self._file_filter: Optional[Callable[[str], bool]] = None
+        self._search_text: str = ""
         
         self.setup_ui()
         
@@ -79,6 +134,13 @@ class FileTree(QWidget):
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
         self._tree.setAnimated(True)
         self._tree.setIndentation(16)
+        
+        # Enable drag and drop
+        self._tree.setDragEnabled(True)
+        self._tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self._tree.setDefaultDropAction(Qt.DropAction.CopyAction)
+        self._tree.startDrag = self._start_drag
+        
         layout.addWidget(self._tree)
         
         # Stats label
@@ -101,8 +163,13 @@ class FileTree(QWidget):
         self._all_items.clear()
         self._project_path = project_path
         
+        # Detect Git repository
+        is_git_repo = self._git_service.detect_repo(project_path)
+        if is_git_repo:
+            self._git_service.refresh_all_status()
+        
         project_name = Path(project_path).name
-        root = QTreeWidgetItem(self._tree, [f"📦 {project_name}"])
+        root = FileTreeItem(self._tree, [f"📦 {project_name}"])
         root.setData(0, Qt.ItemDataRole.UserRole, project_path)
         root.setIcon(0, self._icon_provider.get_folder_icon("project"))
         root.setExpanded(True)
@@ -122,7 +189,8 @@ class FileTree(QWidget):
         
         # Update stats
         lang_name = project_info.get('language', 'Unknown')
-        self._stats_label.setText(f"📊 {file_count} files | {lang_name}")
+        git_info = " | Git" if is_git_repo else ""
+        self._stats_label.setText(f"📊 {file_count} files | {lang_name}{git_info}")
         
         logger.info(f"Loaded project: {project_path} with {file_count} files")
         
@@ -149,7 +217,7 @@ class FileTree(QWidget):
                     continue
                     
                 if item.is_dir():
-                    tree_item = QTreeWidgetItem(parent_item, [item.name])
+                    tree_item = FileTreeItem(parent_item, [item.name])
                     tree_item.setData(0, Qt.ItemDataRole.UserRole, str(item))
                     tree_item.setIcon(0, self._icon_provider.get_folder_icon(item.name))
                     file_count += self._add_directory(item, tree_item)
@@ -157,11 +225,18 @@ class FileTree(QWidget):
                     # Check if file should be shown
                     if self._file_filter and not self._file_filter(str(item)):
                         continue
-                        
-                    tree_item = QTreeWidgetItem(parent_item, [item.name])
-                    tree_item.setData(0, Qt.ItemDataRole.UserRole, str(item))
+                    
+                    file_path = str(item)
+                    tree_item = FileTreeItem(parent_item, [item.name])
+                    tree_item.setData(0, Qt.ItemDataRole.UserRole, file_path)
                     tree_item.setIcon(0, self._icon_provider.get_file_icon(item.suffix))
-                    self._all_items.append((item.name.lower(), tree_item, str(item)))
+                    
+                    # Set Git status
+                    git_status = self._git_service.get_file_status(file_path)
+                    if git_status:
+                        tree_item.set_git_status(git_status)
+                    
+                    self._all_items.append((item.name.lower(), tree_item, file_path))
                     file_count += 1
                     
         except PermissionError:
@@ -181,21 +256,25 @@ class FileTree(QWidget):
         
     def _on_search_changed(self, text: str):
         """Handle search text change with debounce."""
+        self._search_text = text.lower().strip()
         self._search_timer.stop()
         self._search_timer.start(150)  # 150ms debounce
         
     def _apply_search(self):
-        """Apply search filter."""
-        text = self._search_box.text().lower().strip()
+        """Apply search filter with fuzzy matching."""
+        text = self._search_text
         
         if not text:
             self._set_all_items_visible(True)
+            self._clear_highlights()
             return
         
-        # Filter items
+        # Filter items with fuzzy matching
         for name, item, path in self._all_items:
-            matches = text in name
+            # Simple fuzzy matching: all characters in text must appear in name in order
+            matches = self._fuzzy_match(text, name)
             item.setHidden(not matches)
+            item.set_highlighted(matches)
             
             # Expand parent if match found
             if matches:
@@ -207,6 +286,36 @@ class FileTree(QWidget):
                     
         # Hide folders that have no visible children
         self._prune_empty_folders(self._tree.invisibleRootItem())
+        
+    def _fuzzy_match(self, pattern: str, text: str) -> bool:
+        """Perform fuzzy matching.
+        
+        Args:
+            pattern: Search pattern
+            text: Text to match against
+            
+        Returns:
+            True if pattern fuzzy matches text
+        """
+        pattern = pattern.lower()
+        text = text.lower()
+        
+        # Simple substring match first
+        if pattern in text:
+            return True
+            
+        # Fuzzy match: check if all characters in pattern appear in text in order
+        pattern_idx = 0
+        for char in text:
+            if pattern_idx < len(pattern) and char == pattern[pattern_idx]:
+                pattern_idx += 1
+        
+        return pattern_idx == len(pattern)
+        
+    def _clear_highlights(self):
+        """Clear all search highlights."""
+        for _, item, _ in self._all_items:
+            item.set_highlighted(False)
         
     def _prune_empty_folders(self, parent_item: QTreeWidgetItem):
         """Hide folders that have no visible children."""
@@ -261,6 +370,14 @@ class FileTree(QWidget):
         # Add common actions
         if Path(path).is_file():
             menu.addAction("📋 Copy Path", lambda: self._copy_to_clipboard(path))
+            
+            # Add Git status info if available
+            if isinstance(item, FileTreeItem):
+                git_status = item.get_git_status()
+                if git_status:
+                    menu.addSeparator()
+                    menu.addAction(f"Git: {git_status.display_name}")
+            
             menu.addSeparator()
             
         # Emit signal for custom actions
@@ -271,9 +388,36 @@ class FileTree(QWidget):
             
     def _copy_to_clipboard(self, text: str):
         """Copy text to clipboard."""
-        from PyQt6.QtWidgets import QApplication
         clipboard = QApplication.clipboard()
         clipboard.setText(text)
+        
+    def _start_drag(self, supportedActions):
+        """Handle drag start."""
+        item = self._tree.currentItem()
+        if not item:
+            return
+            
+        path = item.data(0, Qt.ItemDataRole.UserRole)
+        if not path or not Path(path).is_file():
+            return
+            
+        # Create mime data
+        mime_data = QMimeData()
+        mime_data.setText(path)
+        mime_data.setUrls([path])  # For external drops
+        
+        # Also set custom data for internal use
+        mime_data.setData("application/x-filetree-item", path.encode())
+        
+        # Create drag
+        drag = QDrag(self._tree)
+        drag.setMimeData(mime_data)
+        
+        # Emit signal
+        self.file_dragged.emit(path)
+        
+        # Execute drag
+        drag.exec(supportedActions)
         
     def get_selected_path(self) -> Optional[str]:
         """Get the currently selected file/folder path."""
@@ -300,9 +444,19 @@ class FileTree(QWidget):
     def refresh(self):
         """Refresh the tree."""
         if self._project_path:
+            self._git_service.clear_cache()
             self.load_project(self._project_path)
             
-    def keyPressEvent(self, event):
+    def refresh_git_status(self):
+        """Refresh only Git status without reloading entire tree."""
+        if self._project_path:
+            self._git_service.refresh_all_status()
+            for name, item, path in self._all_items:
+                if isinstance(item, FileTreeItem):
+                    git_status = self._git_service.get_file_status(path)
+                    item.set_git_status(git_status)
+            
+    def keyPressEvent(self, event: QKeyEvent):
         """Handle key press events."""
         if event.key() == Qt.Key.Key_F and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             self._search_box.setFocus()
@@ -311,3 +465,7 @@ class FileTree(QWidget):
             self._search_box.clear()
         else:
             super().keyPressEvent(event)
+            
+    def get_git_service(self) -> GitStatusService:
+        """Get the Git status service."""
+        return self._git_service
