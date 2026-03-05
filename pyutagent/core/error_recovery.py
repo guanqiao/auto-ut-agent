@@ -876,6 +876,229 @@ class ErrorRecoveryManager:
 
         return result
 
+    async def analyze_with_smart_context(
+        self,
+        error: Exception,
+        error_context: Dict[str, Any],
+        error_type: str = "compilation"
+    ) -> Dict[str, Any]:
+        """使用完整上下文进行智能 LLM 分析。
+
+        这是增强版的错误分析，会：
+        1. 收集完整的编译/测试输出
+        2. 构建包含完整上下文的 Prompt
+        3. 让 LLM 给出具体的行动方案
+        4. 解析行动方案为可执行的步骤
+
+        Args:
+            error: 发生的异常
+            error_context: 错误上下文，包含完整的输出和文件信息
+            error_type: 错误类型，"compilation" 或 "test_failure"
+
+        Returns:
+            包含分析结果和行动方案的字典
+        """
+        if not self.llm_client or not self.prompt_builder:
+            return {
+                "success": False,
+                "message": "LLM client not available",
+                "action_plan": []
+            }
+
+        try:
+            from ..core.error_context import (
+                ErrorContextCollector,
+                CompilationErrorContext,
+                TestFailureContext,
+                LLMAnalysisResult
+            )
+            from ..agent.tools.action_executor import parse_llm_action_plan
+
+            if self.progress_callback:
+                self.progress_callback("SMART_ANALYSIS", "正在进行智能错误分析...")
+
+            logger.info(f"[ErrorRecoveryManager] Starting smart context analysis for {error_type}")
+
+            if error_type == "compilation":
+                context_obj = ErrorContextCollector.collect_compilation_context(
+                    compiler_output=error_context.get("compiler_output", str(error)),
+                    source_file=error_context.get("source_file", ""),
+                    test_file=error_context.get("test_file", ""),
+                    project_path=self.project_path,
+                    attempt_number=len(self.recovery_history) + 1
+                )
+
+                prompt = self.prompt_builder.build_smart_compilation_analysis_prompt(
+                    error_context=context_obj,
+                    attempt_history=[
+                        {
+                            "attempt": a.attempt_number,
+                            "action": a.strategy_used.name,
+                            "success": a.success,
+                            "message": a.error_message[:100]
+                        }
+                        for a in self.recovery_history[-5:]
+                    ]
+                )
+            else:
+                context_obj = ErrorContextCollector.collect_test_failure_context(
+                    test_output=error_context.get("test_output", str(error)),
+                    test_file=error_context.get("test_file", ""),
+                    source_file=error_context.get("source_file", ""),
+                    attempt_number=len(self.recovery_history) + 1
+                )
+
+                prompt = self.prompt_builder.build_smart_test_failure_analysis_prompt(
+                    error_context=context_obj,
+                    attempt_history=[
+                        {
+                            "attempt": a.attempt_number,
+                            "action": a.strategy_used.name,
+                            "success": a.success,
+                            "message": a.error_message[:100]
+                        }
+                        for a in self.recovery_history[-5:]
+                    ]
+                )
+
+            response = await self.llm_client.agenerate(prompt)
+
+            analysis_result = self._parse_smart_analysis_response(response)
+
+            action_plan = parse_llm_action_plan(response)
+
+            result = {
+                "success": True,
+                "root_cause": analysis_result.get("root_cause", ""),
+                "analysis": analysis_result.get("analysis", ""),
+                "confidence": analysis_result.get("confidence", 0.5),
+                "reasoning": analysis_result.get("reasoning", ""),
+                "action_plan": [a for a in action_plan.actions],
+                "raw_response": response,
+                "error_context_obj": context_obj
+            }
+
+            logger.info(
+                f"[ErrorRecoveryManager] Smart analysis complete - "
+                f"Root cause: {result['root_cause'][:100]}, "
+                f"Actions: {len(result['action_plan'])}, "
+                f"Confidence: {result['confidence']:.2f}"
+            )
+
+            if self.progress_callback:
+                self.progress_callback(
+                    "SMART_ANALYSIS_COMPLETE",
+                    f"分析完成 - 置信度: {result['confidence']:.0%}"
+                )
+
+            return result
+
+        except Exception as e:
+            logger.exception(f"[ErrorRecoveryManager] Smart analysis failed: {e}")
+            return {
+                "success": False,
+                "message": str(e),
+                "action_plan": []
+            }
+
+    def _parse_smart_analysis_response(self, response: str) -> Dict[str, Any]:
+        """解析智能分析响应。
+
+        Args:
+            response: LLM 响应文本
+
+        Returns:
+            解析后的分析结果
+        """
+        result = {
+            "root_cause": "",
+            "analysis": "",
+            "confidence": 0.5,
+            "reasoning": ""
+        }
+
+        lines = response.split('\n')
+        current_section = None
+
+        for line in lines:
+            line_lower = line.lower().strip()
+
+            if line_lower.startswith("root_cause:") or line_lower.startswith("**root_cause:**"):
+                current_section = "root_cause"
+                result["root_cause"] = line.split(":", 1)[1].strip() if ":" in line else ""
+            elif line_lower.startswith("analysis:") or line_lower.startswith("**analysis:**"):
+                current_section = "analysis"
+                result["analysis"] = line.split(":", 1)[1].strip() if ":" in line else ""
+            elif line_lower.startswith("confidence:") or line_lower.startswith("**confidence:**"):
+                current_section = "confidence"
+                conf_text = line.split(":", 1)[1].strip() if ":" in line else "0.5"
+                try:
+                    result["confidence"] = float(conf_text.replace("%", "")) / 100 if "%" in conf_text else float(conf_text)
+                except ValueError:
+                    result["confidence"] = 0.5
+            elif line_lower.startswith("reasoning:") or line_lower.startswith("**reasoning:**"):
+                current_section = "reasoning"
+                result["reasoning"] = line.split(":", 1)[1].strip() if ":" in line else ""
+            elif line_lower.startswith("action_plan:"):
+                current_section = "action_plan"
+            elif current_section and line.strip():
+                if current_section not in ("action_plan",):
+                    result[current_section] += " " + line.strip()
+
+        return result
+
+    async def execute_action_plan(
+        self,
+        action_plan: List[Dict[str, Any]],
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """执行 LLM 给出的行动方案。
+
+        Args:
+            action_plan: 行动方案列表
+            context: 执行上下文
+
+        Returns:
+            执行结果
+        """
+        from ..agent.tools.action_executor import ActionExecutor, ActionPlan
+
+        if not action_plan:
+            return {
+                "success": False,
+                "message": "No actions to execute"
+            }
+
+        executor = ActionExecutor(
+            project_path=self.project_path,
+            llm_client=self.llm_client,
+            progress_callback=self.progress_callback
+        )
+
+        plan = ActionPlan(
+            actions=action_plan,
+            confidence=context.get("confidence", 0.5)
+        )
+
+        results = await executor.execute_action_plan(plan, context)
+
+        success_count = sum(1 for r in results if r.success)
+
+        return {
+            "success": success_count > 0,
+            "message": f"Executed {success_count}/{len(results)} actions successfully",
+            "results": [
+                {
+                    "action": r.action_type.name,
+                    "success": r.success,
+                    "message": r.message,
+                    "modified_file": r.modified_file
+                }
+                for r in results
+            ],
+            "modified_files": [r.modified_file for r in results if r.modified_file]
+        }
+
     def _determine_strategy(
         self,
         context: RecoveryContext,

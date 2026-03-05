@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-03-05T13:21:12.947665",
+  "updated_at": "2026-03-05T18:26:59.139335",
   "patterns": [
     {
       "pattern_id": "ec1cdc7393654620",
@@ -136,6 +136,20 @@
       "updated_at": "2026-03-05T13:21:12.947665",
       "occurrence_count": 11,
       "success_count": 11,
+      "failure_count": 0
+    },
+    {
+      "pattern_id": "1656e51d6e41135c",
+      "category": "UNKNOWN",
+      "signature": "UNKNOWN:Exception:⏹️ 测试生成已被用户取消",
+      "keywords": [],
+      "regex_patterns": [
+        "⏹️\\ 测试生成已被用户取消"
+      ],
+      "created_at": "2026-03-05T18:26:59.122011",
+      "updated_at": "2026-03-05T18:26:59.139335",
+      "occurrence_count": 1,
+      "success_count": 1,
       "failure_count": 0
     }
   ],
@@ -1291,6 +1305,31 @@
         },
         "time_to_recover": 163.05628180503845,
         "attempts_needed": 2
+      }
+    ],
+    "1656e51d6e41135c": [
+      {
+        "strategy": "ANALYZE_AND_FIX",
+        "success": true,
+        "timestamp": "2026-03-05T18:26:59.139335",
+        "context": {
+          "step": "generating initial tests",
+          "attempt": 1,
+          "result": {
+            "success": false,
+            "state": {
+              "_value_": 12,
+              "_name_": "PAUSED",
+              "__objclass__": "{'_generate_next_value_': <staticmethod(<function Enum._generate_next_value_ at 0x000002EB8A6C28E0>)>, '__module__': 'pyutagent.core.protocols', '__doc__': 'Agent execution states.', '_new_member_': <built-in method __new__ of type object at 0x00007FFB49AF8710>, '_use_args_': False, '_member_names_': ['IDLE', 'INITIALIZING', 'PARSING', 'GENERATING', 'COMPILING', 'TESTING', 'ANALYZING', 'FIXING', 'OPTIMIZING', 'COMPLETED', 'FAILED', 'PAUSED'], '_member_map_': {'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>}, '_value2member_map_': {1: <AgentState.IDLE: 1>, 2: <AgentState.INITIALIZING: 2>, 3: <AgentState.PARSING: 3>, 4: <AgentState.GENERATING: 4>, 5: <AgentState.COMPILING: 5>, 6: <AgentState.TESTING: 6>, 7: <AgentState.ANALYZING: 7>, 8: <AgentState.FIXING: 8>, 9: <AgentState.OPTIMIZING: 9>, 10: <AgentState.COMPLETED: 10>, 11: <AgentState.FAILED: 11>, 12: <AgentState.PAUSED: 12>}, '_unhashable_values_': [], '_member_type_': <class 'object'>, '_value_repr_': None, 'IDLE': <AgentState.IDLE: 1>, 'INITIALIZING': <AgentState.INITIALIZING: 2>, 'PARSING': <AgentState.PARSING: 3>, 'GENERATING': <AgentState.GENERATING: 4>, 'COMPILING': <AgentState.COMPILING: 5>, 'TESTING': <AgentState.TESTING: 6>, 'ANALYZING': <AgentState.ANALYZING: 7>, 'FIXING': <AgentState.FIXING: 8>, 'OPTIMIZING': <AgentState.OPTIMIZING: 9>, 'COMPLETED': <AgentState.COMPLETED: 10>, 'FAILED': <AgentState.FAILED: 11>, 'PAUSED': <AgentState.PAUSED: 12>, '__new__': <function Enum.__new__ at 0x000002EB8A6C27A0>}",
+              "_sort_order_": 11
+            },
+            "message": "⏹️ 测试生成已被用户取消",
+            "data": {}
+          },
+          "reset_count": 0
+        },
+        "time_to_recover": 279.35149002075195,
+        "attempts_needed": 1
       }
     ]
   }

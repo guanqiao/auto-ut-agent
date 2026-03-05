@@ -1,0 +1,23 @@
+{
+  "id": "3397d6e3",
+  "created_at": "2026-03-05T18:24:19.606553",
+  "step": "initial_generation",
+  "iteration": 0,
+  "state": {
+    "target_file": "src\\main\\java\\org\\ssssssss\\magicapi\\modules\\DynamicModule.java",
+    "test_file": "src\\test\\java\\org\\ssssssss\\magicapi\\modules\\Test.java",
+    "class_info": {
+      "name": "",
+      "package": "org.ssssssss.magicapi.modules",
+      "methods": [],
+      "fields": [],
+      "imports": [
+        "org.ssssssss.script.MagicScriptContext",
+        "java.beans.Transient"
+      ],
+      "annotations": [],
+      "source": "package org.ssssssss.magicapi.modules;\n\nimport org.ssssssss.script.MagicScriptContext;\n\nimport java.beans.Transient;\n\npublic interface DynamicModule<T> {\n\n\t@Transient\n\tT getDynamicModule(MagicScriptContext context);\n}\n"
+    }
+  },
+  "metadata": {}
+}

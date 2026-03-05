@@ -25,9 +25,9 @@ logger = logging.getLogger(__name__)
 class BatchGenerateWorker(QThread):
     """Worker thread for batch test generation."""
     
-    progress_updated = pyqtSignal(str, str, float, int, float, str)
-    file_completed = pyqtSignal(str, bool, float, int, str, float, int, int, int)  # Added preserved, new, fixed tests
-    all_completed = pyqtSignal(int, int, float, object, int, int, int)  # Added total preserved, new, fixed tests
+    progress_updated = pyqtSignal(str, str, float, int, float, str, float, float)
+    file_completed = pyqtSignal(str, bool, float, int, str, float, int, int, int)
+    all_completed = pyqtSignal(int, int, float, object, int, int, int)
     error = pyqtSignal(str)
     log_message = pyqtSignal(str, str)
     
@@ -92,7 +92,9 @@ class BatchGenerateWorker(QThread):
                     current, status, 
                     batch_progress.progress_percent,
                     batch_progress.completed_files + batch_progress.failed_files,
-                    0.0, ""
+                    batch_progress.current_coverage,
+                    batch_progress.coverage_source,
+                    batch_progress.coverage_confidence
                 )
             
             generator = BatchGenerator(
@@ -600,7 +602,7 @@ class BatchGenerateDialog(QDialog):
         """Clear log area."""
         self.log_area.clear()
     
-    def on_progress_updated(self, current_file, status, progress, completed, duration, error):
+    def on_progress_updated(self, current_file, status, progress, completed, coverage, coverage_source, coverage_confidence):
         """Handle progress update."""
         self.progress_bar.setValue(int(progress))
         
@@ -609,6 +611,14 @@ class BatchGenerateDialog(QDialog):
             if item and item.data(Qt.ItemDataRole.UserRole) == current_file:
                 self.files_table.item(i, 2).setText(status)
                 self.files_table.item(i, 2).setForeground(QColor("#2196F3"))
+                
+                if coverage > 0:
+                    if coverage_source == "llm_estimated":
+                        coverage_text = f"{coverage:.1f}% (LLM)"
+                    else:
+                        coverage_text = f"{coverage:.1f}%"
+                    self.files_table.item(i, 3).setText(coverage_text)
+                    self.files_table.item(i, 3).setForeground(QColor("#4CAF50"))
                 break
     
     def on_file_completed(self, file_path, success, coverage, iterations, test_file, duration, preserved_tests=0, new_tests=0, fixed_tests=0):
@@ -619,10 +629,13 @@ class BatchGenerateDialog(QDialog):
                 if success:
                     self.files_table.item(i, 2).setText("Done")
                     self.files_table.item(i, 2).setForeground(QColor("#4CAF50"))
-                    self.files_table.item(i, 3).setText(f"{coverage:.1f}%")
-                    self.files_table.item(i, 3).setForeground(QColor("#4CAF50"))
                     
-                    # Log incremental mode statistics for this file
+                    if coverage > 0:
+                        self.files_table.item(i, 3).setText(f"{coverage:.1f}%")
+                        self.files_table.item(i, 3).setForeground(QColor("#4CAF50"))
+                    else:
+                        self.files_table.item(i, 3).setText("-")
+                    
                     if self.incremental_check.isChecked() and (preserved_tests > 0 or new_tests > 0 or fixed_tests > 0):
                         stats_msg = f"📊 Incremental stats for {Path(file_path).name}:"
                         if preserved_tests > 0:
