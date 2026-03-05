@@ -77,6 +77,24 @@ from .tool_cache import (
     CachedToolExecutor,
     create_result_cache,
 )
+from .mcp_integration import (
+    MCPTransportType,
+    MCPToolParameter,
+    MCPTool,
+    MCPToolResult,
+    MCPServerConfig,
+    MCPClient,
+    StdioMCPClient,
+    MCPToolAdapter,
+    MCPManager,
+    discover_mcp_tools,
+    create_mcp_tool_wrapper,
+)
+from .enhanced_mcp import (
+    EnhancedMCPManager,
+    MCPConfigLoader,
+    create_enhanced_mcp_manager,
+)
 
 __all__ = [
     "JavaCodeParser",
@@ -141,4 +159,20 @@ __all__ = [
     "CacheEntry",
     "CachedToolExecutor",
     "create_result_cache",
+    # MCP Integration
+    "MCPTransportType",
+    "MCPToolParameter",
+    "MCPTool",
+    "MCPToolResult",
+    "MCPServerConfig",
+    "MCPClient",
+    "StdioMCPClient",
+    "MCPToolAdapter",
+    "MCPManager",
+    "discover_mcp_tools",
+    "create_mcp_tool_wrapper",
+    # Enhanced MCP
+    "EnhancedMCPManager",
+    "MCPConfigLoader",
+    "create_enhanced_mcp_manager",
 ]
