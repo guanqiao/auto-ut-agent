@@ -276,10 +276,42 @@ Examples:
         help="Enable debug logging"
     )
 
+    parser.add_argument(
+        "--gui", "-g",
+        action="store_true",
+        help="Launch GUI mode"
+    )
+
+    parser.add_argument(
+        "--legacy-ui",
+        action="store_true",
+        help="Use legacy UI (only with --gui)"
+    )
+
+    parser.add_argument(
+        "--project", "-p",
+        help="Open project on startup (only with --gui)"
+    )
+
     args = parser.parse_args()
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    # GUI mode
+    if args.gui:
+        from pyutagent.app_v2 import main as gui_main
+        import sys
+        # Pass through relevant args
+        sys.argv = [sys.argv[0]]
+        if args.project:
+            sys.argv.extend(["--project", args.project])
+        if args.legacy_ui:
+            sys.argv.append("--legacy-ui")
+        if args.debug:
+            sys.argv.append("--debug")
+        gui_main()
+        return
 
     cli = PyUTAgentCLI(config_path=args.config)
     await cli.initialize()
