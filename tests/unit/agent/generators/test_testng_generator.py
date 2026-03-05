@@ -6,8 +6,8 @@ from pathlib import Path
 import tempfile
 import shutil
 
-from ..agent.generators.testng_generator import TestNGTestGenerator
-from ..core.project_config import MockFramework
+from pyutagent.agent.generators.testng_generator import TestNGTestGenerator
+from pyutagent.core.project_config import MockFramework
 
 
 class TestTestNGTestGenerator:

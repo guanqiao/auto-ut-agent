@@ -30,7 +30,7 @@ class TestConfigCommand:
         assert result.exit_code == 0
         assert 'Manage LLM configurations' in result.output
 
-    @patch('pyutagent.config.load_llm_config')
+    @patch('pyutagent.core.config.load_llm_config')
     def test_config_llm_list_empty(self, mock_load):
         """Test config llm list with no configurations."""
         from pyutagent.cli.main import cli
@@ -45,8 +45,8 @@ class TestConfigCommand:
         assert result.exit_code == 0
         assert 'No LLM configurations' in result.output or 'default' in result.output
 
-    @patch('pyutagent.config.save_llm_config')
-    @patch('pyutagent.config.load_llm_config')
+    @patch('pyutagent.core.config.save_llm_config')
+    @patch('pyutagent.core.config.load_llm_config')
     @patch('pyutagent.llm.config.LLMConfig')
     def test_config_llm_add(self, mock_config_class, mock_load, mock_save):
         """Test config llm add command."""
@@ -73,8 +73,8 @@ class TestConfigCommand:
         mock_collection.add_config.assert_called_once()
         mock_save.assert_called_once()
 
-    @patch('pyutagent.config.save_llm_config')
-    @patch('pyutagent.config.load_llm_config')
+    @patch('pyutagent.core.config.save_llm_config')
+    @patch('pyutagent.core.config.load_llm_config')
     def test_config_llm_set_default(self, mock_load, mock_save):
         """Test config llm set-default command."""
         from pyutagent.cli.main import cli
@@ -106,7 +106,7 @@ class TestConfigCommand:
         assert result.exit_code == 0
         assert 'Aider configuration' in result.output or 'architect' in result.output
 
-    @patch('pyutagent.config.load_llm_config')
+    @patch('pyutagent.core.config.load_llm_config')
     def test_config_show(self, mock_load):
         """Test config show command."""
         from pyutagent.cli.main import cli

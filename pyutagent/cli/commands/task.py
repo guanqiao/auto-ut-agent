@@ -70,7 +70,7 @@ def task_command(
         from pyutagent.agent.universal_agent import UniversalCodingAgent, AgentMode
         from pyutagent.agent.task_understanding import TaskType
         from pyutagent.memory.working_memory import WorkingMemory
-        from pyutagent.config import load_llm_config
+        from pyutagent.core.config import load_llm_config
         from pyutagent.llm.client import LLMClient
         
         config_collection = load_llm_config()

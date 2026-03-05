@@ -52,7 +52,7 @@ class TestGenerateCommand:
         finally:
             os.unlink(temp_path)
 
-    @patch('pyutagent.config.load_llm_config')
+    @patch('pyutagent.core.config.load_llm_config')
     @patch('pyutagent.agent.test_generator.TestGeneratorAgent')
     def test_generate_with_mock_agent(self, mock_agent_class, mock_load_config):
         """Test generate with mocked agent."""

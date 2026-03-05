@@ -29,6 +29,15 @@ from .test_implement_agent import TestImplementAgent
 from .test_review_agent import TestReviewAgent
 from .test_fix_agent import TestFixAgent
 
+from ..subagent_base import (
+    SubAgentConfig,
+    Task,
+    TaskPriority,
+    AgentCapability,
+    AgentStatus,
+    SubAgentManager
+)
+
 __all__ = [
     'SpecializedSubagent',
     'SubagentResult', 
@@ -42,4 +51,10 @@ __all__ = [
     'TestImplementAgent',
     'TestReviewAgent',
     'TestFixAgent',
+    'SubAgentConfig',
+    'Task',
+    'TaskPriority',
+    'AgentCapability',
+    'AgentStatus',
+    'SubAgentManager',
 ]

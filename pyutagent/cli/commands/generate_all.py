@@ -108,7 +108,7 @@ def generate_all_command(
     
     try:
         from pyutagent.services.batch_generator import BatchGenerator, BatchConfig
-        from pyutagent.config import load_llm_config
+        from pyutagent.core.config import load_llm_config
         
         config_collection = load_llm_config()
         if llm == 'default':

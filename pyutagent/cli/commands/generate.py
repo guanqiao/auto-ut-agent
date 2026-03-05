@@ -80,7 +80,7 @@ def generate_command(
         from pyutagent.agent.react_agent import ReActAgent
         from pyutagent.agent.enhanced_agent import EnhancedAgent, EnhancedAgentConfig
         from pyutagent.memory.working_memory import WorkingMemory
-        from pyutagent.config import load_llm_config
+        from pyutagent.core.config import load_llm_config
         from pyutagent.llm.client import LLMClient
         
         config_collection = load_llm_config()

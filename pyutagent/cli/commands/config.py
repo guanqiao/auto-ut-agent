@@ -25,7 +25,7 @@ def llm_group():
 def llm_list():
     """List all LLM configurations."""
     try:
-        from pyutagent.config import load_llm_config
+        from pyutagent.core.config import load_llm_config
 
         collection = load_llm_config()
 
@@ -68,12 +68,11 @@ def llm_list():
 def llm_add(name: str, provider: str, model: str, api_key: str, endpoint: str, timeout: int):
     """Add a new LLM configuration."""
     try:
-        from pyutagent.config import load_llm_config, save_llm_config
+        from pyutagent.core.config import load_llm_config, save_llm_config
         from pyutagent.llm.config import LLMConfig, LLMProvider
 
         collection = load_llm_config()
 
-        # Create new config
         config = LLMConfig(
             name=name,
             provider=LLMProvider(provider),
@@ -97,11 +96,10 @@ def llm_add(name: str, provider: str, model: str, api_key: str, endpoint: str, t
 def llm_set_default(config_id: str):
     """Set the default LLM configuration by ID."""
     try:
-        from pyutagent.config import load_llm_config, save_llm_config
+        from pyutagent.core.config import load_llm_config, save_llm_config
 
         collection = load_llm_config()
 
-        # Find config by ID (can be partial match)
         found_config = None
         for config in collection.configs:
             if config.id.startswith(config_id):
@@ -126,7 +124,7 @@ def llm_set_default(config_id: str):
 def llm_test(config_id: str):
     """Test an LLM configuration by ID."""
     try:
-        from pyutagent.config import load_llm_config
+        from pyutagent.core.config import load_llm_config
         from pyutagent.llm.client import LLMClient
 
         collection = load_llm_config()
@@ -134,7 +132,6 @@ def llm_test(config_id: str):
         if config_id == 'default':
             config = collection.get_default_config()
         else:
-            # Find config by ID (can be partial match)
             config = None
             for c in collection.configs:
                 if c.id.startswith(config_id):
@@ -163,12 +160,11 @@ def llm_test(config_id: str):
 def config_show():
     """Show current configuration."""
     try:
-        from pyutagent.config import load_llm_config
+        from pyutagent.core.config import load_llm_config
 
         collection = load_llm_config()
 
         console.print("[bold]Configuration Directory:[/bold]")
-        # Config directory is typically ~/.pyutagent
         config_dir = Path.home() / '.pyutagent'
         console.print(f"  {config_dir}")
         console.print()
