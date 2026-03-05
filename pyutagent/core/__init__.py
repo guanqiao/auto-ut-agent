@@ -32,6 +32,21 @@ from pyutagent.core.cache import (
     L1MemoryCache,
     L2DiskCache
 )
+from pyutagent.core.project_config import (
+    BuildTool,
+    TestFramework,
+    MockFramework,
+    BuildConfig,
+    TestConfig,
+    AgentPreferences,
+    CodeStyle,
+    DependencyInfo,
+    ProjectContext,
+    ProjectConfig,
+    ProjectConfigLoader,
+    load_project_config,
+    create_config_template,
+)
 
 __all__ = [
     'EventBus',
@@ -58,4 +73,18 @@ __all__ = [
     'MultiLevelCache',
     'L1MemoryCache',
     'L2DiskCache',
+    # Project Configuration
+    'BuildTool',
+    'TestFramework',
+    'MockFramework',
+    'BuildConfig',
+    'TestConfig',
+    'AgentPreferences',
+    'CodeStyle',
+    'DependencyInfo',
+    'ProjectContext',
+    'ProjectConfig',
+    'ProjectConfigLoader',
+    'load_project_config',
+    'create_config_template',
 ]

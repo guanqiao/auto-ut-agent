@@ -120,36 +120,6 @@ class DependencyInfo:
 
 
 @dataclass
-class ProjectContext:
-    """Project context information for agent operations.
-    
-    This class provides a simplified view of project information
-    that can be easily passed to agents and other components.
-    """
-    name: str = ""
-    description: str = ""
-    language: str = "java"
-    build_tool: str = "maven"
-    java_version: str = "17"
-    test_framework: str = "junit5"
-    mock_framework: str = "mockito"
-    project_root: Path = None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "language": self.language,
-            "build_tool": self.build_tool,
-            "java_version": self.java_version,
-            "test_framework": self.test_framework,
-            "mock_framework": self.mock_framework,
-            "project_root": str(self.project_root) if self.project_root else None,
-        }
-
-
-@dataclass
 class ProjectConfig:
     """Complete project configuration from PYUT.md."""
     project_name: str = ""
@@ -163,18 +133,6 @@ class ProjectConfig:
     
     custom_instructions: List[str] = field(default_factory=list)
     ignore_patterns: List[str] = field(default_factory=list)
-    
-    def to_context(self) -> ProjectContext:
-        """Convert to ProjectContext."""
-        return ProjectContext(
-            name=self.project_name,
-            language="java",
-            build_tool=self.build.tool.value if self.build.tool else "maven",
-            java_version=self.build.java_version,
-            test_framework=self.testing.framework.value if self.testing.framework else "junit5",
-            mock_framework=self.testing.mock_framework,
-            project_root=self.project_root,
-        )
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any], project_root: Path = None) -> "ProjectConfig":
