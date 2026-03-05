@@ -282,7 +282,7 @@ class TestDesignAgent(SpecializedAgent):
     def _get_default_value(self, type_name: str) -> Any:
         defaults = {
             "int": 1, "Integer": 1,
-            "long": 1L, "Long": 1L,
+            "long": 1, "Long": 1,
             "double": 1.0, "Double": 1.0,
             "float": 1.0, "Float": 1.0,
             "boolean": True, "Boolean": True,

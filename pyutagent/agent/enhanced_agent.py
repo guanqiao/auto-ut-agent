@@ -298,22 +298,75 @@ class EnhancedAgent(ReActAgent):
     
     async def _register_specialized_agents(self):
         """Register specialized agents with the coordinator."""
-        from .multi_agent.specialized_agent import SpecializedAgent
+        from .subagents.test_design_agent import TestDesignAgent
+        from .subagents.test_implement_agent import TestImplementAgent
+        from .subagents.test_review_agent import TestReviewAgent
+        from .subagents.test_fix_agent import TestFixAgent
         
-        # This would create and start actual specialized agents
-        # For now, just register placeholder agents
+        if not self.agent_coordinator:
+            logger.warning("[EnhancedAgent] Agent coordinator not initialized")
+            return
         
-        agents_config = [
-            ("designer_1", {AgentCapability.TEST_DESIGN}, AgentRole.DESIGNER),
-            ("implementer_1", {AgentCapability.TEST_IMPLEMENTATION}, AgentRole.IMPLEMENTER),
-            ("reviewer_1", {AgentCapability.TEST_REVIEW}, AgentRole.REVIEWER),
-            ("fixer_1", {AgentCapability.ERROR_FIXING}, AgentRole.FIXER),
-        ]
+        design_agent = TestDesignAgent(
+            agent_id="designer_1",
+            message_bus=self.agent_coordinator.message_bus,
+            knowledge_base=self.agent_coordinator.knowledge_base,
+            experience_replay=self.agent_coordinator.experience_replay,
+            llm_client=self.llm_client
+        )
+        self.agent_coordinator.register_agent(
+            "designer_1",
+            design_agent,
+            AgentRole.DESIGNER
+        )
         
-        for agent_id, capabilities, role in agents_config:
-            self.agent_coordinator.register_agent(agent_id, capabilities, role)
+        implement_agent = TestImplementAgent(
+            agent_id="implementer_1",
+            message_bus=self.agent_coordinator.message_bus,
+            knowledge_base=self.agent_coordinator.knowledge_base,
+            experience_replay=self.agent_coordinator.experience_replay,
+            llm_client=self.llm_client
+        )
+        self.agent_coordinator.register_agent(
+            "implementer_1",
+            implement_agent,
+            AgentRole.IMPLEMENTER
+        )
         
-        logger.info(f"[EnhancedAgent] Registered {len(agents_config)} specialized agents")
+        review_agent = TestReviewAgent(
+            agent_id="reviewer_1",
+            message_bus=self.agent_coordinator.message_bus,
+            knowledge_base=self.agent_coordinator.knowledge_base,
+            experience_replay=self.agent_coordinator.experience_replay,
+            llm_client=self.llm_client
+        )
+        self.agent_coordinator.register_agent(
+            "reviewer_1",
+            review_agent,
+            AgentRole.REVIEWER
+        )
+        
+        fix_agent = TestFixAgent(
+            agent_id="fixer_1",
+            message_bus=self.agent_coordinator.message_bus,
+            knowledge_base=self.agent_coordinator.knowledge_base,
+            experience_replay=self.agent_coordinator.experience_replay,
+            llm_client=self.llm_client
+        )
+        self.agent_coordinator.register_agent(
+            "fixer_1",
+            fix_agent,
+            AgentRole.FIXER
+        )
+        
+        self._specialized_agents = {
+            "designer": design_agent,
+            "implementer": implement_agent,
+            "reviewer": review_agent,
+            "fixer": fix_agent
+        }
+        
+        logger.info("[EnhancedAgent] Registered 4 specialized agents: designer, implementer, reviewer, fixer")
     
     async def generate_tests(self, target_file: str) -> AgentResult:
         """Generate tests with full metrics collection.
