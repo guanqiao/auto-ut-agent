@@ -438,6 +438,33 @@ class CoverageSettings:
 
 
 @dataclass
+class JacocoSettings:
+    """JaCoCo configuration settings.
+
+    Attributes:
+        auto_configure: Enable automatic JaCoCo configuration
+        skip_if_exists: Skip configuration if JaCoCo is already configured
+        preferred_version: Preferred JaCoCo version
+        use_llm: Use LLM to generate configuration
+        show_config_dialog: Show configuration dialog before applying
+    """
+    auto_configure: bool = False
+    skip_if_exists: bool = True
+    preferred_version: str = "0.8.11"
+    use_llm: bool = True
+    show_config_dialog: bool = True
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "JacocoSettings":
+        """Create from dictionary."""
+        return cls(**data)
+
+
+@dataclass
 class ProjectHistory:
     """Project history entry.
 
@@ -602,6 +629,11 @@ class Settings(BaseModel):
     coverage: CoverageSettings = Field(
         default_factory=CoverageSettings,
         description="Coverage settings"
+    )
+
+    jacoco: JacocoSettings = Field(
+        default_factory=JacocoSettings,
+        description="JaCoCo configuration settings"
     )
 
     log_level: str = Field(

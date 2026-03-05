@@ -488,9 +488,9 @@ class TestGeneratorAgent:
             # Try to compile and fix errors
             compile_success = False
             for attempt in range(3):
-                compile_output = self.maven_runner.compile_tests()
+                success, compile_output = self.maven_runner.compile_tests()
                 
-                if compile_output is True or (isinstance(compile_output, str) and 'BUILD SUCCESS' in compile_output):
+                if success:
                     compile_success = True
                     break
                 

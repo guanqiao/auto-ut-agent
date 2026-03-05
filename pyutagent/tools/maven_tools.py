@@ -386,6 +386,50 @@ class MavenRunner:
             logger.exception("Error compiling project asynchronously")
             return False
     
+    def compile_tests(self) -> Tuple[bool, str]:
+        """Compile test classes synchronously.
+        
+        Returns:
+            (success, output) tuple
+        """
+        mvn = self._get_maven_executable()
+        try:
+            result = subprocess.run(
+                [mvn, "test-compile", "-q"],
+                cwd=self.project_path,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            output = result.stderr if result.stderr else result.stdout
+            success = result.returncode == 0
+            return success, output
+        except Exception as e:
+            logger.exception("Error compiling tests")
+            return False, str(e)
+    
+    async def compile_tests_async(self) -> Tuple[bool, str]:
+        """Compile test classes asynchronously.
+        
+        Returns:
+            (success, output) tuple
+        """
+        mvn = self._get_maven_executable()
+        try:
+            process = await asyncio.create_subprocess_exec(
+                mvn, "test-compile", "-q",
+                cwd=str(self.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            output = stderr.decode() if stderr else stdout.decode() if stdout else ""
+            success = process.returncode == 0
+            return success, output
+        except Exception as e:
+            logger.exception("Error compiling tests asynchronously")
+            return False, str(e)
+    
     def get_classpath(self, force_refresh: bool = False) -> Optional[str]:
         """Get Maven classpath (with caching).
         
