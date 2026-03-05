@@ -1,5 +1,9 @@
 """Autonomous Loop - Observe-Think-Act-Verify-Learn cycle with self-correction.
 
+.. deprecated::
+    Use pyutagent.agent.unified_autonomous_loop.UnifiedAutonomousLoop instead.
+    This module is kept for backward compatibility.
+
 This module implements a comprehensive autonomous decision loop inspired by
 top-tier coding agents like Claude Code and Cursor Agent Mode:
 
@@ -28,6 +32,7 @@ import asyncio
 import json
 import logging
 import time
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -39,6 +44,14 @@ from ..core.protocols import AgentState
 from ..tools.tool import ToolResult
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.agent.autonomous_loop is deprecated. "
+    "Use pyutagent.agent.unified_autonomous_loop.UnifiedAutonomousLoop instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 T = TypeVar('T')
 

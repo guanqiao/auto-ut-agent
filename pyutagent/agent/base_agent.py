@@ -1,7 +1,13 @@
-"""Base agent class for UT generation."""
+"""Base agent class for UT generation.
+
+.. deprecated::
+    Use pyutagent.agent.unified_agent_base.UnifiedAgentBase instead.
+    This module is kept for backward compatibility.
+"""
 
 import logging
 import asyncio
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -14,6 +20,14 @@ from ..llm.client import LLMClient
 from ..core.protocols import AgentState, AgentResult
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.agent.base_agent is deprecated. "
+    "Use pyutagent.agent.unified_agent_base.UnifiedAgentBase instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 @dataclass

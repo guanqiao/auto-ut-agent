@@ -176,9 +176,8 @@ class TestCircularProgress:
 class TestCreateProgressTracker:
     """Test create_progress_tracker function."""
 
-    def test_create_progress_tracker(self, qtbot):
+    def test_create_progress_tracker(self):
         """Test create_progress_tracker creates correct instance."""
         tracker = create_progress_tracker()
-        qtbot.addWidget(tracker)
-
         assert isinstance(tracker, ProgressTracker)
+        tracker.deleteLater()

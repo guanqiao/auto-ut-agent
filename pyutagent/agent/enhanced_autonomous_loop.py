@@ -1,5 +1,9 @@
 """Enhanced Autonomous Loop - LLM-powered Observe-Think-Act-Verify-Learn cycle.
 
+.. deprecated::
+    Use pyutagent.agent.unified_autonomous_loop.UnifiedAutonomousLoop instead.
+    This module is kept for backward compatibility.
+
 This module enhances the autonomous loop with:
 - LLM-based deep reasoning for decision making
 - Dynamic tool selection based on context
@@ -9,6 +13,7 @@ This module enhances the autonomous loop with:
 
 import json
 import logging
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
@@ -26,6 +31,14 @@ from .autonomous_loop import (
 from .tool_service import AgentToolService
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.agent.enhanced_autonomous_loop is deprecated. "
+    "Use pyutagent.agent.unified_autonomous_loop.UnifiedAutonomousLoop instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class DecisionStrategy(Enum):

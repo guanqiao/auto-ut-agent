@@ -1,13 +1,18 @@
 """Subagents mechanism for specialized task handling.
 
+.. deprecated::
+    Use pyutagent.agent.unified_agent_base.UnifiedAgentBase instead.
+    This module is kept for backward compatibility.
+
 This module provides:
-- SubAgent: Independent agent for specialized tasks
-- SubAgentManager: Management of subagents
-- AgentPool: Pool of reusable agents
+- SubAgent: Independent agent for specialized tasks (deprecated)
+- SubAgentManager: Management of subagents (deprecated)
+- AgentPool: Pool of reusable agents (deprecated)
 """
 
 import asyncio
 import logging
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,6 +21,14 @@ from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.agent.subagent_base is deprecated. "
+    "Use pyutagent.agent.unified_agent_base.UnifiedAgentBase instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class AgentStatus(Enum):
