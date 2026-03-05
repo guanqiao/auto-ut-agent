@@ -1,6 +1,16 @@
 """Agent module for UT generation with self-feedback loop."""
 
 from .base_agent import BaseAgent, StepResult
+from .unified_agent_base import (
+    UnifiedAgentBase,
+    AgentConfig,
+    AgentState as UnifiedAgentState,
+    AgentCapability as UnifiedAgentCapability,
+    AgentResult as UnifiedAgentResult,
+    AgentMixin,
+    ProgressUpdate,
+    create_agent_config,
+)
 from .react_agent import ReActAgent
 from .enhanced_agent import EnhancedAgent, EnhancedAgentConfig
 from .test_generator import TestGeneratorAgent
@@ -311,6 +321,17 @@ __all__ = [
     "AgentState",
     "AgentResult",
     "StepResult",
+    
+    # Unified Agent Base
+    "UnifiedAgentBase",
+    "AgentConfig",
+    "UnifiedAgentState",
+    "UnifiedAgentCapability",
+    "UnifiedAgentResult",
+    "AgentMixin",
+    "ProgressUpdate",
+    "create_agent_config",
+    
     "ReActAgent",
     "EnhancedAgent",
     "EnhancedAgentConfig",
