@@ -25,6 +25,8 @@ class BatchConfig:
         incremental_mode: Enable incremental test generation (preserve existing passing tests)
         preserve_passing_tests: Whether to preserve passing tests in incremental mode
         skip_test_analysis: Skip running existing tests, just analyze file content
+        enable_multi_agent: Whether to use multi-agent collaboration
+        multi_agent_workers: Number of multi-agent workers
     """
     parallel_workers: int = 1
     timeout_per_file: int = 300
@@ -36,6 +38,8 @@ class BatchConfig:
     incremental_mode: bool = False
     preserve_passing_tests: bool = True
     skip_test_analysis: bool = False
+    enable_multi_agent: bool = True
+    multi_agent_workers: int = 3
 
 
 @dataclass
@@ -163,13 +167,94 @@ class BatchGenerator:
             f"ParallelWorkers: {self.config.parallel_workers}, "
             f"Timeout: {self.config.timeout_per_file}s, "
             f"DeferCompilation: {self.config.defer_compilation}, "
-            f"IncrementalMode: {self.config.incremental_mode}"
+            f"IncrementalMode: {self.config.incremental_mode}, "
+            f"MultiAgent: {self.config.enable_multi_agent}"
         )
+        
+        # Initialize multi-agent components if enabled
+        self._multi_agent_initialized = False
+        self.agent_coordinator = None
+        self.code_analysis_agent = None
+        self.test_generation_agent = None
+        self.test_fix_agent = None
+        
+        if self.config.enable_multi_agent:
+            self._init_multi_agent_components()
         
         # Initialize build tool manager for compilation
         from ..tools.build_tool_manager import BuildToolManager
         self.build_tool_manager = BuildToolManager(project_path)
         self.build_runner = self.build_tool_manager.get_runner()
+    
+    def _init_multi_agent_components(self):
+        """Initialize multi-agent collaboration components."""
+        try:
+            from ..agent.multi_agent import (
+                AgentCoordinator, MessageBus, SharedKnowledgeBase, ExperienceReplay,
+                CodeAnalysisAgent, TestGenerationAgent, TestFixAgent, AgentRole
+            )
+            
+            # Create shared components
+            message_bus = MessageBus()
+            shared_knowledge = SharedKnowledgeBase()
+            experience_replay = ExperienceReplay()
+            
+            # Create coordinator
+            self.agent_coordinator = AgentCoordinator(
+                message_bus=message_bus,
+                knowledge_base=shared_knowledge,
+                experience_replay=experience_replay
+            )
+            
+            # Create specialized agents
+            self.code_analysis_agent = CodeAnalysisAgent(
+                agent_id="batch_code_analyzer",
+                message_bus=message_bus,
+                knowledge_base=shared_knowledge,
+                experience_replay=experience_replay
+            )
+            
+            self.test_generation_agent = TestGenerationAgent(
+                agent_id="batch_test_generator",
+                message_bus=message_bus,
+                knowledge_base=shared_knowledge,
+                experience_replay=experience_replay,
+                llm_client=self.llm_client
+            )
+            
+            self.test_fix_agent = TestFixAgent(
+                agent_id="batch_test_fixer",
+                message_bus=message_bus,
+                knowledge_base=shared_knowledge,
+                experience_replay=experience_replay,
+                llm_client=self.llm_client
+            )
+            
+            # Register agents with coordinator
+            self.agent_coordinator.register_agent(
+                agent_id=self.code_analysis_agent.agent_id,
+                capabilities=self.code_analysis_agent.capabilities,
+                role=AgentRole.ANALYZER
+            )
+            
+            self.agent_coordinator.register_agent(
+                agent_id=self.test_generation_agent.agent_id,
+                capabilities=self.test_generation_agent.capabilities,
+                role=AgentRole.IMPLEMENTER
+            )
+            
+            self.agent_coordinator.register_agent(
+                agent_id=self.test_fix_agent.agent_id,
+                capabilities=self.test_fix_agent.capabilities,
+                role=AgentRole.FIXER
+            )
+            
+            self._multi_agent_initialized = True
+            logger.info(f"[BatchGenerator] Multi-agent system initialized with {len(self.agent_coordinator.agents)} agents")
+            
+        except Exception as e:
+            logger.warning(f"[BatchGenerator] Failed to initialize multi-agent components: {e}")
+            self._multi_agent_initialized = False
     
     def stop(self):
         """Stop the batch generation."""
@@ -324,10 +409,153 @@ class BatchGenerator:
         Returns:
             FileResult with generation result
         """
+        # Use multi-agent approach if enabled and initialized
+        if self.config.enable_multi_agent and self._multi_agent_initialized:
+            return await self._generate_single_multi_agent(file_path)
+        else:
+            return await self._generate_single_standard(file_path)
+    
+    async def _generate_single_multi_agent(self, file_path: str) -> FileResult:
+        """Generate tests using multi-agent collaboration.
+        
+        Args:
+            file_path: Path to the Java file
+            
+        Returns:
+            FileResult with generation result
+        """
         start_time = time.time()
         file_name = Path(file_path).name
         
-        logger.info(f"[BatchGenerator] Starting generation for: {file_name}")
+        logger.info(f"[BatchGenerator] Starting multi-agent generation for: {file_name}")
+        self._update_progress(file_name, "Multi-agent: Analyzing code...")
+        
+        try:
+            # Step 1: Code Analysis
+            analysis_task_id = await self.agent_coordinator.submit_task(
+                task_type="analyze_code",
+                payload={"file_path": file_path},
+                priority=1
+            )
+            
+            # Wait for analysis
+            analysis_success = await self.agent_coordinator.wait_for_task(
+                analysis_task_id, 
+                timeout=30
+            )
+            
+            if not analysis_success:
+                logger.warning(f"[BatchGenerator] Code analysis failed for {file_name}, falling back to standard")
+                return await self._generate_single_standard(file_path)
+            
+            # Get analysis result
+            analysis_task = self.agent_coordinator.tasks.get(analysis_task_id)
+            analysis_result = analysis_task.result.output if analysis_task and analysis_task.result else {}
+            
+            self._update_progress(file_name, "Multi-agent: Generating tests...")
+            
+            # Step 2: Test Generation
+            methods = analysis_result.get("methods", [])
+            generation_task_id = await self.agent_coordinator.submit_task(
+                task_type="generate_tests",
+                payload={
+                    "file_path": file_path,
+                    "class_info": analysis_result,
+                    "methods": methods,
+                    "options": {
+                        "framework": "JUnit5",
+                        "mock_framework": "Mockito",
+                        "include_edge_cases": True
+                    }
+                },
+                priority=1,
+                dependencies=[analysis_task_id]
+            )
+            
+            # Wait for generation
+            generation_success = await self.agent_coordinator.wait_for_task(
+                generation_task_id,
+                timeout=self.config.timeout_per_file - 30
+            )
+            
+            duration = time.time() - start_time
+            
+            if generation_success:
+                generation_task = self.agent_coordinator.tasks.get(generation_task_id)
+                generation_result = generation_task.result.output if generation_task and generation_task.result else {}
+                
+                # Write generated test to file
+                test_code = generation_result.get("test_code", "")
+                test_class_name = generation_result.get("test_class_name", "")
+                
+                if test_code and test_class_name:
+                    test_file_path = await self._write_test_file(file_path, test_class_name, test_code)
+                    
+                    logger.info(
+                        f"[BatchGenerator] Multi-agent success for {file_name} - "
+                        f"Duration: {duration:.1f}s"
+                    )
+                    
+                    return FileResult(
+                        file_path=file_path,
+                        success=True,
+                        coverage=0.0,  # Will be determined later
+                        iterations=1,
+                        test_file=test_file_path,
+                        duration=duration
+                    )
+            
+            # If multi-agent failed, fall back to standard
+            logger.warning(f"[BatchGenerator] Multi-agent generation failed for {file_name}, falling back")
+            return await self._generate_single_standard(file_path)
+            
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.exception(f"[BatchGenerator] Multi-agent exception for {file_name}: {e}")
+            # Fall back to standard generation
+            return await self._generate_single_standard(file_path)
+    
+    async def _write_test_file(self, source_file_path: str, test_class_name: str, test_code: str) -> str:
+        """Write test code to file.
+        
+        Args:
+            source_file_path: Path to source file
+            test_class_name: Name of test class
+            test_code: Test code to write
+            
+        Returns:
+            Path to test file
+        """
+        source_path = Path(source_file_path)
+        
+        # Determine test directory
+        test_dir = source_path.parent.parent / "test" / "java" / source_path.parent.name
+        if not test_dir.exists():
+            # Try standard Maven structure
+            project_path = Path(self.project_path)
+            relative_path = source_path.relative_to(project_path / "src" / "main" / "java")
+            test_dir = project_path / "src" / "test" / "java" / relative_path.parent
+        
+        test_dir.mkdir(parents=True, exist_ok=True)
+        
+        test_file_path = test_dir / f"{test_class_name}.java"
+        test_file_path.write_text(test_code, encoding='utf-8')
+        
+        return str(test_file_path)
+    
+    async def _generate_single_standard(self, file_path: str) -> FileResult:
+        """Generate tests using standard ReActAgent.
+        
+        Args:
+            file_path: Path to the Java file
+            
+        Returns:
+            FileResult with generation result
+        """
+        start_time = time.time()
+        file_name = Path(file_path).name
+        
+        logger.info(f"[BatchGenerator] Starting standard generation for: {file_name}")
         self._update_progress(file_name, "Starting...")
         
         try:

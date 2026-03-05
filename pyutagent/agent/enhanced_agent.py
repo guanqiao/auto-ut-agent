@@ -16,7 +16,8 @@ from datetime import datetime
 
 from .react_agent import ReActAgent
 from .multi_agent import (
-    AgentCoordinator, MessageBus, SharedKnowledgeBase, ExperienceReplay
+    AgentCoordinator, MessageBus, SharedKnowledgeBase, ExperienceReplay,
+    CodeAnalysisAgent, TestGenerationAgent, TestFixAgent, AgentRole, AgentCapability
 )
 from .prompt_optimizer import PromptOptimizer, ModelType
 from .context_manager import ContextManager, CompressionStrategy
@@ -61,7 +62,7 @@ class EnhancedAgentConfig:
     ab_test_id: Optional[str] = None
     
     # P2 Configuration
-    enable_multi_agent: bool = False
+    enable_multi_agent: bool = True
     multi_agent_workers: int = 3
     task_allocation_strategy: str = "capability_match"
     
@@ -184,7 +185,61 @@ class EnhancedAgent(ReActAgent):
             experience_replay=self.experience_replay
         )
         
+        # Initialize specialized agents
+        self._init_specialized_agents()
+        
         logger.info("[EnhancedAgent] Multi-agent components initialized")
+    
+    def _init_specialized_agents(self):
+        """Initialize and register specialized agents."""
+        # Code Analysis Agent
+        self.code_analysis_agent = CodeAnalysisAgent(
+            agent_id="code_analyzer_1",
+            message_bus=self.message_bus,
+            knowledge_base=self.shared_knowledge,
+            experience_replay=self.experience_replay,
+            java_parser=getattr(self, 'java_parser', None)
+        )
+        
+        # Test Generation Agent
+        self.test_generation_agent = TestGenerationAgent(
+            agent_id="test_generator_1",
+            message_bus=self.message_bus,
+            knowledge_base=self.shared_knowledge,
+            experience_replay=self.experience_replay,
+            llm_client=getattr(self, 'llm_client', None),
+            prompt_builder=getattr(self, 'prompt_builder', None)
+        )
+        
+        # Test Fix Agent
+        self.test_fix_agent = TestFixAgent(
+            agent_id="test_fixer_1",
+            message_bus=self.message_bus,
+            knowledge_base=self.shared_knowledge,
+            experience_replay=self.experience_replay,
+            llm_client=getattr(self, 'llm_client', None)
+        )
+        
+        # Register agents with coordinator
+        self.agent_coordinator.register_agent(
+            agent_id=self.code_analysis_agent.agent_id,
+            capabilities=self.code_analysis_agent.capabilities,
+            role=AgentRole.ANALYZER
+        )
+        
+        self.agent_coordinator.register_agent(
+            agent_id=self.test_generation_agent.agent_id,
+            capabilities=self.test_generation_agent.capabilities,
+            role=AgentRole.IMPLEMENTER
+        )
+        
+        self.agent_coordinator.register_agent(
+            agent_id=self.test_fix_agent.agent_id,
+            capabilities=self.test_fix_agent.capabilities,
+            role=AgentRole.FIXER
+        )
+        
+        logger.info(f"[EnhancedAgent] Registered {len(self.agent_coordinator.agents)} specialized agents")
     
     def _init_p3_components(self):
         """Initialize P3 advanced capability components."""
