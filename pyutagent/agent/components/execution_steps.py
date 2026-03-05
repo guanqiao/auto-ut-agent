@@ -1843,29 +1843,44 @@ class StepExecutor:
             missing_packages = dependency_info.get("missing_packages", [])
             is_test_dependency = dependency_info.get("is_test_dependency", False)
         
+        def _adapt_progress_callback(state: str, message: str):
+            if self.agent_core.progress_callback:
+                self.agent_core.progress_callback({
+                    "state": state,
+                    "message": message
+                })
+        
+        compiler_output = context.get("compiler_output", str(error))
+        
         handler = DependencyRecoveryHandler(
             project_path=self.agent_core.project_path,
             maven_runner=self.components.get("maven_runner"),
-            progress_callback=self.agent_core.progress_callback
+            llm_client=self.agent_core.llm_client,
+            prompt_builder=self.components.get("prompt_builder"),
+            progress_callback=_adapt_progress_callback
         )
         
-        result = await handler.install_missing_dependencies(
-            missing_packages=missing_packages,
-            is_test_dependency=is_test_dependency
-        )
+        result = await handler.install_missing_dependencies_enhanced(compiler_output)
         
         if result.success:
-            logger.info(f"[StepExecutor] ✅ Dependencies installed successfully: {missing_packages}")
+            installed_deps = result.details.get("installed_dependencies", []) if result.details else []
+            dep_list = [f"{d.get('group_id')}:{d.get('artifact_id')}" for d in installed_deps]
+            logger.info(f"[StepExecutor] ✅ Dependencies installed successfully: {dep_list}")
             return {
                 "success": True,
                 "action": "retry",
-                "message": f"Dependencies installed: {missing_packages}",
+                "message": f"Dependencies installed: {dep_list}",
                 "should_continue": True,
                 "strategy": "install_dependencies",
-                "installed_packages": missing_packages
+                "installed_packages": installed_deps,
+                "analysis": result.details.get("analysis", "") if result.details else "",
+                "confidence": result.details.get("confidence", 0.0) if result.details else 0.0
             }
         else:
-            suggestions = handler.suggest_pom_additions(missing_packages)
+            if missing_packages:
+                suggestions = handler.suggest_pom_additions(missing_packages)
+            else:
+                suggestions = []
             logger.warning(f"[StepExecutor] ❌ Failed to install dependencies: {result.error_message}")
             
             if suggestions:
@@ -1875,7 +1890,7 @@ class StepExecutor:
             return {
                 "success": False,
                 "action": "escalate",
-                "message": f"Failed to install dependencies. Please add the following to pom.xml:\n{suggestion_text}" if suggestions else "Failed to install dependencies",
+                "message": f"Failed to install dependencies. Please add the following to pom.xml:\n{suggestion_text}" if suggestions else f"Failed to install dependencies: {result.error_message}",
                 "should_continue": False,
                 "strategy": "install_dependencies",
                 "suggested_pom_additions": suggestions,
