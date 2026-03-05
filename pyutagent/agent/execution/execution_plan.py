@@ -4,6 +4,8 @@ This module provides:
 - Step: Individual execution step
 - ExecutionPlan: Plan for multi-step execution
 - StepStatus: Status tracking for steps
+- SubTask: Subtask for task decomposition
+- SubTaskType: Types of subtasks
 """
 
 from dataclasses import dataclass, field
@@ -11,6 +13,8 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Dict, List, Optional, Any, Callable
 import logging
+
+from ..task_planner import SubTask, SubTaskType, SubTaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +39,9 @@ class StepType(Enum):
     FIX = "fix"
     OPTIMIZE = "optimize"
     CUSTOM = "custom"
+    ACTION = "action"
+    PLAN = "plan"
+    VERIFY = "verify"
 
 
 @dataclass

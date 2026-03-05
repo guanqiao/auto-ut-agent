@@ -166,8 +166,8 @@ class TestDependencyGraph:
         self.graph.add_step(st2)
         self.graph.add_dependency("step_1", "step_2")
         
-        assert "step_2" in self.graph._nodes["step_1"].dependencies
-        assert "step_1" in self.graph._nodes["step_2"].dependents
+        assert "step_1" in self.graph._nodes["step_2"].dependencies
+        assert "step_2" in self.graph._nodes["step_1"].dependents
 
     def test_get_dependencies(self):
         """Test getting dependencies."""

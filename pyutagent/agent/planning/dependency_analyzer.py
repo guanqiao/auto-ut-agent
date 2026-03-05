@@ -43,10 +43,10 @@ class DependencyGraph:
             self._nodes[step.id] = DependencyNode(step=step)
 
     def add_dependency(self, from_id: str, to_id: str) -> None:
-        """Add a dependency edge (from_id must complete before to_id)."""
+        """Add a dependency edge (to_id depends on from_id, from_id must complete first)."""
         if from_id in self._nodes and to_id in self._nodes:
-            self._nodes[from_id].dependents.add(to_id)
             self._nodes[to_id].dependencies.add(from_id)
+            self._nodes[from_id].dependents.add(to_id)
             self._edges.append((from_id, to_id))
 
     def get_dependencies(self, node_id: str) -> Set[str]:
@@ -261,8 +261,8 @@ class AdvancedDependencyAnalyzer(DependencyAnalyzer):
         """Estimate durations for nodes."""
         base_durations = {
             StepType.ANALYZE: 2.0,
-            StepType.PLAN: 1.0,
-            StepType.ACTION: 5.0,
+            StepType.GENERATE: 1.0,
+            StepType.CUSTOM: 5.0,
             StepType.TEST: 3.0,
         }
         

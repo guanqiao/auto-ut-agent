@@ -115,8 +115,11 @@ class TestNGTestGenerator(BaseTestGenerator):
         # Build setup method
         setup_method = self._build_setup_method(class_name, dependencies)
         
-        # Build test methods
-        test_methods = self._build_test_methods(methods, class_info)
+        # Build test methods (use default test if no methods)
+        if methods:
+            test_methods = self._build_test_methods(methods, class_info)
+        else:
+            test_methods = self._generate_default_test()
         
         # Build teardown method
         teardown_method = self._build_teardown_method()
@@ -247,23 +250,36 @@ class TestNGTestGenerator(BaseTestGenerator):
         """
         test_methods = []
         
-        for method in methods:
-            # Generate basic test
-            basic_test = self._generate_basic_test(method, class_info)
-            test_methods.append(basic_test)
-            
-            # Generate parameterized test if method has parameters
-            if method.get('parameters') and len(method['parameters']) > 0:
-                param_test = self._generate_parameterized_test(method, class_info)
-                if param_test:
-                    test_methods.append(param_test)
-            
-            # Generate exception test if method throws exceptions
-            if method.get('throws_exceptions'):
-                exception_tests = self._generate_exception_tests(method, class_info)
-                test_methods.extend(exception_tests)
+        if not methods:
+            test_methods.append(self._generate_default_test())
+        else:
+            for method in methods:
+                basic_test = self._generate_basic_test(method, class_info)
+                test_methods.append(basic_test)
+                
+                if method.get('parameters') and len(method['parameters']) > 0:
+                    param_test = self._generate_parameterized_test(method, class_info)
+                    if param_test:
+                        test_methods.append(param_test)
+                
+                if method.get('throws_exceptions'):
+                    exception_tests = self._generate_exception_tests(method, class_info)
+                    test_methods.extend(exception_tests)
         
         return "\n".join(test_methods)
+    
+    def _generate_default_test(self) -> str:
+        """Generate default test method when no methods exist.
+        
+        Returns:
+            Default test method string
+        """
+        return """    @Test
+    public void testInstance() {
+        // Basic instance test
+        assertNotNull(target);
+    }
+"""
     
     def _generate_basic_test(
         self,

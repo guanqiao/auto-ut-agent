@@ -39,7 +39,7 @@ class DecompositionStrategy(Enum):
 @dataclass
 class DecompositionContext:
     """Context for task decomposition."""
-    task_description: str
+    task_description: str = ""
     complexity: int = 5
     task_type: str = "default"
     available_tools: List[str] = field(default_factory=list)
@@ -48,6 +48,7 @@ class DecompositionContext:
     parent_task_id: Optional[str] = None
     depth: int = 0
     max_depth: int = 3
+    task_understanding: Optional[TaskUnderstanding] = None
 
 
 class TaskDecomposer(ABC):
@@ -182,8 +183,8 @@ class TemplateTaskDecomposer(TaskDecomposer):
 
     def decompose(
         self,
-        task: Optional[TaskUnderstanding] = None,
         context: Optional[DecompositionContext] = None,
+        task: Optional[TaskUnderstanding] = None,
     ) -> List[SubTask]:
         """Decompose using templates."""
         if context is None:
@@ -200,7 +201,7 @@ class TemplateTaskDecomposer(TaskDecomposer):
                 type=context.task_type,
             )
         
-        task_type = getattr(task, "type", context.task_type) or "default"
+        task_type = context.task_type or getattr(task, "type", None) or "default"
         template = self._templates.get(task_type, self._get_default_template())
         
         task_id = getattr(task, "task_id", "default") or "default"
@@ -223,12 +224,22 @@ class TemplateTaskDecomposer(TaskDecomposer):
         
         return subtasks
 
+    def _map_step_type(self, step_type: str) -> SubTaskType:
+        """Map template step type to SubTaskType."""
+        mapping = {
+            "analyze": SubTaskType.ANALYZE,
+            "plan": SubTaskType.PLAN,
+            "execute": SubTaskType.ACTION,
+            "verify": SubTaskType.VERIFY,
+        }
+        return mapping.get(step_type, SubTaskType.ACTION)
+
     def _get_default_template(self) -> List[Dict]:
         """Get default template."""
         return [
-            {"name": "Analyze", "type": StepType.ANALYZE, "description": "Analyze the task"},
-            {"name": "Execute", "type": StepType.ACTION, "description": "Execute the task"},
-            {"name": "Verify", "type": StepType.TEST, "description": "Verify results"},
+            {"name": "Analyze", "type": "analyze", "action": "analyze", "description": "Analyze the task"},
+            {"name": "Execute", "type": "execute", "action": "execute", "description": "Execute the task"},
+            {"name": "Verify", "type": "verify", "action": "verify", "description": "Verify results"},
         ]
 
 

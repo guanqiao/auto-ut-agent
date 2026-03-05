@@ -45,14 +45,19 @@ class SubTaskType(Enum):
     GENERATE = "generate"
     VALIDATE = "validate"
     REVIEW = "review"
+    ACTION = "action"
+    PLAN = "plan"
+    VERIFY = "verify"
 
 
 @dataclass
 class SubTask:
     """A subtask in the execution plan."""
     id: str
-    description: str
-    task_type: SubTaskType
+    name: str = ""
+    description: str = ""
+    task_type: SubTaskType = SubTaskType.ACTION
+    action: str = ""
     dependencies: List[str] = field(default_factory=list)
     status: SubTaskStatus = SubTaskStatus.PENDING
     priority: int = 5
@@ -65,6 +70,7 @@ class SubTask:
     completed_at: Optional[datetime] = None
     retry_count: int = 0
     max_retries: int = 3
+    subtasks: List["SubTask"] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
         return {

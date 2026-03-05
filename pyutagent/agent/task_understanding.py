@@ -140,20 +140,25 @@ class TaskUnderstanding:
     
     This represents the agent's understanding of what the user wants to accomplish.
     """
-    task_type: TaskType
-    original_request: str
-    requirements: str
+    task_id: str = ""
+    name: str = ""
+    description: str = ""
+    task_type: TaskType = TaskType.UNKNOWN
+    original_request: str = ""
+    requirements: str = ""
     target_scope: TargetScope = field(default_factory=TargetScope)
     constraints: List[Constraint] = field(default_factory=list)
     success_criteria: List[SuccessCriterion] = field(default_factory=list)
     priority: TaskPriority = TaskPriority.MEDIUM
-    complexity: TaskComplexity = TaskComplexity.MODERATE
+    complexity: int = 5
     estimated_steps: int = 5
     required_tools: List[str] = field(default_factory=list)
     dependencies: List[str] = field(default_factory=list)
     context_needed: List[str] = field(default_factory=list)
     risks: List[str] = field(default_factory=list)
     confidence: float = 0.0
+    type: str = ""
+    sub_tasks: List[str] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
         return {
