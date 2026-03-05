@@ -404,7 +404,8 @@ class FeedbackLoopExecutor:
             if self.agent_core._stop_requested or self.agent_core._terminated:
                 logger.info("[FeedbackLoopExecutor] ⏹️ User stopped - Compilation phase")
                 return False
-            logger.warning("[FeedbackLoopExecutor] ⚠️ Compilation failed, preparing to retry...")
+            logger.warning("[FeedbackLoopExecutor] ⚠️ Compilation failed, estimating coverage via LLM...")
+            await self._estimate_coverage_on_failure("compilation")
             return False
         
         return True
@@ -424,10 +425,50 @@ class FeedbackLoopExecutor:
             if self.agent_core._stop_requested or self.agent_core._terminated:
                 logger.info("[FeedbackLoopExecutor] ⏹️ User stopped - Test phase")
                 return False
-            logger.warning("[FeedbackLoopExecutor] ⚠️ Tests failed, preparing to retry...")
+            logger.warning("[FeedbackLoopExecutor] ⚠️ Tests failed, estimating coverage via LLM...")
+            await self._estimate_coverage_on_failure("test_failure")
             return False
         
         return True
+    
+    async def _estimate_coverage_on_failure(self, failure_reason: str) -> None:
+        """Estimate coverage when compilation or tests fail.
+        
+        This provides useful feedback even when the normal coverage
+        analysis cannot be performed.
+        
+        Args:
+            failure_reason: Reason for failure ('compilation' or 'test_failure')
+        """
+        logger.info(f"[FeedbackLoopExecutor] 📊 Estimating coverage after {failure_reason}...")
+        self.agent_core._update_state(
+            AgentState.ANALYZING,
+            f"📊 Estimating coverage after {failure_reason}..."
+        )
+        
+        try:
+            coverage_result = await self.step_executor._fallback_to_llm_coverage_estimation()
+            
+            if coverage_result.success:
+                estimated_coverage = coverage_result.data.get("line_coverage", 0.0)
+                source = coverage_result.data.get("source", "llm_estimated")
+                confidence = coverage_result.data.get("confidence", 0.0)
+                
+                self.agent_core.working_memory.update_coverage(estimated_coverage)
+                
+                logger.info(
+                    f"[FeedbackLoopExecutor] 📈 Estimated coverage: {estimated_coverage:.1%} "
+                    f"(source: {source}, confidence: {confidence:.1%})"
+                )
+                
+                self.agent_core._update_state(
+                    AgentState.ANALYZING,
+                    f"📊 Estimated coverage: {estimated_coverage:.1%} (via {source})"
+                )
+            else:
+                logger.warning(f"[FeedbackLoopExecutor] Coverage estimation failed: {coverage_result.message}")
+        except Exception as e:
+            logger.warning(f"[FeedbackLoopExecutor] Failed to estimate coverage: {e}")
     
     async def _iteration_coverage(self) -> Optional[Any]:
         """Execute coverage analysis step.
