@@ -415,6 +415,8 @@ class CoverageSettings:
         max_step_attempts: Maximum attempts for general steps (e.g., generating tests)
         max_compilation_attempts: Maximum compilation attempts before giving up
         max_test_attempts: Maximum test execution attempts before giving up
+        incremental_mode: Enable incremental test generation by default
+        skip_test_analysis: Skip running existing tests by default
     """
     target_coverage: float = 0.8
     min_coverage: float = 0.5
@@ -422,6 +424,8 @@ class CoverageSettings:
     max_step_attempts: int = 2
     max_compilation_attempts: int = 2
     max_test_attempts: int = 2
+    incremental_mode: bool = False
+    skip_test_analysis: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

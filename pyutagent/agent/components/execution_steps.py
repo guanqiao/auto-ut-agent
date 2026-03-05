@@ -1355,6 +1355,9 @@ class StepExecutor:
     async def analyze_coverage(self) -> StepResult:
         """Analyze test coverage with enhanced error handling and diagnostics.
         
+        First attempts to use JaCoCo for precise coverage.
+        Falls back to LLM estimation if JaCoCo is not available.
+        
         Returns:
             StepResult with coverage analysis results
         """
@@ -1376,7 +1379,8 @@ class StepExecutor:
                     "line_coverage": report.line_coverage,
                     "branch_coverage": report.branch_coverage,
                     "method_coverage": report.method_coverage,
-                    "report": report
+                    "report": report,
+                    "source": "jacoco"
                 }
                 
                 if report.line_coverage < 0.3:
@@ -1390,19 +1394,130 @@ class StepExecutor:
                     data=coverage_data
                 )
             else:
-                logger.warning("[StepExecutor] Failed to parse coverage report - report not found or invalid")
-                return StepResult(
-                    success=False,
-                    state=AgentState.FAILED,
-                    message="Failed to parse coverage report - please ensure JaCoCo is configured and tests have run"
-                )
+                logger.warning("[StepExecutor] JaCoCo report not found, falling back to LLM estimation")
+                return await self._fallback_to_llm_coverage_estimation()
+                
         except Exception as e:
-            logger.exception(f"[StepExecutor] Coverage analysis exception: {e}")
+            logger.warning(f"[StepExecutor] JaCoCo analysis failed: {e}, falling back to LLM estimation")
+            return await self._fallback_to_llm_coverage_estimation()
+    
+    async def _fallback_to_llm_coverage_estimation(self) -> StepResult:
+        """Fall back to LLM-based coverage estimation when JaCoCo is not available.
+        
+        Returns:
+            StepResult with estimated coverage
+        """
+        logger.info("[StepExecutor] Using LLM for coverage estimation")
+        
+        source_code = None
+        test_code = None
+        class_info = None
+        
+        if self.agent_core.target_class_info:
+            source_code = self.agent_core.target_class_info.get("source", "")
+            class_info = self.agent_core.target_class_info
+        
+        if self.agent_core.current_test_file:
+            try:
+                test_file_path = Path(self.agent_core.project_path) / self.agent_core.current_test_file
+                if test_file_path.exists():
+                    test_code = test_file_path.read_text(encoding='utf-8')
+            except Exception as e:
+                logger.warning(f"[StepExecutor] Failed to read test file: {e}")
+        
+        if not source_code or not test_code:
+            logger.warning("[StepExecutor] Insufficient data for LLM estimation, using quick heuristic")
+            return self._quick_estimate_fallback(source_code, test_code, class_info)
+        
+        try:
+            from ..llm_coverage_evaluator import LLMCoverageEvaluator, CoverageSource
+            
+            llm_client = getattr(self.agent_core, 'llm_client', None)
+            if not llm_client:
+                logger.warning("[StepExecutor] No LLM client available, using quick heuristic")
+                return self._quick_estimate_fallback(source_code, test_code, class_info)
+            
+            evaluator = LLMCoverageEvaluator(llm_client)
+            llm_report = await evaluator.evaluate_coverage(
+                source_code,
+                test_code,
+                class_info
+            )
+            
+            logger.info(
+                f"[StepExecutor] LLM coverage estimation complete - "
+                f"Line: {llm_report.line_coverage:.1%}, "
+                f"Branch: {llm_report.branch_coverage:.1%}, "
+                f"Method: {llm_report.method_coverage:.1%}, "
+                f"Confidence: {llm_report.confidence:.1%}"
+            )
+            
+            return StepResult(
+                success=True,
+                state=AgentState.ANALYZING,
+                message=f"Coverage (LLM estimated): {llm_report.line_coverage:.1%}",
+                data={
+                    "line_coverage": llm_report.line_coverage,
+                    "branch_coverage": llm_report.branch_coverage,
+                    "method_coverage": llm_report.method_coverage,
+                    "report": llm_report,
+                    "source": CoverageSource.LLM_ESTIMATED.value,
+                    "confidence": llm_report.confidence,
+                    "uncovered_methods": llm_report.uncovered_methods,
+                    "recommendations": llm_report.recommendations
+                }
+            )
+        except Exception as e:
+            logger.exception(f"[StepExecutor] LLM estimation failed: {e}")
+            return self._quick_estimate_fallback(source_code, test_code, class_info)
+    
+    def _quick_estimate_fallback(
+        self,
+        source_code: Optional[str],
+        test_code: Optional[str],
+        class_info: Optional[Dict[str, Any]]
+    ) -> StepResult:
+        """Quick heuristic-based fallback when LLM is not available.
+        
+        Args:
+            source_code: Source code being tested
+            test_code: Test code
+            class_info: Class information from parsing
+            
+        Returns:
+            StepResult with heuristic coverage estimate
+        """
+        logger.info("[StepExecutor] Using quick heuristic for coverage estimation")
+        
+        if not source_code or not test_code:
             return StepResult(
                 success=False,
                 state=AgentState.FAILED,
-                message=f"Error analyzing coverage: {str(e)}"
+                message="Coverage analysis failed: No JaCoCo report and insufficient data for estimation"
             )
+        
+        from ..llm_coverage_evaluator import LLMCoverageEvaluator, CoverageSource
+        
+        evaluator = LLMCoverageEvaluator(None)
+        llm_report = evaluator.quick_estimate(
+            source_code,
+            test_code,
+            class_info
+        )
+        
+        return StepResult(
+            success=True,
+            state=AgentState.ANALYZING,
+            message=f"Coverage (estimated): {llm_report.line_coverage:.1%}",
+            data={
+                "line_coverage": llm_report.line_coverage,
+                "branch_coverage": llm_report.branch_coverage,
+                "method_coverage": llm_report.method_coverage,
+                "report": llm_report,
+                "source": CoverageSource.LLM_ESTIMATED.value,
+                "confidence": llm_report.confidence
+            }
+        )
     
     async def generate_additional_tests(self, coverage_data: Dict[str, Any]) -> StepResult:
         """Generate additional tests for uncovered code.
@@ -1843,29 +1958,44 @@ class StepExecutor:
             missing_packages = dependency_info.get("missing_packages", [])
             is_test_dependency = dependency_info.get("is_test_dependency", False)
         
+        def _adapt_progress_callback(state: str, message: str):
+            if self.agent_core.progress_callback:
+                self.agent_core.progress_callback({
+                    "state": state,
+                    "message": message
+                })
+        
+        compiler_output = context.get("compiler_output", str(error))
+        
         handler = DependencyRecoveryHandler(
             project_path=self.agent_core.project_path,
             maven_runner=self.components.get("maven_runner"),
-            progress_callback=self.agent_core.progress_callback
+            llm_client=self.agent_core.llm_client,
+            prompt_builder=self.components.get("prompt_builder"),
+            progress_callback=_adapt_progress_callback
         )
         
-        result = await handler.install_missing_dependencies(
-            missing_packages=missing_packages,
-            is_test_dependency=is_test_dependency
-        )
+        result = await handler.install_missing_dependencies_enhanced(compiler_output)
         
         if result.success:
-            logger.info(f"[StepExecutor] ✅ Dependencies installed successfully: {missing_packages}")
+            installed_deps = result.details.get("installed_dependencies", []) if result.details else []
+            dep_list = [f"{d.get('group_id')}:{d.get('artifact_id')}" for d in installed_deps]
+            logger.info(f"[StepExecutor] ✅ Dependencies installed successfully: {dep_list}")
             return {
                 "success": True,
                 "action": "retry",
-                "message": f"Dependencies installed: {missing_packages}",
+                "message": f"Dependencies installed: {dep_list}",
                 "should_continue": True,
                 "strategy": "install_dependencies",
-                "installed_packages": missing_packages
+                "installed_packages": installed_deps,
+                "analysis": result.details.get("analysis", "") if result.details else "",
+                "confidence": result.details.get("confidence", 0.0) if result.details else 0.0
             }
         else:
-            suggestions = handler.suggest_pom_additions(missing_packages)
+            if missing_packages:
+                suggestions = handler.suggest_pom_additions(missing_packages)
+            else:
+                suggestions = []
             logger.warning(f"[StepExecutor] ❌ Failed to install dependencies: {result.error_message}")
             
             if suggestions:
@@ -1875,7 +2005,7 @@ class StepExecutor:
             return {
                 "success": False,
                 "action": "escalate",
-                "message": f"Failed to install dependencies. Please add the following to pom.xml:\n{suggestion_text}" if suggestions else "Failed to install dependencies",
+                "message": f"Failed to install dependencies. Please add the following to pom.xml:\n{suggestion_text}" if suggestions else f"Failed to install dependencies: {result.error_message}",
                 "should_continue": False,
                 "strategy": "install_dependencies",
                 "suggested_pom_additions": suggestions,

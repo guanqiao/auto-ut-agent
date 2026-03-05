@@ -186,7 +186,11 @@ def generate_all_command(
             
             if file_result.success:
                 status = "[green]✓ Done[/green]"
-                coverage = f"{file_result.coverage:.1f}%"
+                coverage_source = getattr(file_result, 'coverage_source', 'jacoco')
+                if coverage_source == 'llm_estimated':
+                    coverage = f"{file_result.coverage:.1f}%*"
+                else:
+                    coverage = f"{file_result.coverage:.1f}%"
                 error = ""
             else:
                 status = "[red]✗ Failed[/red]"
@@ -203,6 +207,13 @@ def generate_all_command(
             )
         
         console.print(result_table)
+        
+        llm_estimated_count = sum(
+            1 for r in result.results 
+            if r.success and getattr(r, 'coverage_source', 'jacoco') == 'llm_estimated'
+        )
+        if llm_estimated_count > 0:
+            console.print("[dim]* Coverage marked with * is LLM estimated (JaCoCo unavailable)[/dim]")
         
         summary_style = "green" if result.success_count == result.total_files else ("yellow" if result.success_count > 0 else "red")
         

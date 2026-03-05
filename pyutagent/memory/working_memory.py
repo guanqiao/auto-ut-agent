@@ -27,6 +27,8 @@ class WorkingMemory:
     
     # Coverage tracking
     current_coverage: float = 0.0
+    coverage_source: str = "jacoco"
+    coverage_confidence: float = 1.0
     coverage_history: List[float] = field(default_factory=list)
     
     # Control state
@@ -41,11 +43,21 @@ class WorkingMemory:
     # LLM context
     llm_context: Dict[str, Any] = field(default_factory=dict)
     
-    def update_coverage(self, coverage: float):
-        """Update current coverage and add to history."""
+    def update_coverage(self, coverage: float, source: str = "jacoco", confidence: float = 1.0):
+        """Update current coverage and add to history.
+        
+        Args:
+            coverage: Coverage percentage
+            source: Coverage source ("jacoco" or "llm_estimated")
+            confidence: Confidence level for LLM estimation
+        """
         self.current_coverage = coverage
+        self.coverage_source = source
+        self.coverage_confidence = confidence
         self.coverage_history.append({
             "coverage": coverage,
+            "source": source,
+            "confidence": confidence,
             "timestamp": datetime.now().isoformat()
         })
     

@@ -651,24 +651,74 @@ class MavenRunner:
 
 
 class CoverageAnalyzer:
-    """Analyzes JaCoCo coverage reports.
+    """Analyzes JaCoCo coverage reports with LLM fallback support.
     
     Supports multiple report locations and formats for robust parsing.
     """
     
-    def __init__(self, project_path: str):
+    def __init__(self, project_path: str, llm_client=None):
         """Initialize coverage analyzer.
         
         Args:
             project_path: Path to project root
+            llm_client: Optional LLM client for fallback estimation
         """
         self.project_path = Path(project_path)
+        self.llm_client = llm_client
+        self._source_code = None
+        self._test_code = None
+        self._class_info = None
         self.possible_report_paths = [
             self.project_path / "target" / "site" / "jacoco" / "jacoco.xml",
             self.project_path / "target" / "jacoco" / "jacoco.xml",
             self.project_path / "build" / "reports" / "jacoco" / "test" / "jacocoTestReport.xml",
             self.project_path / "target" / "site" / "jacoco" / "index.html",
         ]
+    
+    def set_estimation_context(
+        self,
+        source_code: Optional[str] = None,
+        test_code: Optional[str] = None,
+        class_info: Optional[Dict[str, Any]] = None
+    ):
+        """Set context for LLM-based coverage estimation.
+        
+        Args:
+            source_code: Source code being tested
+            test_code: Test code
+            class_info: Class information from parsing
+        """
+        if source_code:
+            self._source_code = source_code
+        if test_code:
+            self._test_code = test_code
+        if class_info:
+            self._class_info = class_info
+    
+    def parse_report_with_fallback(self) -> tuple:
+        """Parse JaCoCo report with LLM fallback.
+        
+        Returns:
+            Tuple of (CoverageReport, source, confidence)
+        """
+        report = self.parse_report()
+        if report:
+            return report, "jacoco", 1.0
+        
+        if self.llm_client and self._source_code and self._test_code:
+            try:
+                from ..agent.llm_coverage_evaluator import LLMCoverageEvaluator
+                evaluator = LLMCoverageEvaluator(self.llm_client)
+                llm_report = evaluator.quick_estimate(
+                    self._source_code,
+                    self._test_code,
+                    self._class_info
+                )
+                return llm_report, "llm_estimated", llm_report.confidence
+            except Exception as e:
+                logger.warning(f"[CoverageAnalyzer] LLM estimation failed: {e}")
+        
+        return None, "unknown", 0.0
     
     def _find_report_path(self) -> Optional[Path]:
         """Find JaCoCo XML report from possible locations.

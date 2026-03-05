@@ -97,7 +97,9 @@ class TestPromptOptimizer:
     @pytest.fixture
     def optimizer(self, temp_db):
         """Create a PromptOptimizer instance with temp database."""
-        return PromptOptimizer(db_path=temp_db)
+        optimizer = PromptOptimizer(db_path=temp_db)
+        yield optimizer
+        optimizer.close()
     
     def test_initialization(self, temp_db):
         """Test PromptOptimizer initialization."""
@@ -105,6 +107,7 @@ class TestPromptOptimizer:
         
         assert optimizer.db_path == temp_db
         assert os.path.exists(temp_db)
+        optimizer.close()
     
     def test_default_templates_loaded(self, optimizer):
         """Test that default templates are loaded."""
@@ -190,7 +193,9 @@ class TestABTesting:
     @pytest.fixture
     def optimizer(self, temp_db):
         """Create a PromptOptimizer instance."""
-        return PromptOptimizer(db_path=temp_db)
+        optimizer = PromptOptimizer(db_path=temp_db)
+        yield optimizer
+        optimizer.close()
     
     @pytest.fixture
     def sample_templates(self):
@@ -316,7 +321,9 @@ class TestTemplateManagement:
     @pytest.fixture
     def optimizer(self, temp_db):
         """Create a PromptOptimizer instance."""
-        return PromptOptimizer(db_path=temp_db)
+        optimizer = PromptOptimizer(db_path=temp_db)
+        yield optimizer
+        optimizer.close()
     
     def test_get_best_template(self, optimizer):
         """Test getting best template."""
@@ -390,7 +397,8 @@ class TestEdgeCases:
         
         optimized = optimizer.optimize_for_model("", "gpt-4")
         
-        # Should handle empty prompt gracefully
+        optimizer.close()
+        
         assert isinstance(optimized, str)
     
     def test_invalid_model_name(self, temp_db):
@@ -399,7 +407,8 @@ class TestEdgeCases:
         
         optimized = optimizer.optimize_for_model("Test prompt", "invalid-model-name")
         
-        # Should default to unknown model handling
+        optimizer.close()
+        
         assert isinstance(optimized, str)
         assert "Test prompt" in optimized
     
@@ -408,6 +417,8 @@ class TestEdgeCases:
         optimizer = PromptOptimizer(db_path=temp_db)
         
         variant_id, prompt = optimizer.get_prompt_for_test("nonexistent_test_id")
+        
+        optimizer.close()
         
         assert variant_id is None
         assert prompt is None
@@ -438,7 +449,6 @@ class TestEdgeCases:
             ]
         )
         
-        # Count selections
         counts = {"a": 0, "b": 0}
         for _ in range(100):
             variant_id, _ = optimizer.get_prompt_for_test(test_id)
@@ -447,9 +457,10 @@ class TestEdgeCases:
             else:
                 counts["b"] += 1
         
-        # Should roughly follow 70/30 distribution
+        optimizer.close()
+        
         assert counts["a"] > counts["b"]
-        assert counts["a"] > 50  # Should be majority
+        assert counts["a"] > 50
 
 
 class TestFewShotExample:

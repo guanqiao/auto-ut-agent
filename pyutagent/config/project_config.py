@@ -338,6 +338,7 @@ class ProjectConfigManager:
         """
         patterns = [
             rf"^\*\*{field_name}\*\*:\s*(.+)$",
+            rf"^- \*\*{field_name}\*\*:\s*(.+)$",
             rf"^- {field_name}:\s*(.+)$",
             rf"^{field_name}:\s*(.+)$",
         ]
@@ -423,19 +424,25 @@ class ProjectConfigManager:
             if line.startswith("#"):
                 continue
             
-            if "mvn compile" in line or "gradle build" in line:
-                commands.build = line
+            if "compile" in line or "install" in line or "build" in line.lower():
+                if "test" not in line.lower() or "skipTests" in line:
+                    commands.build = line
+                    continue
             
-            if "mvn test" in line and "-Dtest=" in line:
-                commands.test_single = line
-            elif "mvn test" in line or "gradle test" in line:
-                commands.test = line
+            if "mvn test" in line or "gradle test" in line:
+                if "-Dtest=" in line:
+                    commands.test_single = line
+                else:
+                    commands.test = line
+                continue
             
             if "jacoco" in line or "coverage" in line.lower():
                 commands.coverage = line
+                continue
             
             if "mvn clean" in line or "gradle clean" in line:
                 commands.clean = line
+                continue
         
         return commands
     

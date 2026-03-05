@@ -295,10 +295,16 @@ class PromptOptimizer:
             db_path = db_dir / "prompt_optimizer.db"
         
         self.db_path = str(db_path)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_database()
         self._load_default_templates()
         
         logger.info(f"[PromptOptimizer] Initialized with database: {self.db_path}")
+    
+    def close(self):
+        """Close database connections and cleanup resources."""
+        import gc
+        gc.collect()
     
     def _init_database(self):
         """Initialize database schema."""
@@ -553,6 +559,7 @@ Please provide the fixed test code.""",
         ab_variants = []
         for variant_name, template, traffic in variants:
             variant_id = f"{test_id}_{variant_name}"
+            self._save_template(template)
             ab_variants.append(ABTestVariant(
                 variant_id=variant_id,
                 name=variant_name,

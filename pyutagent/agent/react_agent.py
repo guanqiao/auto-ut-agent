@@ -349,9 +349,9 @@ class ReActAgent(BaseAgent):
         """Create result when generation is terminated."""
         return self._core._create_terminated_result(context)
     
-    def _create_success_result(self, coverage: float) -> AgentResult:
+    def _create_success_result(self, coverage: float, source: str = "jacoco", confidence: float = 1.0) -> AgentResult:
         """Create success result when target coverage is reached."""
-        return self._core._create_success_result(coverage)
+        return self._core._create_success_result(coverage, source, confidence)
     
     def _extract_java_code(self, response: str) -> str:
         """Extract Java code from LLM response."""

@@ -153,11 +153,13 @@ class AgentCore:
             state=AgentState.FAILED
         )
     
-    def _create_success_result(self, coverage: float) -> AgentResult:
+    def _create_success_result(self, coverage: float, source: str = "jacoco", confidence: float = 1.0) -> AgentResult:
         """Create success result when target coverage is reached.
         
         Args:
             coverage: Final coverage percentage
+            source: Coverage source ("jacoco" or "llm_estimated")
+            confidence: Confidence level for LLM estimation
             
         Returns:
             AgentResult with success status
@@ -172,6 +174,8 @@ class AgentCore:
             message=f"Successfully generated tests with {coverage:.1%} coverage",
             test_file=self.current_test_file,
             coverage=coverage,
+            coverage_source=source,
+            coverage_confidence=confidence,
             iterations=self.current_iteration
         )
     
