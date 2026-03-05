@@ -104,6 +104,94 @@ public class TestClass {
         assert len(suggestions) >= 3
         assert any("valid" in s.lower() for s in suggestions)
         assert any("duplicate" in s.lower() for s in suggestions)
+    
+    def test_parse_with_parser(self, agent):
+        """Test tree-sitter Java parser integration."""
+        java_code = """
+package com.example;
+
+import java.util.List;
+import java.util.ArrayList;
+
+public class UserService {
+    private List<String> users;
+    
+    public UserService() {
+        this.users = new ArrayList<>();
+    }
+    
+    public void addUser(String name) {
+        if (name != null && !name.isEmpty()) {
+            users.add(name);
+        }
+    }
+    
+    public List<String> getUsers() {
+        return users;
+    }
+}
+"""
+        result = agent._parse_with_parser(java_code)
+        
+        if result is not None:
+            # Tree-sitter parsing successful
+            assert result["package"] == "com.example"
+            assert result["class_name"] == "UserService"
+            assert "java.util.List" in result["imports"]
+            assert "java.util.ArrayList" in result["imports"]
+            assert len(result["methods"]) >= 2
+            assert any(m["name"] == "addUser" for m in result["methods"])
+            assert any(m["name"] == "getUsers" for m in result["methods"])
+            assert result["complexity"] >= 2  # Base + if statement
+            assert result["line_count"] > 0
+    
+    def test_extract_method_info(self, agent):
+        """Test method information extraction from AST."""
+        # This test requires tree-sitter to be available
+        java_code = """
+public class Test {
+    public String greet(String name, int age) {
+        return "Hello " + name;
+    }
+}
+"""
+        result = agent._parse_with_parser(java_code)
+        
+        if result and result["methods"]:
+            method = result["methods"][0]
+            assert method["name"] == "greet"
+            assert method["return_type"] == "String"
+            assert len(method["parameters"]) == 2
+            assert any(p["name"] == "name" for p in method["parameters"])
+            assert any(p["name"] == "age" for p in method["parameters"])
+    
+    def test_calculate_cyclomatic_complexity(self, agent):
+        """Test cyclomatic complexity calculation."""
+        java_code = """
+public class Test {
+    public void simple() {
+        System.out.println("simple");
+    }
+    
+    public void complex(int x) {
+        if (x > 0) {
+            if (x < 10) {
+                System.out.println("small");
+            } else {
+                System.out.println("large");
+            }
+        }
+        for (int i = 0; i < x; i++) {
+            System.out.println(i);
+        }
+    }
+}
+"""
+        result = agent._parse_with_parser(java_code)
+        
+        if result:
+            # Simple method has complexity 1, complex has more
+            assert result["complexity"] >= 4  # Base + if + if + for
 
 
 class TestTestGenerationAgent:

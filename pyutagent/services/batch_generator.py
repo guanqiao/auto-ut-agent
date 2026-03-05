@@ -54,6 +54,10 @@ class FileResult:
         test_file: Path to generated test file
         error: Error message if failed
         duration: Time taken in seconds
+        incremental_mode: Whether incremental mode was used
+        preserved_tests: Number of tests preserved in incremental mode
+        new_tests: Number of new tests added
+        fixed_tests: Number of tests fixed
     """
     file_path: str
     success: bool
@@ -62,6 +66,10 @@ class FileResult:
     test_file: Optional[str] = None
     error: Optional[str] = None
     duration: float = 0.0
+    incremental_mode: bool = False
+    preserved_tests: int = 0
+    new_tests: int = 0
+    fixed_tests: int = 0
 
 
 @dataclass
@@ -111,6 +119,10 @@ class BatchResult:
         results: List of individual file results
         total_duration: Total time taken in seconds
         compilation_result: Optional compilation result if defer_compilation is True
+        incremental_mode: Whether incremental mode was enabled for batch
+        total_preserved_tests: Total tests preserved across all files
+        total_new_tests: Total new tests added across all files
+        total_fixed_tests: Total tests fixed across all files
     """
     total_files: int = 0
     success_count: int = 0
@@ -119,6 +131,10 @@ class BatchResult:
     results: List[FileResult] = field(default_factory=list)
     total_duration: float = 0.0
     compilation_result: Optional[BatchCompilationResult] = None
+    incremental_mode: bool = False
+    total_preserved_tests: int = 0
+    total_new_tests: int = 0
+    total_fixed_tests: int = 0
     
     @property
     def success_rate(self) -> float:
@@ -364,6 +380,11 @@ class BatchGenerator:
             f"Duration: {total_duration:.1f}s"
         )
         
+        # Calculate incremental mode statistics
+        total_preserved = sum(r.preserved_tests for r in self._results if r.success)
+        total_new = sum(r.new_tests for r in self._results if r.success)
+        total_fixed = sum(r.fixed_tests for r in self._results if r.success)
+        
         return BatchResult(
             total_files=len(files),
             success_count=success_count,
@@ -371,7 +392,11 @@ class BatchGenerator:
             skipped_count=0,
             results=self._results,
             total_duration=total_duration,
-            compilation_result=compilation_result
+            compilation_result=compilation_result,
+            incremental_mode=self.config.incremental_mode,
+            total_preserved_tests=total_preserved,
+            total_new_tests=total_new,
+            total_fixed_tests=total_fixed
         )
     
     def generate_all_sync(self, files: List[str]) -> BatchResult:
@@ -609,13 +634,27 @@ class BatchGenerator:
                     f"[BatchGenerator] Success for {file_name} - "
                     f"Coverage: {result.coverage:.1%}, Duration: {duration:.1f}s"
                 )
+                
+                # Extract incremental mode statistics from result metadata
+                preserved_tests = 0
+                new_tests = 0
+                fixed_tests = 0
+                if hasattr(result, 'metadata') and result.metadata:
+                    preserved_tests = result.metadata.get("preserved_tests", 0)
+                    new_tests = result.metadata.get("new_tests", 0)
+                    fixed_tests = result.metadata.get("fixed_tests", 0)
+                
                 return FileResult(
                     file_path=file_path,
                     success=True,
                     coverage=result.coverage,
                     iterations=result.iterations,
                     test_file=result.test_file,
-                    duration=duration
+                    duration=duration,
+                    incremental_mode=self.config.incremental_mode,
+                    preserved_tests=preserved_tests,
+                    new_tests=new_tests,
+                    fixed_tests=fixed_tests
                 )
             else:
                 logger.warning(

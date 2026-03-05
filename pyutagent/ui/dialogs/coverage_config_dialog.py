@@ -4,7 +4,7 @@ import logging
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QFormLayout, QSpinBox, QDoubleSpinBox,
-    QMessageBox, QWidget, QTextEdit
+    QMessageBox, QWidget, QTextEdit, QCheckBox
 )
 from PyQt6.QtCore import Qt
 
@@ -86,10 +86,27 @@ class CoverageConfigDialog(QDialog):
         attempts_group.setLayout(attempts_layout)
         layout.addWidget(attempts_group)
 
+        # Incremental mode settings group
+        incremental_group = QGroupBox("增量模式设置")
+        incremental_layout = QVBoxLayout()
+
+        self.incremental_mode_check = QCheckBox("启用增量模式")
+        self.incremental_mode_check.setToolTip("保留现有通过的测试，仅生成新的或修复失败的测试")
+        self.incremental_mode_check.stateChanged.connect(self.on_incremental_changed)
+        incremental_layout.addWidget(self.incremental_mode_check)
+
+        self.skip_test_analysis_check = QCheckBox("跳过测试分析")
+        self.skip_test_analysis_check.setToolTip("跳过运行现有测试，仅分析文件内容（更快但可能不准确）")
+        self.skip_test_analysis_check.setEnabled(False)
+        incremental_layout.addWidget(self.skip_test_analysis_check)
+
+        incremental_group.setLayout(incremental_layout)
+        layout.addWidget(incremental_group)
+
         # Description
         desc = QTextEdit()
         desc.setReadOnly(True)
-        desc.setMaximumHeight(150)
+        desc.setMaximumHeight(180)
         desc.setText(
             "📊 覆盖率设置说明:\n\n"
             "• 目标覆盖率：测试生成的目标代码覆盖率，达到此值后停止优化\n"
@@ -99,6 +116,9 @@ class CoverageConfigDialog(QDialog):
             "• 最大步骤尝试次数：生成测试等通用步骤的最大尝试次数\n"
             "• 最大编译尝试次数：编译失败时的最大修复尝试次数，超过后需要人工干预\n"
             "• 最大测试尝试次数：测试失败时的最大修复尝试次数，超过后需要人工干预\n\n"
+            "🔄 增量模式说明:\n\n"
+            "• 启用增量模式：保留现有通过的测试，仅生成新的或修复失败的测试\n"
+            "• 跳过测试分析：不运行现有测试，仅分析文件内容（更快但可能不准确）\n\n"
             "💡 建议：较小的尝试次数可以更快失败，避免长时间等待；较大的尝试次数可以提高成功率。"
         )
         desc.setStyleSheet("color: #666; font-size: 11px; padding: 5px;")
@@ -134,12 +154,26 @@ class CoverageConfigDialog(QDialog):
         self.max_step_attempts_spin.setValue(coverage.max_step_attempts)
         self.max_compilation_attempts_spin.setValue(coverage.max_compilation_attempts)
         self.max_test_attempts_spin.setValue(coverage.max_test_attempts)
+        
+        # Load incremental mode settings
+        self.incremental_mode_check.setChecked(coverage.incremental_mode)
+        self.skip_test_analysis_check.setChecked(coverage.skip_test_analysis)
+        self.skip_test_analysis_check.setEnabled(coverage.incremental_mode)
 
         logger.debug(f"Loaded coverage settings: target={coverage.target_coverage}, "
                     f"min={coverage.min_coverage}, max_iter={coverage.max_iterations}, "
                     f"max_step={coverage.max_step_attempts}, "
                     f"max_comp={coverage.max_compilation_attempts}, "
-                    f"max_test={coverage.max_test_attempts}")
+                    f"max_test={coverage.max_test_attempts}, "
+                    f"incremental={coverage.incremental_mode}, "
+                    f"skip_analysis={coverage.skip_test_analysis}")
+
+    def on_incremental_changed(self, state):
+        """Handle incremental mode checkbox change."""
+        enabled = state == Qt.CheckState.Checked.value
+        self.skip_test_analysis_check.setEnabled(enabled)
+        if not enabled:
+            self.skip_test_analysis_check.setChecked(False)
 
     def save_settings(self) -> bool:
         """Save settings from UI controls."""
@@ -151,6 +185,10 @@ class CoverageConfigDialog(QDialog):
             coverage.max_step_attempts = self.max_step_attempts_spin.value()
             coverage.max_compilation_attempts = self.max_compilation_attempts_spin.value()
             coverage.max_test_attempts = self.max_test_attempts_spin.value()
+            
+            # Save incremental mode settings
+            coverage.incremental_mode = self.incremental_mode_check.isChecked()
+            coverage.skip_test_analysis = self.skip_test_analysis_check.isChecked()
 
             save_app_config(self.settings)
             
@@ -158,7 +196,9 @@ class CoverageConfigDialog(QDialog):
                        f"min={coverage.min_coverage}, max_iter={coverage.max_iterations}, "
                        f"max_step={coverage.max_step_attempts}, "
                        f"max_comp={coverage.max_compilation_attempts}, "
-                       f"max_test={coverage.max_test_attempts}")
+                       f"max_test={coverage.max_test_attempts}, "
+                       f"incremental={coverage.incremental_mode}, "
+                       f"skip_analysis={coverage.skip_test_analysis}")
             return True
         except Exception as e:
             logger.exception("Failed to save coverage settings")
@@ -185,6 +225,9 @@ class CoverageConfigDialog(QDialog):
             self.max_iterations_spin.setValue(2)
             self.max_compilation_attempts_spin.setValue(2)
             self.max_test_attempts_spin.setValue(2)
+            self.incremental_mode_check.setChecked(False)
+            self.skip_test_analysis_check.setChecked(False)
+            self.skip_test_analysis_check.setEnabled(False)
             logger.info("Coverage settings reset to defaults")
 
     def accept(self):

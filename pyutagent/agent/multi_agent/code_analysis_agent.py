@@ -197,20 +197,267 @@ class CodeAnalysisAgent(SpecializedAgent):
         return result
     
     def _parse_with_parser(self, source_code: str) -> Optional[Dict[str, Any]]:
-        """Parse code using Java parser.
+        """Parse code using tree-sitter Java parser.
         
         Args:
             source_code: Java source code
             
         Returns:
-            Parsed structure or None
+            Parsed structure or None if parsing fails
         """
         try:
-            # This would use the actual Java parser
-            # For now, return None to use basic parsing
+            from tree_sitter import Language, Parser
+            from tree_sitter_java import language
+            
+            # Initialize parser
+            java_language = Language(language())
+            parser = Parser(java_language)
+            
+            # Parse source code
+            tree = parser.parse(source_code.encode('utf-8'))
+            root_node = tree.root_node
+            
+            result = {
+                "class_name": None,
+                "package": None,
+                "imports": [],
+                "methods": [],
+                "fields": [],
+                "annotations": [],
+                "complexity": 0,
+                "line_count": len(source_code.split('\n'))
+            }
+            
+            # Walk the AST
+            self._walk_java_ast(root_node, source_code, result)
+            
+            # Calculate cyclomatic complexity
+            result["complexity"] = self._calculate_cyclomatic_complexity(root_node, source_code)
+            
+            return result
+            
+        except ImportError:
+            logger.debug("[CodeAnalysisAgent] tree-sitter not available, falling back to regex parsing")
             return None
-        except Exception:
+        except Exception as e:
+            logger.warning(f"[CodeAnalysisAgent] Tree-sitter parsing failed: {e}")
             return None
+    
+    def _walk_java_ast(self, node, source_code: str, result: Dict[str, Any]) -> None:
+        """Walk Java AST and extract information.
+        
+        Args:
+            node: Current AST node
+            source_code: Original source code
+            result: Result dictionary to populate
+        """
+        if node is None:
+            return
+        
+        node_type = node.type
+        node_text = source_code[node.start_byte:node.end_byte]
+        
+        # Extract package declaration
+        if node_type == "package_declaration":
+            # Find scoped_identifier child
+            for child in node.children:
+                if child.type == "scoped_identifier":
+                    result["package"] = source_code[child.start_byte:child.end_byte]
+                    break
+        
+        # Extract imports
+        elif node_type == "import_declaration":
+            # Find scoped_identifier child
+            for child in node.children:
+                if child.type == "scoped_identifier":
+                    import_text = source_code[child.start_byte:child.end_byte]
+                    result["imports"].append(import_text)
+                    break
+        
+        # Extract class/interface/enum declaration
+        elif node_type in ["class_declaration", "interface_declaration", "enum_declaration"]:
+            # Find identifier child for class name
+            for child in node.children:
+                if child.type == "identifier":
+                    result["class_name"] = source_code[child.start_byte:child.end_byte]
+                    break
+            
+            # Extract class-level annotations
+            for child in node.children:
+                if child.type == "modifiers":
+                    for modifier_child in child.children:
+                        if modifier_child.type == "annotation":
+                            annotation_text = source_code[modifier_child.start_byte:modifier_child.end_byte]
+                            result["annotations"].append(annotation_text)
+        
+        # Extract method declarations
+        elif node_type == "method_declaration":
+            method_info = self._extract_method_info(node, source_code)
+            if method_info:
+                result["methods"].append(method_info)
+        
+        # Extract field declarations
+        elif node_type == "field_declaration":
+            field_info = self._extract_field_info(node, source_code)
+            if field_info:
+                result["fields"].append(field_info)
+        
+        # Recursively walk children
+        for child in node.children:
+            self._walk_java_ast(child, source_code, result)
+    
+    def _extract_method_info(self, node, source_code: str) -> Optional[Dict[str, Any]]:
+        """Extract method information from AST node.
+        
+        Args:
+            node: Method declaration node
+            source_code: Original source code
+            
+        Returns:
+            Method information dictionary
+        """
+        method_info = {
+            "name": None,
+            "return_type": "void",
+            "parameters": [],
+            "modifiers": [],
+            "annotations": [],
+            "signature": "",
+            "line_start": node.start_point[0] + 1,
+            "line_end": node.end_point[0] + 1
+        }
+        
+        for child in node.children:
+            child_type = child.type
+            child_text = source_code[child.start_byte:child.end_byte]
+            
+            if child_type == "identifier":
+                method_info["name"] = child_text
+            elif child_type == "type_identifier" or child_type == "void_type":
+                method_info["return_type"] = child_text
+            elif child_type == "formal_parameters":
+                # Extract parameters
+                method_info["parameters"] = self._extract_parameters(child, source_code)
+            elif child_type == "modifiers":
+                # Extract modifiers and annotations
+                for modifier in child.children:
+                    if modifier.type == "annotation":
+                        method_info["annotations"].append(source_code[modifier.start_byte:modifier.end_byte])
+                    elif modifier.type in ["public", "private", "protected", "static", "final"]:
+                        method_info["modifiers"].append(modifier.type)
+        
+        # Build signature
+        if method_info["name"]:
+            params_str = ", ".join([f"{p['type']} {p['name']}" for p in method_info["parameters"]])
+            method_info["signature"] = f"{method_info['return_type']} {method_info['name']}({params_str})"
+            return method_info
+        
+        return None
+    
+    def _extract_parameters(self, node, source_code: str) -> List[Dict[str, str]]:
+        """Extract parameters from formal_parameters node.
+        
+        Args:
+            node: Formal parameters node
+            source_code: Original source code
+            
+        Returns:
+            List of parameter dictionaries
+        """
+        parameters = []
+        
+        for child in node.children:
+            if child.type == "formal_parameter":
+                param_info = {"type": "", "name": ""}
+                
+                for param_child in child.children:
+                    param_child_text = source_code[param_child.start_byte:param_child.end_byte]
+                    
+                    if param_child.type in ["type_identifier", "scoped_type_identifier", "generic_type"]:
+                        param_info["type"] = param_child_text
+                    elif param_child.type == "identifier":
+                        param_info["name"] = param_child_text
+                
+                if param_info["name"]:
+                    parameters.append(param_info)
+        
+        return parameters
+    
+    def _extract_field_info(self, node, source_code: str) -> Optional[Dict[str, Any]]:
+        """Extract field information from AST node.
+        
+        Args:
+            node: Field declaration node
+            source_code: Original source code
+            
+        Returns:
+            Field information dictionary
+        """
+        field_info = {
+            "name": None,
+            "type": None,
+            "modifiers": [],
+            "annotations": []
+        }
+        
+        for child in node.children:
+            child_type = child.type
+            child_text = source_code[child.start_byte:child.end_byte]
+            
+            if child_type in ["type_identifier", "scoped_type_identifier", "generic_type"]:
+                field_info["type"] = child_text
+            elif child_type == "variable_declarator":
+                # Extract field name
+                for var_child in child.children:
+                    if var_child.type == "identifier":
+                        field_info["name"] = source_code[var_child.start_byte:var_child.end_byte]
+                        break
+            elif child_type == "modifiers":
+                for modifier in child.children:
+                    if modifier.type == "annotation":
+                        field_info["annotations"].append(source_code[modifier.start_byte:modifier.end_byte])
+                    elif modifier.type in ["public", "private", "protected", "static", "final"]:
+                        field_info["modifiers"].append(modifier.type)
+        
+        if field_info["name"]:
+            return field_info
+        
+        return None
+    
+    def _calculate_cyclomatic_complexity(self, node, source_code: str) -> int:
+        """Calculate cyclomatic complexity from AST.
+        
+        Args:
+            node: AST node
+            source_code: Original source code
+            
+        Returns:
+            Cyclomatic complexity value
+        """
+        complexity = 1  # Base complexity
+        
+        decision_nodes = [
+            "if_statement",
+            "while_statement",
+            "do_statement",
+            "for_statement",
+            "enhanced_for_statement",
+            "switch_statement",
+            "catch_clause",
+            "conditional_expression",
+            "||",  # Logical OR
+            "&&"   # Logical AND
+        ]
+        
+        def count_decisions(n):
+            nonlocal complexity
+            if n.type in decision_nodes:
+                complexity += 1
+            for child in n.children:
+                count_decisions(child)
+        
+        count_decisions(node)
+        return complexity
     
     def _basic_parse(self, source_code: str) -> Dict[str, Any]:
         """Basic parsing using regex patterns.

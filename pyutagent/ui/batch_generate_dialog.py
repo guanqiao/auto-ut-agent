@@ -26,8 +26,8 @@ class BatchGenerateWorker(QThread):
     """Worker thread for batch test generation."""
     
     progress_updated = pyqtSignal(str, str, float, int, float, str)
-    file_completed = pyqtSignal(str, bool, float, int, str, float)
-    all_completed = pyqtSignal(int, int, float, object)
+    file_completed = pyqtSignal(str, bool, float, int, str, float, int, int, int)  # Added preserved, new, fixed tests
+    all_completed = pyqtSignal(int, int, float, object, int, int, int)  # Added total preserved, new, fixed tests
     error = pyqtSignal(str)
     log_message = pyqtSignal(str, str)
     
@@ -113,14 +113,20 @@ class BatchGenerateWorker(QThread):
                     file_result.coverage,
                     file_result.iterations,
                     file_result.test_file or "",
-                    file_result.duration
+                    file_result.duration,
+                    file_result.preserved_tests,
+                    file_result.new_tests,
+                    file_result.fixed_tests
                 )
             
             self.all_completed.emit(
                 result.success_count,
                 result.failed_count,
                 result.total_duration,
-                result.compilation_result
+                result.compilation_result,
+                result.total_preserved_tests,
+                result.total_new_tests,
+                result.total_fixed_tests
             )
             
         except Exception as e:
@@ -529,6 +535,12 @@ class BatchGenerateDialog(QDialog):
         self.worker.start()
         self.status_label.setText("Running...")
         self.status_label.setStyleSheet("font-weight: bold; color: #2196F3;")
+        
+        # Log incremental mode status
+        if self.incremental_check.isChecked():
+            self.on_log_message("🔄 Incremental mode: ENABLED (will preserve existing passing tests)", "INFO")
+            if self.skip_analysis_check.isChecked():
+                self.on_log_message("⚡ Skip test analysis: ENABLED (will not run existing tests)", "INFO")
     
     def pause_generation(self):
         """Pause/resume generation."""
@@ -595,7 +607,7 @@ class BatchGenerateDialog(QDialog):
                 self.files_table.item(i, 2).setForeground(QColor("#2196F3"))
                 break
     
-    def on_file_completed(self, file_path, success, coverage, iterations, test_file, duration):
+    def on_file_completed(self, file_path, success, coverage, iterations, test_file, duration, preserved_tests=0, new_tests=0, fixed_tests=0):
         """Handle file completion."""
         for i in range(self.files_table.rowCount()):
             item = self.files_table.item(i, 1)
@@ -605,6 +617,17 @@ class BatchGenerateDialog(QDialog):
                     self.files_table.item(i, 2).setForeground(QColor("#4CAF50"))
                     self.files_table.item(i, 3).setText(f"{coverage:.1f}%")
                     self.files_table.item(i, 3).setForeground(QColor("#4CAF50"))
+                    
+                    # Log incremental mode statistics for this file
+                    if self.incremental_check.isChecked() and (preserved_tests > 0 or new_tests > 0 or fixed_tests > 0):
+                        stats_msg = f"📊 Incremental stats for {Path(file_path).name}:"
+                        if preserved_tests > 0:
+                            stats_msg += f" preserved={preserved_tests}"
+                        if new_tests > 0:
+                            stats_msg += f" new={new_tests}"
+                        if fixed_tests > 0:
+                            stats_msg += f" fixed={fixed_tests}"
+                        self.on_log_message(stats_msg, "INFO")
                 else:
                     self.files_table.item(i, 2).setText("Failed")
                     self.files_table.item(i, 2).setForeground(QColor("#f44336"))
@@ -615,7 +638,7 @@ class BatchGenerateDialog(QDialog):
                 self.files_table.item(i, 5).setText(f"{duration:.1f}s")
                 break
     
-    def on_all_completed(self, success_count, failed_count, total_duration, compilation_result):
+    def on_all_completed(self, success_count, failed_count, total_duration, compilation_result, total_preserved_tests=0, total_new_tests=0, total_fixed_tests=0):
         """Handle all completed."""
         self._is_running = False
         self.on_generation_finished()
@@ -650,11 +673,33 @@ class BatchGenerateDialog(QDialog):
                 status_parts.append(f"Completed: {success_count} success, {failed_count} failed")
                 self.status_label.setStyleSheet("font-weight: bold; color: #FF9800;")
         
+        # Add incremental mode statistics to status
+        if self.incremental_check.isChecked() and (total_preserved_tests > 0 or total_new_tests > 0 or total_fixed_tests > 0):
+            incr_stats = []
+            if total_preserved_tests > 0:
+                incr_stats.append(f"preserved={total_preserved_tests}")
+            if total_new_tests > 0:
+                incr_stats.append(f"new={total_new_tests}")
+            if total_fixed_tests > 0:
+                incr_stats.append(f"fixed={total_fixed_tests}")
+            status_parts.append(f"🔄 {', '.join(incr_stats)}")
+        
         self.status_label.setText(" | ".join(status_parts))
         self.progress_bar.setValue(100)
         
         # Show compilation details if available
         if compilation_result and self.isVisible():
+            # Build incremental stats message
+            incr_msg = ""
+            if self.incremental_check.isChecked() and (total_preserved_tests > 0 or total_new_tests > 0 or total_fixed_tests > 0):
+                incr_msg = "\n\n🔄 Incremental Mode Statistics:"
+                if total_preserved_tests > 0:
+                    incr_msg += f"\n  ✓ Preserved: {total_preserved_tests} tests"
+                if total_new_tests > 0:
+                    incr_msg += f"\n  ✓ New: {total_new_tests} tests"
+                if total_fixed_tests > 0:
+                    incr_msg += f"\n  ✓ Fixed: {total_fixed_tests} tests"
+            
             if compilation_result.success:
                 QMessageBox.information(
                     self,
@@ -663,6 +708,7 @@ class BatchGenerateDialog(QDialog):
                     f"Generated: {success_count}/{total} files\n"
                     f"Compilation: Successful\n"
                     f"Total time: {total_duration:.1f}s"
+                    f"{incr_msg}"
                 )
             else:
                 error_details = "\n".join(compilation_result.errors[:5]) if compilation_result.errors else "Unknown errors"
@@ -674,6 +720,26 @@ class BatchGenerateDialog(QDialog):
                     f"Compilation errors: {compilation_result.failed_files}\n"
                     f"Compile time: {compilation_result.duration:.1f}s\n\n"
                     f"First errors:\n{error_details}"
+                    f"{incr_msg}"
+                )
+        elif self.isVisible() and self.incremental_check.isChecked() and (total_preserved_tests > 0 or total_new_tests > 0 or total_fixed_tests > 0):
+            # Show incremental stats even without compilation result
+            incr_msg = "\n\n🔄 Incremental Mode Statistics:"
+            if total_preserved_tests > 0:
+                incr_msg += f"\n  ✓ Preserved: {total_preserved_tests} tests"
+            if total_new_tests > 0:
+                incr_msg += f"\n  ✓ New: {total_new_tests} tests"
+            if total_fixed_tests > 0:
+                incr_msg += f"\n  ✓ Fixed: {total_fixed_tests} tests"
+            
+            if failed_count == 0:
+                QMessageBox.information(
+                    self,
+                    "Batch Generation Complete",
+                    f"✓ All tests generated successfully!\n\n"
+                    f"Generated: {success_count}/{total} files\n"
+                    f"Total time: {total_duration:.1f}s"
+                    f"{incr_msg}"
                 )
     
     def on_error(self, error_message):
