@@ -1,4 +1,10 @@
-"""组件通信优化 - 消息总线和消息队列"""
+"""组件通信优化 - 消息总线和消息队列
+
+.. deprecated::
+    Use pyutagent.core.messaging.UnifiedMessageBus instead.
+    This module is kept for backward compatibility.
+"""
+import warnings
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -7,6 +13,14 @@ import logging
 from collections import deque
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.core.message_bus is deprecated. "
+    "Use pyutagent.core.messaging.UnifiedMessageBus instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class MessagePriority(Enum):

@@ -1,4 +1,10 @@
-"""事件总线 - 实现组件解耦"""
+"""事件总线 - 实现组件解耦
+
+.. deprecated::
+    Use pyutagent.core.messaging.UnifiedMessageBus instead.
+    This module is kept for backward compatibility.
+"""
+import warnings
 from typing import Any, Callable, Dict, List, Type, TypeVar
 from dataclasses import dataclass, field
 import uuid
@@ -8,6 +14,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.core.event_bus is deprecated. "
+    "Use pyutagent.core.messaging.UnifiedMessageBus instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 @dataclass

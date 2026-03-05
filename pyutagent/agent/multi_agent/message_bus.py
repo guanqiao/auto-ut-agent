@@ -1,11 +1,16 @@
 """Message bus for inter-agent communication.
 
+.. deprecated:: 
+    Use pyutagent.core.messaging.UnifiedMessageBus instead.
+    This module is kept for backward compatibility.
+
 Provides asynchronous messaging infrastructure for multi-agent collaboration.
 """
 
 import asyncio
 import logging
 import uuid
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
@@ -13,6 +18,14 @@ from typing import Dict, List, Optional, Any, Callable, Set
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.agent.multi_agent.message_bus is deprecated. "
+    "Use pyutagent.core.messaging.UnifiedMessageBus instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class MessageType(Enum):
