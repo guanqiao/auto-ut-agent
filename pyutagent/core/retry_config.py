@@ -34,6 +34,10 @@ class RetryConfig:
         backoff_max: Maximum delay for backoff strategies (seconds)
         backoff_strategy: Strategy for calculating retry delays
         retryable_errors: Mapping of error categories to retryability
+        enable_smart_retry: Enable smart LLM-based retry for code errors
+        simple_retry_for_network: Use simple retry for network errors
+        llm_analysis_for_code: Use LLM analysis for code errors
+        max_llm_analysis_attempts: Maximum LLM analysis attempts per error
     """
     
     max_total_attempts: int = 50
@@ -56,7 +60,11 @@ class RetryConfig:
         "llm_api": True,
     })
 
-    # LLM API error classification for intelligent retry
+    enable_smart_retry: bool = True
+    simple_retry_for_network: bool = True
+    llm_analysis_for_code: bool = True
+    max_llm_analysis_attempts: int = 3
+
     non_retryable_error_types: List[str] = field(default_factory=lambda: [
         "AuthenticationError",
         "PermissionError",
@@ -236,6 +244,10 @@ class RetryConfig:
             'backoff_max': self.backoff_max,
             'backoff_strategy': self.backoff_strategy,
             'retryable_errors': self.retryable_errors.copy(),
+            'enable_smart_retry': self.enable_smart_retry,
+            'simple_retry_for_network': self.simple_retry_for_network,
+            'llm_analysis_for_code': self.llm_analysis_for_code,
+            'max_llm_analysis_attempts': self.max_llm_analysis_attempts,
         }
         current_values.update(kwargs)
         return RetryConfig(**current_values)

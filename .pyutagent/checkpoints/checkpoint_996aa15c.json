@@ -1,0 +1,22 @@
+{
+  "id": "996aa15c",
+  "created_at": "2026-03-05T18:15:41.627916",
+  "step": "initial_generation",
+  "iteration": 0,
+  "state": {
+    "target_file": "src\\main\\java\\org\\ssssssss\\magicapi\\jsr223\\LanguageProvider.java",
+    "test_file": "src\\test\\java\\org\\ssssssss\\magicapi\\jsr223\\Test.java",
+    "class_info": {
+      "name": "",
+      "package": "org.ssssssss.magicapi.jsr223",
+      "methods": [],
+      "fields": [],
+      "imports": [
+        "java.util.Map"
+      ],
+      "annotations": [],
+      "source": "package org.ssssssss.magicapi.jsr223;\n\nimport java.util.Map;\n\n/**\n * 自定义语言接口\n *\n * @author mxd\n */\npublic interface LanguageProvider {\n\n\t/**\n\t * 是否支持该语言\n\t *\n\t * @param languageName 语言名\n\t * @return 是否支持\n\t */\n\tboolean support(String languageName);\n\n\t/**\n\t * 执行具体脚本\n\t *\n\t * @param languageName 语言类型\n\t * @param script       脚本内容\n\t * @param context      当前环境中的变量信息\n\t * @return 执行结果\n\t * @throws Exception 执行过程中抛出的异常\n\t */\n\tObject execute(String languageName, String script, Map<String, Object> context) throws Exception;\n}\n"
+    }
+  },
+  "metadata": {}
+}

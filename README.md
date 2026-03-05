@@ -51,6 +51,90 @@ flowchart TD
 - ✅ 异步优化：关键操作支持异步执行
 - ✅ 测试保障：完善的单元测试覆盖
 
+### 智能重试机制
+
+测试生成过程中避免简单重试，通过 LLM 分析给出针对性修复方案。
+
+```mermaid
+flowchart TD
+    A[编译/测试失败] --> B{错误类型判断}
+    
+    B -->|网络错误| C[简单重试]
+    C --> C1[连接超时/API限流]
+    C1 --> C2[延迟后重试]
+    
+    B -->|代码错误| D[智能分析流程]
+    
+    D --> E[1. 收集完整错误上下文]
+    E --> E1[编译: mvn clean compile 输出]
+    E --> E2[测试: mvn clean test 输出]
+    E --> E3[源代码和测试代码]
+    
+    E1 & E2 & E3 --> F[2. 构建 LLM 分析 Prompt]
+    F --> F1[包含完整错误输出]
+    F --> F2[包含历史尝试记录]
+    F --> F3[包含可用工具列表]
+    
+    F1 & F2 & F3 --> G[3. LLM 分析并返回行动方案]
+    G --> G1[根因分析]
+    G --> G2[具体修复建议]
+    G --> G3[置信度评估]
+    
+    G1 & G2 & G3 --> H[4. 执行工具调用]
+    H --> H1[fix_imports: 添加缺失导入]
+    H --> H2[add_dependency: 添加 Maven 依赖]
+    H --> H3[fix_test_logic: 修复测试逻辑]
+    H --> H4[add_mock: 添加 Mock 配置]
+    H --> H5[modify_code: 应用代码修复]
+    H --> H6[regenerate_test: 重新生成测试]
+    
+    H1 & H2 & H3 & H4 & H5 & H6 --> I[5. 验证修复结果]
+    I --> J{成功？}
+    J -->|是| K[✅ 继续流程]
+    J -->|否| L[尝试下一个行动]
+    L --> H
+```
+
+**关键设计：**
+
+| 错误类型 | 处理方式 | 原因 |
+|---------|---------|------|
+| 网络错误 | 简单重试 | 连接超时、API 限流等问题无需 LLM 分析 |
+| 编译错误 | LLM 分析 | 需要理解代码语义，给出具体修复方案 |
+| 测试失败 | LLM 分析 | 需要分析断言失败原因，修复测试逻辑 |
+
+**可用工具调用：**
+
+| 工具 | 功能 | 参数 |
+|-----|------|-----|
+| `fix_imports` | 添加缺失的 import 语句 | `imports`: 导入列表 |
+| `add_dependency` | 添加 Maven 依赖 | `group_id`, `artifact_id`, `version` |
+| `fix_syntax` | 修复语法错误 | `fixed_code`: 修复后的代码 |
+| `fix_test_logic` | 修复测试逻辑 | `fixed_code`: 修复后的代码 |
+| `add_mock` | 添加 Mock 配置 | `mock_setup`: Mock 配置代码 |
+| `fix_assertion` | 修复断言 | `fixed_code`: 修复后的代码 |
+| `skip_test` | 跳过测试 | `test_method`: 测试方法名 |
+| `regenerate_test` | 重新生成测试 | 无参数，触发重新生成 |
+| `modify_code` | 应用代码修改 | `fixed_code`: 修改后的代码 |
+
+**配置选项：**
+
+```python
+# pyutagent/core/retry_config.py
+RetryConfig(
+    enable_smart_retry=True,        # 启用智能重试
+    simple_retry_for_network=True,  # 网络错误使用简单重试
+    llm_analysis_for_code=True,     # 代码错误使用 LLM 分析
+    max_llm_analysis_attempts=3,    # 最大 LLM 分析尝试次数
+)
+```
+
+**核心优势：**
+- ✅ 避免无效重试：不再重复相同的错误
+- ✅ 精准修复：LLM 理解错误根因，给出针对性方案
+- ✅ 可追溯性：记录 LLM 分析过程和建议
+- ✅ 智能决策：Agent 根据 LLM 反馈选择最佳行动
+
 ### 核心架构重构 (2026-03-04 完成)
 - 🏗️ **事件驱动架构**: EventBus 实现组件完全解耦，支持同步/异步事件
 - 📦 **组件化系统**: ComponentRegistry 支持装饰器注册、自动发现、依赖管理

@@ -96,12 +96,18 @@ class BatchProgress:
         failed_files: Number of failed files
         current_file: Currently processing file
         current_status: Current status message
+        current_coverage: Current file coverage percentage
+        coverage_source: Source of coverage data ("jacoco" or "llm_estimated")
+        coverage_confidence: Confidence level for LLM estimation
     """
     total_files: int = 0
     completed_files: int = 0
     failed_files: int = 0
     current_file: str = ""
     current_status: str = ""
+    current_coverage: float = 0.0
+    coverage_source: str = "jacoco"
+    coverage_confidence: float = 1.0
     
     @property
     def progress_percent(self) -> float:
@@ -295,10 +301,20 @@ class BatchGenerator:
         logger.info("[BatchGenerator] Stop requested")
         self._stop_requested = True
     
-    def _update_progress(self, current_file: str = "", status: str = ""):
+    def _update_progress(
+        self, 
+        current_file: str = "", 
+        status: str = "",
+        coverage: float = 0.0,
+        coverage_source: str = "jacoco",
+        coverage_confidence: float = 1.0
+    ):
         """Update progress and notify callback."""
         self._progress.current_file = current_file
         self._progress.current_status = status
+        self._progress.current_coverage = coverage
+        self._progress.coverage_source = coverage_source
+        self._progress.coverage_confidence = coverage_confidence
         self._progress.completed_files = sum(1 for r in self._results if r.success)
         self._progress.failed_files = sum(1 for r in self._results if not r.success)
         
@@ -545,7 +561,7 @@ class BatchGenerator:
                         f"Duration: {duration:.1f}s"
                     )
 
-                    return FileResult(
+                    file_result = FileResult(
                         file_path=file_path,
                         success=True,
                         coverage=coverage,
@@ -555,6 +571,16 @@ class BatchGenerator:
                         test_file=test_file_path,
                         duration=duration
                     )
+                    
+                    self._update_progress(
+                        file_name,
+                        "Completed",
+                        coverage=coverage,
+                        coverage_source=coverage_source,
+                        coverage_confidence=coverage_confidence
+                    )
+                    
+                    return file_result
             
             # If multi-agent failed, fall back to standard
             logger.warning(f"[BatchGenerator] Multi-agent generation failed for {file_name}, falling back")
@@ -772,7 +798,7 @@ class BatchGenerator:
                 coverage_source = getattr(result, 'coverage_source', 'jacoco')
                 coverage_confidence = getattr(result, 'coverage_confidence', 1.0)
                 
-                return FileResult(
+                file_result = FileResult(
                     file_path=file_path,
                     success=True,
                     coverage=result.coverage,
@@ -786,6 +812,16 @@ class BatchGenerator:
                     new_tests=new_tests,
                     fixed_tests=fixed_tests
                 )
+                
+                self._update_progress(
+                    file_name, 
+                    "Completed",
+                    coverage=result.coverage,
+                    coverage_source=coverage_source,
+                    coverage_confidence=coverage_confidence
+                )
+                
+                return file_result
             else:
                 logger.warning(
                     f"[BatchGenerator] Failed for {file_name} - "

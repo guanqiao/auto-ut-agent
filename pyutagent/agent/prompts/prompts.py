@@ -1012,6 +1012,284 @@ FUTURE_RECOMMENDATIONS: [Recommendations for similar situations]
 
 Provide your reflection:"""
 
+    def build_smart_compilation_analysis_prompt(
+        self,
+        error_context: Any,
+        attempt_history: List[Dict[str, Any]]
+    ) -> str:
+        """Build intelligent compilation error analysis prompt.
+        
+        This prompt includes full compilation output and context for LLM analysis.
+        
+        Args:
+            error_context: CompilationErrorContext with full error details
+            attempt_history: History of previous fix attempts
+            
+        Returns:
+            Prompt string
+        """
+        from ..utils.code_extractor import CodeExtractor
+        
+        compiler_output = error_context.get_truncated_output(10000) if hasattr(error_context, 'get_truncated_output') else str(error_context.compiler_output)[:10000]
+        
+        history_str = ""
+        if attempt_history:
+            history_str = f"""
+## Previous Fix Attempts
+{chr(10).join([
+    f"Attempt {a.get('attempt', i+1)}: {a.get('action', 'unknown')} - {'Success' if a.get('success') else 'Failed'}"
+    for i, a in enumerate(attempt_history[-5:])
+])}
+"""
+        
+        test_code_section = ""
+        if error_context.test_code:
+            test_code_section = f"""
+## Current Test Code
+```java
+{error_context.test_code[:3000]}
+```
+"""
+        
+        source_code_section = ""
+        if error_context.source_code:
+            source_code_section = f"""
+## Target Class Source (for reference)
+```java
+{error_context.source_code[:2000]}
+```
+"""
+        
+        return f"""You are an expert Java developer specializing in debugging compilation errors.
+
+## Task
+Analyze the compilation errors and provide a specific action plan to fix them.
+
+## Compilation Errors (Attempt {error_context.attempt_number})
+```
+{compiler_output}
+```
+
+## Error Summary
+- Total Errors: {error_context.error_count}
+- Missing Imports: {len(error_context.missing_imports)} - {error_context.missing_imports[:5]}
+- Missing Dependencies: {len(error_context.missing_dependencies)} - {error_context.missing_dependencies[:5]}
+- Syntax Errors: {len(error_context.syntax_errors)}
+- Type Errors: {len(error_context.type_errors)}
+
+## Files
+- Source File: {error_context.source_file}
+- Test File: {error_context.test_file}
+{history_str}
+{test_code_section}
+{source_code_section}
+## Available Actions
+You can recommend the following actions:
+1. **fix_imports**: Add missing import statements
+2. **add_dependency**: Add Maven dependency to pom.xml
+3. **fix_syntax**: Fix syntax errors in the code
+4. **fix_type_error**: Fix type mismatch errors
+5. **modify_code**: Apply a complete code fix
+6. **regenerate_test**: Request complete test regeneration
+
+## Output Format
+Provide your analysis in this EXACT format:
+
+ROOT_CAUSE: [One sentence describing the root cause]
+ANALYSIS: [Brief analysis of what went wrong]
+CONFIDENCE: [0.0-1.0]
+
+ACTION_PLAN:
+- action: [action_type]
+  description: [what this action does]
+  [action-specific parameters]
+
+Example actions:
+- action: fix_imports
+  imports: ["import org.example.SomeClass;", "import java.util.List;"]
+  
+- action: add_dependency
+  group_id: org.example
+  artifact_id: example-lib
+  version: 1.0.0
+  scope: test
+
+- action: modify_code
+  fixed_code: ```java
+  // complete fixed test code here
+  ```
+
+REASONING: [Why these actions will fix the problem]
+
+Provide your analysis:"""
+
+    def build_smart_test_failure_analysis_prompt(
+        self,
+        error_context: Any,
+        attempt_history: List[Dict[str, Any]]
+    ) -> str:
+        """Build intelligent test failure analysis prompt.
+        
+        This prompt includes full test output and context for LLM analysis.
+        
+        Args:
+            error_context: TestFailureContext with full failure details
+            attempt_history: History of previous fix attempts
+            
+        Returns:
+            Prompt string
+        """
+        test_output = error_context.get_truncated_output(10000) if hasattr(error_context, 'get_truncated_output') else str(error_context.test_output)[:10000]
+        
+        history_str = ""
+        if attempt_history:
+            history_str = f"""
+## Previous Fix Attempts
+{chr(10).join([
+    f"Attempt {a.get('attempt', i+1)}: {a.get('action', 'unknown')} - {'Success' if a.get('success') else 'Failed'}"
+    for i, a in enumerate(attempt_history[-5:])
+])}
+"""
+        
+        failures_section = ""
+        if error_context.failed_tests:
+            failures_section = f"""
+## Failed Tests Detail
+{chr(10).join([
+    f"""
+### {f.test_method} ({f.test_class})
+- Type: {f.failure_type}
+- Message: {f.failure_message[:200]}
+- Expected: {f.expected_value[:100] if f.expected_value else 'N/A'}
+- Actual: {f.actual_value[:100] if f.actual_value else 'N/A'}
+"""
+    for f in error_context.failed_tests[:5]
+])}
+"""
+        
+        test_code_section = ""
+        if error_context.test_code:
+            test_code_section = f"""
+## Current Test Code
+```java
+{error_context.test_code[:3000]}
+```
+"""
+        
+        source_code_section = ""
+        if error_context.source_code:
+            source_code_section = f"""
+## Target Class Source (for reference)
+```java
+{error_context.source_code[:2000]}
+```
+"""
+        
+        return f"""You are an expert Java developer specializing in debugging test failures.
+
+## Task
+Analyze the test failures and provide a specific action plan to fix them.
+
+## Test Results (Attempt {error_context.attempt_number})
+- Total Tests: {error_context.total_tests}
+- Passed: {error_context.passed_count}
+- Failed: {error_context.failed_count}
+- Skipped: {error_context.skipped_count}
+- Success Rate: {error_context.success_rate:.1%}
+
+## Test Output
+```
+{test_output}
+```
+{failures_section}
+## Files
+- Source File: {error_context.source_file}
+- Test File: {error_context.test_file}
+{history_str}
+{test_code_section}
+{source_code_section}
+## Available Actions
+You can recommend the following actions:
+1. **fix_test_logic**: Fix the test logic to match expected behavior
+2. **fix_assertion**: Fix incorrect assertions
+3. **add_mock**: Add missing mock configuration
+4. **skip_test**: Skip a test that cannot be fixed (use sparingly)
+5. **modify_code**: Apply a complete code fix
+6. **regenerate_test**: Request complete test regeneration
+
+## Output Format
+Provide your analysis in this EXACT format:
+
+ROOT_CAUSE: [One sentence describing the root cause]
+ANALYSIS: [Brief analysis of what went wrong]
+CONFIDENCE: [0.0-1.0]
+
+ACTION_PLAN:
+- action: [action_type]
+  description: [what this action does]
+  [action-specific parameters]
+
+Example actions:
+- action: fix_assertion
+  test_method: testSomething
+  fixed_code: ```java
+  // fixed test method code
+  ```
+
+- action: add_mock
+  mock_setup: when(mockService.getData()).thenReturn("test");
+
+- action: modify_code
+  fixed_code: ```java
+  // complete fixed test code here
+  ```
+
+REASONING: [Why these actions will fix the problem]
+
+Provide your analysis:"""
+
+    def build_smart_action_plan_prompt(
+        self,
+        analysis_result: Dict[str, Any],
+        available_actions: List[str]
+    ) -> str:
+        """Build prompt for converting analysis to concrete action plan.
+        
+        Args:
+            analysis_result: LLM analysis result
+            available_actions: List of available action types
+            
+        Returns:
+            Prompt string
+        """
+        return f"""Based on the following analysis, generate a concrete action plan.
+
+## Analysis Result
+- Root Cause: {analysis_result.get('root_cause', 'Unknown')}
+- Confidence: {analysis_result.get('confidence', 0.5):.2f}
+- Reasoning: {analysis_result.get('reasoning', 'No reasoning provided')}
+
+## Available Actions
+{chr(10).join([f"- {a}" for a in available_actions])}
+
+## Current Action Plan
+{chr(10).join([f"- {a.get('action', 'unknown')}: {a.get('description', '')}" for a in analysis_result.get('action_plan', [])])}
+
+## Task
+Refine the action plan to be more specific and actionable. For each action:
+1. Ensure all required parameters are specified
+2. Add any missing details
+3. Order actions by priority
+
+## Output Format
+ACTION_PLAN:
+- action: [action_type]
+  [parameter1]: [value1]
+  [parameter2]: [value2]
+  ...
+
+Provide the refined action plan:"""
+
 
 class ToolUsagePromptBuilder:
     """Builds prompts for tool usage in agents."""
