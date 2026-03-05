@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  pyutagent:
+    build: .
+    image: pyutagent:latest
+    container_name: pyutagent
+    environment:
+      - PYTHONUNBUFFERED=1
+      - API_KEY=${API_KEY:-}
+    volumes:
+      - ./:/app
+      - ~/.pyutagent:/root/.pyutagent
+    stdin_open: true
+    tty: true
+
+  pyutagent-dev:
+    build: .
+    image: pyutagent:dev
+    container_name: pyutagent-dev
+    environment:
+      - PYTHONUNBUFFERED=1
+      - API_KEY=${API_KEY:-}
+    volumes:
+      - ./:/app
+      - ~/.pyutagent:/root/.pyutagent
+    command: python -m pytest tests/ -v
+    profile:
+      - test

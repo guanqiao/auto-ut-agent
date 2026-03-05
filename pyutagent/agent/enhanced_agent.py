@@ -377,16 +377,41 @@ class EnhancedAgent(ReActAgent):
         Returns:
             AgentResult with generation results
         """
+        from .hooks import trigger_hook, HookEvent
+        
         with self.metrics.time_operation("generate_tests", {"target_file": target_file}):
             try:
-                # Use multi-agent if enabled
-                if self.config.enable_multi_agent and self.agent_coordinator:
-                    return await self._generate_tests_multi_agent(target_file)
+                await trigger_hook(HookEvent.BEFORE_TASK, {"target_file": target_file})
                 
-                # Use standard single-agent approach
-                return await super().generate_tests(target_file)
+                if self.config.enable_multi_agent and self.agent_coordinator:
+                    result = await self._generate_tests_multi_agent(target_file)
+                else:
+                    result = await super().generate_tests(target_file)
+                
+                if result.success:
+                    await trigger_hook(HookEvent.TASK_SUCCESS, {
+                        "target_file": target_file,
+                        "result": result
+                    })
+                else:
+                    await trigger_hook(HookEvent.TASK_FAILURE, {
+                        "target_file": target_file,
+                        "result": result
+                    })
+                
+                await trigger_hook(HookEvent.AFTER_TASK, {
+                    "target_file": target_file,
+                    "result": result
+                })
+                
+                return result
                 
             except Exception as e:
+                await trigger_hook(HookEvent.ERROR, {
+                    "target_file": target_file,
+                    "error": str(e)
+                })
+                
                 self.metrics.record_error("generation", "generate_tests", recovered=False)
                 logger.exception(f"[EnhancedAgent] Test generation failed: {e}")
                 return AgentResult(
