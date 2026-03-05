@@ -842,6 +842,91 @@ def get_default_endpoint(provider: LLMProvider) -> str:
     return endpoint
 
 
+def get_agent_config_path() -> Path:
+    """Get path to Agent config file."""
+    return get_data_dir() / "agent_config.json"
+
+
+def save_agent_config(config: "AgentConfig") -> None:
+    """Save Agent configuration to file.
+
+    Args:
+        config: AgentConfig instance to save
+    """
+    config_path = get_agent_config_path()
+    try:
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config.to_dict(), f, indent=2, default=str)
+        logger.info(f"[Config] Saved Agent config to {config_path}")
+    except Exception as e:
+        logger.error(f"[Config] Failed to save Agent config: {e}")
+        raise
+
+
+def load_agent_config() -> "AgentConfig":
+    """Load Agent configuration from file.
+
+    Returns:
+        AgentConfig: Loaded configuration, or default config if file doesn't exist
+    """
+    from ..agent.enhanced_agent import EnhancedAgentConfig
+    
+    config_path = get_agent_config_path()
+    if config_path.exists():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            config = EnhancedAgentConfig(**data)
+            logger.info(f"[Config] Loaded Agent config from {config_path}")
+            return config
+        except Exception as e:
+            logger.warning(f"[Config] Failed to load Agent config: {e}, using default")
+            return EnhancedAgentConfig()
+    else:
+        logger.info(f"[Config] Agent config file not found at {config_path}, using default")
+        return EnhancedAgentConfig()
+
+
+@dataclass
+class AgentConfig:
+    """Agent configuration for persistence.
+    
+    This is a simplified version of EnhancedAgentConfig for serialization.
+    """
+    model_name: str = "gpt-4"
+    enable_multi_agent: bool = False
+    enable_error_prediction: bool = True
+    enable_strategy_optimization: bool = True
+    enable_self_reflection: bool = True
+    enable_knowledge_graph: bool = False
+    enable_pattern_library: bool = True
+    enable_chain_of_thought: bool = True
+    enable_metrics: bool = True
+    context_max_tokens: int = 8000
+    context_target_tokens: int = 6000
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "model_name": self.model_name,
+            "enable_multi_agent": self.enable_multi_agent,
+            "enable_error_prediction": self.enable_error_prediction,
+            "enable_strategy_optimization": self.enable_strategy_optimization,
+            "enable_self_reflection": self.enable_self_reflection,
+            "enable_knowledge_graph": self.enable_knowledge_graph,
+            "enable_pattern_library": self.enable_pattern_library,
+            "enable_chain_of_thought": self.enable_chain_of_thought,
+            "enable_metrics": self.enable_metrics,
+            "context_max_tokens": self.context_max_tokens,
+            "context_target_tokens": self.context_target_tokens,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AgentConfig":
+        """Create from dictionary."""
+        return cls(**{k: v for k, v in data.items() if hasattr(cls, k)})
+
+
 def get_available_models(provider: LLMProvider) -> List[str]:
     """Get available models for a provider."""
     models = PROVIDER_MODELS.get(provider, [])
