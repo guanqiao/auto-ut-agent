@@ -95,6 +95,12 @@ from .enhanced_mcp import (
     MCPConfigLoader,
     create_enhanced_mcp_manager,
 )
+from .multi_file_editor import (
+    FileNode,
+    MultiFileEditResult,
+    DependencyAnalyzer,
+    MultiFileEditor,
+)
 
 __all__ = [
     "JavaCodeParser",
@@ -175,4 +181,9 @@ __all__ = [
     "EnhancedMCPManager",
     "MCPConfigLoader",
     "create_enhanced_mcp_manager",
+    # Multi-file Editor
+    "FileNode",
+    "MultiFileEditResult",
+    "DependencyAnalyzer",
+    "MultiFileEditor",
 ]

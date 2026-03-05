@@ -12,6 +12,7 @@ from .commands.history import history_group
 from .commands.hooks import hooks_group
 from .commands.skills import skills_group
 from .commands.project import project_group
+from .commands.task import task_command, task_types_command
 
 console = Console()
 
@@ -20,7 +21,10 @@ console = Console()
 @click.version_option(version=__version__, prog_name="pyutagent-cli")
 @click.pass_context
 def cli(ctx):
-    """PyUT Agent CLI - AI-powered Java Unit Test Generator."""
+    """PyUT Agent CLI - AI-powered Java Unit Test Generator.
+    
+    Also supports general programming tasks via the Universal Agent.
+    """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
@@ -34,6 +38,8 @@ cli.add_command(history_group, name='history')
 cli.add_command(hooks_group, name='hooks')
 cli.add_command(skills_group, name='skills')
 cli.add_command(project_group, name='project')
+cli.add_command(task_command, name='task')
+cli.add_command(task_types_command, name='task-types')
 
 
 def main():
