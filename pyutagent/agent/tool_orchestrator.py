@@ -854,12 +854,27 @@ class ToolOrchestrator:
         
         prompt = self._build_planning_prompt(goal, context, constraints, tools_info)
         
-        response = asyncio.get_event_loop().run_until_complete(
-            self._llm_client.chat(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're in an async context, we need to handle differently
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(
+                    asyncio.run,
+                    self._llm_client.chat(
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3
+                    )
+                )
+                response = future.result()
+        except RuntimeError:
+            # No running loop, we can use asyncio.run
+            response = asyncio.run(
+                self._llm_client.chat(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3
+                )
             )
-        )
         
         return self._parse_llm_plan(response.content, context)
     

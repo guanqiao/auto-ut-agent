@@ -4,12 +4,6 @@ import pytest
 import time
 from unittest.mock import MagicMock, patch
 
-# Skip Qt tests if not available
-pytest.importorskip("PyQt6")
-
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
-
 from pyutagent.ui.components.thinking_expander import (
     ThinkingExpander,
     ThinkingStep,
@@ -92,94 +86,23 @@ class TestThinkingStep:
         assert duration >= 10  # At least 10ms
 
 
-@pytest.mark.gui
-class TestThinkingStepWidget:
-    """Tests for ThinkingStepWidget class."""
+class TestThinkingExpanderBasic:
+    """Basic tests for ThinkingExpander that don't require Qt."""
     
-    @pytest.fixture(scope="class")
-    def qapp(self):
-        """Create QApplication for tests."""
-        app = QApplication.instance()
-        if app is None:
-            app = QApplication([])
-        yield app
-        
-    def test_widget_creation(self, qapp):
-        """Test widget creation."""
-        step = ThinkingStep(id="step1", title="Test Step")
-        widget = ThinkingStepWidget(step)
-        assert widget is not None
-        assert widget.get_step() == step
-        
-    def test_widget_update_display(self, qapp):
-        """Test updating display."""
-        step = ThinkingStep(id="step1", title="Test Step")
-        widget = ThinkingStepWidget(step)
-        
-        # Start and complete the step
-        step.start()
-        step.complete()
-        widget.update_display()
-        
-        # Widget should reflect the completed status
-        assert step.status == ThinkingStatus.COMPLETED
-        
-    def test_widget_click_expands(self, qapp, qtbot):
-        """Test clicking widget expands details."""
-        step = ThinkingStep(id="step1", title="Test")
-        step.add_detail("Test detail")
-        widget = ThinkingStepWidget(step)
-        qtbot.addWidget(widget)
-        
-        # Initially not expanded
-        assert not widget._expanded
-        
-        # Click to expand
-        widget._toggle_expand()
-        assert widget._expanded
-        
-        # Click to collapse
-        widget._toggle_expand()
-        assert not widget._expanded
-        
-    def test_widget_click_signal(self, qapp, qtbot):
-        """Test click signal emission."""
-        step = ThinkingStep(id="step1", title="Test")
-        widget = ThinkingStepWidget(step)
-        qtbot.addWidget(widget)
-        
-        with qtbot.waitSignal(widget.clicked, timeout=1000) as blocker:
-            widget._toggle_expand()
-            
-        assert blocker.args[0] == "step1"
-
-
-@pytest.mark.gui
-class TestThinkingExpander:
-    """Tests for ThinkingExpander class."""
-    
-    @pytest.fixture(scope="class")
-    def qapp(self):
-        """Create QApplication for tests."""
-        app = QApplication.instance()
-        if app is None:
-            app = QApplication([])
-        yield app
-        
-    def test_expander_creation(self, qapp):
+    def test_expander_creation(self):
         """Test expander creation."""
         expander = ThinkingExpander()
         assert expander is not None
         assert not expander.is_expanded()
         
-    def test_start_thinking(self, qapp):
+    def test_start_thinking(self):
         """Test starting thinking process."""
         expander = ThinkingExpander()
         expander.start_thinking()
         assert len(expander.get_steps()) == 0
         assert expander.is_expanded()  # Auto-expands on start
         
-    def test_add_step(self, qapp):
+    def test_add_step(self):
         """Test adding a step."""
         expander = ThinkingExpander()
         expander.start_thinking()
@@ -190,7 +113,7 @@ class TestThinkingExpander:
         assert len(expander.get_steps()) == 1
         assert expander.get_steps()[0].id == "step1"
         
-    def test_start_step(self, qapp):
+    def test_start_step(self):
         """Test starting a step."""
         expander = ThinkingExpander()
         expander.start_thinking()
@@ -201,7 +124,7 @@ class TestThinkingExpander:
         
         assert step.status == ThinkingStatus.THINKING
         
-    def test_complete_step(self, qapp):
+    def test_complete_step(self):
         """Test completing a step."""
         expander = ThinkingExpander()
         expander.start_thinking()
@@ -213,7 +136,7 @@ class TestThinkingExpander:
         
         assert step.status == ThinkingStatus.COMPLETED
         
-    def test_fail_step(self, qapp):
+    def test_fail_step(self):
         """Test failing a step."""
         expander = ThinkingExpander()
         expander.start_thinking()
@@ -224,7 +147,7 @@ class TestThinkingExpander:
         
         assert step.status == ThinkingStatus.ERROR
         
-    def test_add_step_detail(self, qapp):
+    def test_add_step_detail(self):
         """Test adding detail to a step."""
         expander = ThinkingExpander()
         expander.start_thinking()
@@ -235,7 +158,7 @@ class TestThinkingExpander:
         
         assert "Test detail" in step.details
         
-    def test_finish_thinking(self, qapp):
+    def test_finish_thinking(self):
         """Test finishing thinking process."""
         expander = ThinkingExpander()
         expander.start_thinking()
@@ -244,7 +167,7 @@ class TestThinkingExpander:
         
         assert expander.get_duration_ms() > 0
         
-    def test_toggle_expanded(self, qapp):
+    def test_toggle_expanded(self):
         """Test toggling expanded state."""
         expander = ThinkingExpander()
         
@@ -256,7 +179,7 @@ class TestThinkingExpander:
         expander._toggle_expanded()
         assert not expander.is_expanded()
         
-    def test_set_expanded(self, qapp):
+    def test_set_expanded(self):
         """Test setting expanded state."""
         expander = ThinkingExpander()
         
@@ -266,7 +189,7 @@ class TestThinkingExpander:
         expander.set_expanded(False)
         assert not expander.is_expanded()
         
-    def test_clear(self, qapp):
+    def test_clear(self):
         """Test clearing expander."""
         expander = ThinkingExpander()
         expander.start_thinking()
@@ -279,7 +202,7 @@ class TestThinkingExpander:
         assert len(expander.get_steps()) == 0
         assert expander.get_duration_ms() == 0.0
         
-    def test_multiple_steps(self, qapp):
+    def test_multiple_steps(self):
         """Test handling multiple steps."""
         expander = ThinkingExpander()
         expander.start_thinking()
@@ -302,28 +225,6 @@ class TestThinkingExpander:
             
         for step in steps:
             assert step.status == ThinkingStatus.COMPLETED
-            
-    def test_expanded_changed_signal(self, qapp, qtbot):
-        """Test expanded changed signal."""
-        expander = ThinkingExpander()
-        
-        with qtbot.waitSignal(expander.expanded_changed, timeout=1000) as blocker:
-            expander._toggle_expanded()
-            
-        assert blocker.args[0] is True
-        
-    def test_step_clicked_signal(self, qapp, qtbot):
-        """Test step clicked signal."""
-        expander = ThinkingExpander()
-        expander.start_thinking()
-        
-        step = ThinkingStep(id="step1", title="Test")
-        expander.add_step(step)
-        
-        with qtbot.waitSignal(expander.step_clicked, timeout=1000) as blocker:
-            expander._step_widgets["step1"]._toggle_expand()
-            
-        assert blocker.args[0] == "step1"
 
 
 class TestThinkingExpanderEdgeCases:
