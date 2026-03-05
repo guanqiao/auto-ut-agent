@@ -1,4 +1,4 @@
-"""Code editor component with syntax highlighting."""
+"""Code editor component with syntax highlighting and inline AI suggestions."""
 
 import logging
 from pathlib import Path
@@ -8,13 +8,19 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel,
     QScrollBar, QFrame, QMenu
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QRect, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QRect, QSize, QTimer
 from PyQt6.QtGui import (
     QFont, QFontMetrics, QColor, QPainter, QTextFormat,
     QTextCursor, QAction, QKeyEvent
 )
 
 from .syntax_highlighter import SyntaxHighlighter, CodeEditorStyle
+from .ghost_text import GhostTextRenderer, GhostTextSuggestion
+from .inline_diff import InlineDiffRenderer, InlineDiffCalculator, DiffBlock
+from .ai_suggestion_provider import (
+    AISuggestionProvider, SuggestionManager, 
+    CodeSuggestion, SuggestionType, MockAISuggestionProvider
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,19 +42,23 @@ class LineNumberArea(QWidget):
 
 
 class CodeEditor(QTextEdit):
-    """Code editor with syntax highlighting and line numbers.
+    """Code editor with syntax highlighting, line numbers, and inline AI suggestions.
     
     Features:
     - Syntax highlighting (via Pygments)
     - Line numbers
     - Dark/light theme support
     - Current line highlighting
+    - Ghost text for AI suggestions (Tab to accept, Esc to reject)
+    - Inline diff highlighting
     """
     
     # Signals
     cursor_position_changed = pyqtSignal(int, int)  # line, column
     file_loaded = pyqtSignal(str)  # file_path
     text_modified = pyqtSignal(bool)  # is_modified
+    suggestion_accepted = pyqtSignal(str)  # suggestion text
+    suggestion_rejected = pyqtSignal()
     
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -59,7 +69,18 @@ class CodeEditor(QTextEdit):
         self._highlighter: Optional[SyntaxHighlighter] = None
         self._line_number_area: Optional[LineNumberArea] = None
         
+        # Inline edit components
+        self._ghost_renderer: Optional[GhostTextRenderer] = None
+        self._diff_renderer: Optional[InlineDiffRenderer] = None
+        self._suggestion_manager: Optional[SuggestionManager] = None
+        self._use_mock_provider: bool = False
+        
+        # Visual hint timer
+        self._hint_timer: Optional[QTimer] = None
+        self._show_hint: bool = False
+        
         self.setup_ui()
+        self._setup_inline_edit()
         
     def setup_ui(self):
         """Setup the editor UI."""
@@ -84,6 +105,53 @@ class CodeEditor(QTextEdit):
         
         # Apply initial style
         self.set_dark_mode(True)
+        
+    def _setup_inline_edit(self):
+        """Setup inline edit components."""
+        # Ghost text renderer
+        self._ghost_renderer = GhostTextRenderer(self)
+        
+        # Diff renderer
+        self._diff_renderer = InlineDiffRenderer(self)
+        
+        # Suggestion manager
+        self._suggestion_manager = SuggestionManager(self, self)
+        self._suggestion_manager.suggestion_accepted.connect(self._on_suggestion_accepted)
+        self._suggestion_manager.suggestion_rejected.connect(self._on_suggestion_rejected)
+        
+        # Connect provider signal to display ghost text
+        self._suggestion_manager._provider.suggestion_ready.connect(self._display_suggestion)
+        
+        # Setup hint timer
+        self._hint_timer = QTimer(self)
+        self._hint_timer.setSingleShot(True)
+        self._hint_timer.timeout.connect(self._hide_hint)
+        
+    def _display_suggestion(self, suggestion: CodeSuggestion):
+        """Display a suggestion as ghost text."""
+        if not self._ghost_renderer:
+            return
+            
+        ghost_suggestion = GhostTextSuggestion(
+            text=suggestion.text,
+            start_line=suggestion.start_line,
+            start_column=suggestion.start_column,
+            end_line=suggestion.end_line,
+            end_column=suggestion.end_column
+        )
+        self._ghost_renderer.set_suggestion(ghost_suggestion)
+        self._show_accept_hint()
+        
+    def _show_accept_hint(self):
+        """Show visual hint for accepting suggestion."""
+        self._show_hint = True
+        self.viewport().update()
+        self._hint_timer.start(3000)  # Hide after 3 seconds
+        
+    def _hide_hint(self):
+        """Hide the accept hint."""
+        self._show_hint = False
+        self.viewport().update()
         
     def line_number_area_width(self) -> int:
         """Calculate the width of the line number area."""
@@ -140,6 +208,180 @@ class CodeEditor(QTextEdit):
             bottom = top + int(self.blockBoundingRect(block).height())
             block_number += 1
             
+    def paintEvent(self, event):
+        """Override paint event to render ghost text and diff."""
+        # Call parent paint first
+        super().paintEvent(event)
+        
+        # Render ghost text
+        if self._ghost_renderer and self._ghost_renderer.has_suggestion():
+            painter = QPainter(self.viewport())
+            self._ghost_renderer.render(painter, self._dark_mode)
+            
+        # Render diff highlighting
+        if self._diff_renderer and self._diff_renderer.is_visible():
+            painter = QPainter(self.viewport())
+            self._diff_renderer.render(painter)
+            
+        # Render accept hint
+        if self._show_hint and self._ghost_renderer and self._ghost_renderer.has_suggestion():
+            self._render_accept_hint()
+            
+    def _render_accept_hint(self):
+        """Render the Tab to accept hint."""
+        painter = QPainter(self.viewport())
+        
+        # Get suggestion position
+        suggestion = self._ghost_renderer.get_suggestion()
+        if not suggestion:
+            return
+            
+        # Calculate hint position
+        block = self.document().findBlockByLineNumber(suggestion.start_line - 1)
+        cursor = QTextCursor(block)
+        cursor.movePosition(QTextCursor.MoveOperation.Right, 
+                          QTextCursor.MoveMode.MoveAnchor, suggestion.start_column)
+        rect = self.cursorRect(cursor)
+        
+        # Draw hint background
+        hint_text = "  [Tab] Accept  [Esc] Reject  "
+        font_metrics = self.fontMetrics()
+        hint_width = font_metrics.horizontalAdvance(hint_text)
+        hint_height = font_metrics.height()
+        
+        hint_rect = QRect(
+            rect.left(),
+            rect.bottom() + 2,
+            hint_width,
+            hint_height
+        )
+        
+        # Background
+        hint_bg = QColor(60, 60, 60, 200) if self._dark_mode else QColor(220, 220, 220, 200)
+        painter.fillRect(hint_rect, hint_bg)
+        
+        # Border
+        hint_border = QColor(100, 100, 100) if self._dark_mode else QColor(180, 180, 180)
+        painter.setPen(hint_border)
+        painter.drawRect(hint_rect)
+        
+        # Text
+        hint_color = QColor(200, 200, 200) if self._dark_mode else QColor(80, 80, 80)
+        painter.setPen(hint_color)
+        painter.drawText(hint_rect, Qt.AlignmentFlag.AlignCenter, hint_text)
+        
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle key press events for inline edit."""
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # Tab to accept suggestion
+        if key == Qt.Key.Key_Tab and not modifiers:
+            if self._ghost_renderer and self._ghost_renderer.has_suggestion():
+                self._accept_suggestion()
+                return
+                
+        # Esc to reject suggestion
+        if key == Qt.Key.Key_Escape:
+            if self._ghost_renderer and self._ghost_renderer.has_suggestion():
+                self._reject_suggestion()
+                return
+            if self._diff_renderer and self._diff_renderer.is_visible():
+                self._clear_diff()
+                return
+                
+        # Ctrl+Right to accept next word
+        if key == Qt.Key.Key_Right and modifiers == Qt.KeyboardModifier.ControlModifier:
+            if self._ghost_renderer and self._ghost_renderer.has_suggestion():
+                self._accept_next_word()
+                return
+                
+        # F7 to request suggestion
+        if key == Qt.Key.Key_F7:
+            self._request_suggestion()
+            return
+            
+        # Clear suggestion on any other key press
+        if self._ghost_renderer and self._ghost_renderer.has_suggestion():
+            # Don't clear for navigation keys
+            if key not in (Qt.Key.Key_Up, Qt.Key.Key_Down, 
+                          Qt.Key.Key_Left, Qt.Key.Key_Right,
+                          Qt.Key.Key_Home, Qt.Key.Key_End,
+                          Qt.Key.Key_PageUp, Qt.Key.Key_PageDown):
+                self._ghost_renderer.clear_suggestion()
+                
+        super().keyPressEvent(event)
+        
+    def _accept_suggestion(self):
+        """Accept the current ghost text suggestion."""
+        if self._ghost_renderer and self._ghost_renderer.accept_suggestion():
+            self.suggestion_accepted.emit(self._ghost_renderer.get_full_suggestion_text())
+            self._hide_hint()
+            
+    def _accept_next_word(self):
+        """Accept only the next word of the suggestion."""
+        if self._ghost_renderer:
+            self._ghost_renderer.accept_next_word()
+            
+    def _reject_suggestion(self):
+        """Reject the current ghost text suggestion."""
+        if self._ghost_renderer:
+            self._ghost_renderer.clear_suggestion()
+            self._suggestion_manager.clear_suggestion()
+            self._hide_hint()
+            self.suggestion_rejected.emit()
+            
+    def _request_suggestion(self):
+        """Request an AI suggestion."""
+        if self._suggestion_manager:
+            self._suggestion_manager.request_completion()
+            
+    def _on_suggestion_accepted(self, suggestion: CodeSuggestion):
+        """Handle suggestion accepted event."""
+        logger.info(f"Suggestion accepted: {len(suggestion.text)} chars")
+        
+    def _on_suggestion_rejected(self):
+        """Handle suggestion rejected event."""
+        logger.info("Suggestion rejected")
+        
+    def show_diff(self, original_text: str, modified_text: str):
+        """Show inline diff between original and modified text.
+        
+        Args:
+            original_text: The original text
+            modified_text: The modified text
+        """
+        if not self._diff_renderer:
+            return
+            
+        diff_blocks = InlineDiffCalculator.calculate_diff(original_text, modified_text)
+        self._diff_renderer.set_diff_blocks(diff_blocks)
+        
+    def _clear_diff(self):
+        """Clear the diff highlighting."""
+        if self._diff_renderer:
+            self._diff_renderer.clear_diff()
+            
+    def next_diff(self) -> bool:
+        """Navigate to next diff block.
+        
+        Returns:
+            True if navigation was successful
+        """
+        if self._diff_renderer:
+            return self._diff_renderer.next_diff()
+        return False
+        
+    def previous_diff(self) -> bool:
+        """Navigate to previous diff block.
+        
+        Returns:
+            True if navigation was successful
+        """
+        if self._diff_renderer:
+            return self._diff_renderer.previous_diff()
+        return False
+        
     def resizeEvent(self, event):
         """Handle resize event."""
         super().resizeEvent(event)
@@ -252,9 +494,31 @@ class CodeEditor(QTextEdit):
         if self._highlighter:
             self._highlighter.set_dark_mode(dark_mode)
             
+        # Update diff renderer
+        if self._diff_renderer:
+            self._diff_renderer.set_dark_mode(dark_mode)
+            
     def _on_text_changed(self):
         """Handle text changes."""
         self.text_modified.emit(True)
+        
+        # Auto-request suggestion after typing (debounced)
+        if self._suggestion_manager:
+            # Only request if not already showing a suggestion
+            if not (self._ghost_renderer and self._ghost_renderer.has_suggestion()):
+                # Use a short delay to avoid too many requests
+                QTimer.singleShot(500, self._maybe_request_suggestion)
+                
+    def _maybe_request_suggestion(self):
+        """Maybe request a suggestion based on context."""
+        # Only request if cursor is at end of line and line is not empty
+        cursor = self.textCursor()
+        line_text = cursor.block().text()
+        
+        # Simple heuristic: request suggestion if line ends with specific patterns
+        if line_text.rstrip().endswith(('def ', 'class ', 'if ', 'for ', 'while ', 
+                                        'return', 'import', 'from ', '= ')):
+            self._request_suggestion()
         
     def _on_cursor_position_changed(self):
         """Handle cursor position changes."""
@@ -284,6 +548,22 @@ class CodeEditor(QTextEdit):
         generate_tests_action = QAction("Generate Tests", self)
         generate_tests_action.triggered.connect(self._generate_tests)
         ai_menu.addAction(generate_tests_action)
+        
+        # Inline edit actions
+        if self._ghost_renderer and self._ghost_renderer.has_suggestion():
+            menu.addSeparator()
+            accept_action = QAction("✓ Accept Suggestion (Tab)", self)
+            accept_action.triggered.connect(self._accept_suggestion)
+            menu.addAction(accept_action)
+            
+            reject_action = QAction("✗ Reject Suggestion (Esc)", self)
+            reject_action.triggered.connect(self._reject_suggestion)
+            menu.addAction(reject_action)
+        else:
+            menu.addSeparator()
+            suggest_action = QAction("💡 Get AI Suggestion (F7)", self)
+            suggest_action.triggered.connect(self._request_suggestion)
+            menu.addAction(suggest_action)
         
         menu.exec(self.mapToGlobal(position))
         
@@ -346,6 +626,38 @@ class CodeEditor(QTextEdit):
         """
         # TODO: Implement line highlighting
         pass
+        
+    def set_mock_provider(self, use_mock: bool = True):
+        """Enable/disable mock provider for testing.
+        
+        Args:
+            use_mock: Whether to use mock provider
+        """
+        self._use_mock_provider = use_mock
+        if use_mock:
+            self._suggestion_manager._provider = MockAISuggestionProvider(self)
+            self._suggestion_manager._provider.suggestion_ready.connect(self._display_suggestion)
+        else:
+            self._suggestion_manager._provider = AISuggestionProvider(self)
+            self._suggestion_manager._provider.suggestion_ready.connect(self._display_suggestion)
+            
+    def has_active_suggestion(self) -> bool:
+        """Check if there's an active suggestion.
+        
+        Returns:
+            True if a suggestion is being displayed
+        """
+        return self._ghost_renderer is not None and self._ghost_renderer.has_suggestion()
+        
+    def get_suggestion_text(self) -> str:
+        """Get the current suggestion text.
+        
+        Returns:
+            The suggestion text or empty string
+        """
+        if self._ghost_renderer:
+            return self._ghost_renderer.get_full_suggestion_text()
+        return ""
 
 
 class CodeEditorWidget(QWidget):
@@ -392,12 +704,19 @@ class CodeEditorWidget(QWidget):
         self._position_label.setStyleSheet("color: #858585; font-size: 11px;")
         toolbar_layout.addWidget(self._position_label)
         
+        # Suggestion indicator
+        self._suggestion_label = QLabel("")
+        self._suggestion_label.setStyleSheet("color: #4EC9B0; font-size: 11px;")
+        toolbar_layout.addWidget(self._suggestion_label)
+        
         layout.addWidget(toolbar)
         
         # Editor
         self._editor = CodeEditor()
         self._editor.file_loaded.connect(self._on_file_loaded)
         self._editor.cursor_position_changed.connect(self._on_cursor_changed)
+        self._editor.suggestion_accepted.connect(self._on_suggestion_accepted)
+        self._editor.suggestion_rejected.connect(self._on_suggestion_rejected)
         layout.addWidget(self._editor, stretch=1)
         
     def load_file(self, file_path: str) -> bool:
@@ -421,6 +740,16 @@ class CodeEditorWidget(QWidget):
     def _on_cursor_changed(self, line: int, column: int):
         """Handle cursor position change."""
         self._position_label.setText(f"Ln {line}, Col {column}")
+        
+    def _on_suggestion_accepted(self, text: str):
+        """Handle suggestion accepted."""
+        self._suggestion_label.setText("✓ Accepted")
+        QTimer.singleShot(2000, lambda: self._suggestion_label.setText(""))
+        
+    def _on_suggestion_rejected(self):
+        """Handle suggestion rejected."""
+        self._suggestion_label.setText("✗ Rejected")
+        QTimer.singleShot(2000, lambda: self._suggestion_label.setText(""))
         
     def get_editor(self) -> CodeEditor:
         """Get the code editor."""

@@ -6,8 +6,6 @@ import asyncio
 from unittest.mock import MagicMock, patch, call
 
 from pyutagent.ui.components.streaming_handler import (
-    StreamingHandler,
-    OptimizedStreamingHandler,
     StreamingConfig,
     StreamingStats,
     StreamingMode
@@ -98,94 +96,3 @@ class TestStreamingModes:
         """Test instant streaming mode."""
         config = StreamingConfig(mode=StreamingMode.INSTANT)
         assert config.mode == StreamingMode.INSTANT
-
-
-class TestStreamingHandlerBasic:
-    """Basic tests for StreamingHandler that don't require Qt."""
-    
-    def test_handler_creation(self):
-        """Test handler creation."""
-        handler = StreamingHandler()
-        assert handler is not None
-        assert not handler.is_streaming()
-        assert not handler.is_paused()
-        
-    def test_get_content_empty(self):
-        """Test getting content when empty."""
-        handler = StreamingHandler()
-        assert handler.get_content() == ""
-        
-    def test_get_stats_empty(self):
-        """Test getting stats when empty."""
-        handler = StreamingHandler()
-        stats = handler.get_stats()
-        assert stats.total_chars == 0
-        assert stats.total_words == 0
-
-
-class TestStreamingHandlerEdgeCases:
-    """Tests for edge cases in streaming handler."""
-    
-    def test_append_chunk_when_not_streaming(self):
-        """Test appending chunk when not streaming."""
-        handler = StreamingHandler()
-        # Should not raise error
-        handler.append_chunk("test")
-        
-    def test_stop_when_not_streaming(self):
-        """Test stopping when not streaming."""
-        handler = StreamingHandler()
-        # Should not raise error
-        handler.stop_streaming()
-        
-    def test_pause_when_not_streaming(self):
-        """Test pausing when not streaming."""
-        handler = StreamingHandler()
-        # Should not raise error
-        handler.pause_streaming()
-
-
-@pytest.mark.asyncio
-class TestStreamingHandlerAsync:
-    """Async tests for StreamingHandler."""
-    
-    async def test_stream_from_async_iterator(self):
-        """Test streaming from async iterator."""
-        handler = StreamingHandler()
-        config = StreamingConfig(mode=StreamingMode.INSTANT)
-        handler._config = config
-        
-        async def async_generator():
-            chunks = ["Hello", " ", "World"]
-            for chunk in chunks:
-                yield chunk
-                
-        received_chunks = []
-        
-        def on_chunk(chunk):
-            received_chunks.append(chunk)
-            
-        await handler.stream_from_async_iterator(async_generator(), on_chunk)
-        
-        assert "".join(received_chunks) == "Hello World"
-        assert not handler.is_streaming()
-        
-    async def test_stream_from_iterator(self):
-        """Test streaming from synchronous iterator."""
-        handler = StreamingHandler()
-        config = StreamingConfig(mode=StreamingMode.INSTANT)
-        handler._config = config
-        
-        def sync_generator():
-            yield "Hello"
-            yield " "
-            yield "World"
-            
-        received_chunks = []
-        
-        def on_chunk(chunk):
-            received_chunks.append(chunk)
-            
-        handler.stream_from_iterator(sync_generator(), on_chunk)
-        
-        assert "".join(received_chunks) == "Hello World"

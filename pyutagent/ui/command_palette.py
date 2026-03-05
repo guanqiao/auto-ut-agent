@@ -100,6 +100,22 @@ class CommandPalette(QDialog):
                 lambda: self._execute("open_recent")
             ),
             Command(
+                "search.semantic",
+                "Semantic Search",
+                "Search code using natural language",
+                "Ctrl+Shift+F",
+                "Search",
+                lambda: self._execute("semantic_search")
+            ),
+            Command(
+                "search.files",
+                "Find in Files",
+                "Search text across all files",
+                "Ctrl+Shift+H",
+                "Search",
+                lambda: self._execute("find_in_files")
+            ),
+            Command(
                 "generate.single",
                 "Generate Tests",
                 "Generate tests for selected file",

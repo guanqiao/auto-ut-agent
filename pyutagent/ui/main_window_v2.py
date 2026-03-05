@@ -11,7 +11,7 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QMessageBox, QFileDialog, QApplication
+    QMessageBox, QFileDialog, QApplication, QDialog
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
@@ -23,6 +23,9 @@ from .session import SessionManager
 from .commands import SlashCommandHandler, MentionSystem
 from .styles import get_style_manager
 from .components import get_notification_manager, ThinkingExpander, ThinkingStep, ThinkingStatus
+from .editor.approval_diff_viewer import ApprovalDialog
+from .terminal.embedded_terminal import TerminalWidget
+from .services.semantic_search import SemanticSearchService
 
 # Import existing components (backward compatibility)
 from ..core.config import (
@@ -72,7 +75,8 @@ class MainWindowV2(QMainWindow):
         self._session_manager = SessionManager()
         self._slash_handler = SlashCommandHandler()
         self._mention_system = MentionSystem()
-        
+        self._semantic_search_service: Optional[SemanticSearchService] = None
+
         # Initialize UI components
         self._style_manager = get_style_manager()
         self._notification_manager = get_notification_manager()
@@ -215,9 +219,24 @@ class MainWindowV2(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
+        # Search menu
+        search_menu = menubar.addMenu("&Search")
+
+        semantic_search_action = QAction("&Semantic Search...", self)
+        semantic_search_action.setShortcut("Ctrl+Shift+F")
+        semantic_search_action.triggered.connect(self.on_semantic_search)
+        search_menu.addAction(semantic_search_action)
+
+        search_menu.addSeparator()
+
+        find_in_files_action = QAction("Find in &Files...", self)
+        find_in_files_action.setShortcut("Ctrl+Shift+H")
+        find_in_files_action.triggered.connect(self.on_find_in_files)
+        search_menu.addAction(find_in_files_action)
+
         # View menu
         view_menu = menubar.addMenu("&View")
-        
+
         toggle_sidebar_action = QAction("Toggle &Sidebar", self)
         toggle_sidebar_action.setShortcut("Ctrl+B")
         toggle_sidebar_action.triggered.connect(
@@ -252,7 +271,14 @@ class MainWindowV2(QMainWindow):
             lambda: self._main_layout.set_layout_mode(MainLayout.MODE_FOCUS_AGENT)
         )
         view_menu.addAction(focus_agent_action)
-        
+
+        view_menu.addSeparator()
+
+        terminal_action = QAction("&Terminal", self)
+        terminal_action.setShortcut("Ctrl+`")
+        terminal_action.triggered.connect(self.on_show_terminal)
+        view_menu.addAction(terminal_action)
+
         # Settings menu
         settings_menu = menubar.addMenu("&Settings")
         
@@ -286,7 +312,13 @@ class MainWindowV2(QMainWindow):
         command_palette_shortcut.setShortcut("Ctrl+Shift+P")
         command_palette_shortcut.triggered.connect(self.on_command_palette)
         self.addAction(command_palette_shortcut)
-        
+
+        # Semantic search shortcut (Ctrl+Shift+F)
+        semantic_search_shortcut = QAction(self)
+        semantic_search_shortcut.setShortcut("Ctrl+Shift+F")
+        semantic_search_shortcut.triggered.connect(self.on_semantic_search)
+        self.addAction(semantic_search_shortcut)
+
         # Cancel streaming shortcut
         cancel_streaming_shortcut = QAction(self)
         cancel_streaming_shortcut.setShortcut("Escape")
@@ -827,8 +859,109 @@ class MainWindowV2(QMainWindow):
     def on_command_palette(self):
         """Show command palette."""
         logger.info("Command palette requested")
-        # TODO: Implement command palette
-        
+        from .command_palette import show_command_palette
+
+        # Add semantic search command if not exists
+        palette = self._create_command_palette_with_search()
+        palette.exec()
+
+    def _create_command_palette_with_search(self):
+        """Create command palette with semantic search command."""
+        from .command_palette import CommandPalette
+
+        palette = CommandPalette(self)
+
+        # Add semantic search command
+        from PyQt6.QtGui import QAction
+        from PyQt6.QtWidgets import QDialog
+
+        # Connect to execute semantic search
+        original_execute = palette._execute
+
+        def enhanced_execute(action: str):
+            if action == "semantic_search":
+                self.on_semantic_search()
+            elif action == "find_in_files":
+                self.on_find_in_files()
+            else:
+                original_execute(action)
+
+        palette._execute = enhanced_execute
+
+        return palette
+
+    def on_semantic_search(self):
+        """Show semantic search dialog."""
+        logger.info("Semantic search requested")
+
+        if not self.current_project:
+            self._notification_manager.show_warning(
+                "Please open a project first",
+                duration=3000
+            )
+            return
+
+        try:
+            # Initialize search service if needed
+            if self._semantic_search_service is None:
+                self._semantic_search_service = SemanticSearchService(
+                    project_path=self.current_project
+                )
+
+            # Show dialog
+            from .dialogs.semantic_search_dialog import SemanticSearchDialog
+
+            dialog = SemanticSearchDialog(
+                project_path=self.current_project,
+                search_service=self._semantic_search_service,
+                parent=self
+            )
+
+            # Connect result selection to open file
+            dialog.result_selected.connect(self._on_search_result_selected)
+            dialog.result_activated.connect(self._on_search_result_activated)
+
+            dialog.exec()
+
+        except Exception as e:
+            logger.exception("Failed to open semantic search")
+            self._notification_manager.show_error(
+                f"Failed to open semantic search: {e}",
+                duration=5000
+            )
+
+    def _on_search_result_selected(self, file_path: str, line_number: int):
+        """Handle search result selection."""
+        logger.info(f"Search result selected: {file_path}:{line_number}")
+        # File path is already copied to clipboard by the dialog
+
+    def _on_search_result_activated(self, file_path: str, line_number: int):
+        """Handle search result activation (double-click)."""
+        logger.info(f"Search result activated: {file_path}:{line_number}")
+
+        # Open the file in editor
+        if Path(file_path).exists():
+            self._content_panel.open_file(file_path)
+            # TODO: Navigate to specific line number in editor
+            self._notification_manager.show_success(
+                f"Opened {Path(file_path).name}:{line_number}",
+                duration=2000
+            )
+        else:
+            self._notification_manager.show_warning(
+                f"File not found: {file_path}",
+                duration=3000
+            )
+
+    def on_find_in_files(self):
+        """Show find in files dialog."""
+        logger.info("Find in files requested")
+        # TODO: Implement find in files
+        self._notification_manager.show_info(
+            "Find in files - Coming soon",
+            duration=2000
+        )
+
     def on_about(self):
         """Show about dialog."""
         QMessageBox.about(
@@ -857,6 +990,24 @@ class MainWindowV2(QMainWindow):
             approved = dialog.get_approved_files()
             rejected = dialog.get_rejected_files()
             logger.info(f"Review completed: {len(approved)} approved, {len(rejected)} rejected")
+
+    def on_show_terminal(self):
+        """Show integrated terminal panel."""
+        logger.info("Terminal requested")
+        if not hasattr(self, '_terminal_dialog') or self._terminal_dialog is None:
+            self._terminal_dialog = QDialog(self)
+            self._terminal_dialog.setWindowTitle("Terminal")
+            self._terminal_dialog.setMinimumSize(800, 500)
+
+            layout = QVBoxLayout(self._terminal_dialog)
+            layout.setContentsMargins(0, 0, 0, 0)
+
+            self._terminal_widget = TerminalWidget(cwd=self.current_project or None)
+            layout.addWidget(self._terminal_widget)
+
+        self._terminal_dialog.show()
+        self._terminal_dialog.raise_()
+        self._terminal_dialog.activateWindow()
         
     def closeEvent(self, event):
         """Handle window close."""

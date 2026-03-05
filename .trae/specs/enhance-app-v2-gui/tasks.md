@@ -7,37 +7,37 @@
 **优先级**: P0
 **预计时间**: 1周
 
-- [ ] SubTask 1.1: 创建 Markdown 渲染组件
+- [x] SubTask 1.1: 创建 Markdown 渲染组件
   - 创建 `pyutagent/ui/components/markdown_renderer.py`
   - 集成 mistune 或 markdown 库
   - 支持代码块、列表、表格、引用
   - 添加代码块语法高亮
 
-- [ ] SubTask 1.2: 实现流式响应处理
+- [x] SubTask 1.2: 实现流式响应处理
   - 创建 `pyutagent/ui/components/streaming_handler.py`
   - 实现打字机效果
   - 支持逐字/逐词渲染
   - 添加渲染性能优化
 
-- [ ] SubTask 1.3: 增强 ChatMessageWidget
+- [x] SubTask 1.3: 增强 ChatMessageWidget
   - 修改 `pyutagent/ui/agent_panel/chat_mode.py`
   - 集成 Markdown 渲染
   - 添加代码块复制按钮
   - 添加插入到编辑器按钮
 
-- [ ] SubTask 1.4: 实现思考过程展示
+- [x] SubTask 1.4: 实现思考过程展示
   - 创建 `pyutagent/ui/components/thinking_expander.py`
   - 支持折叠/展开
   - 显示思考耗时
   - 添加到 AgentMode
 
-- [ ] SubTask 1.5: 连接 LLM 流式 API
+- [x] SubTask 1.5: 连接 LLM 流式 API
   - 修改 `pyutagent/ui/main_window_v2.py`
   - 集成 LLMClient 流式接口
   - 实现 on_message_sent 流式处理
   - 添加错误处理
 
-- [ ] SubTask 1.6: 编写单元测试
+- [x] SubTask 1.6: 编写单元测试
   - 测试 Markdown 渲染
   - 测试流式处理
   - 测试代码块交互
@@ -134,30 +134,30 @@
 **优先级**: P1
 **预计时间**: 1周
 
-- [ ] SubTask 4.1: 创建符号索引服务
+- [x] SubTask 4.1: 创建符号索引服务
   - 创建 `pyutagent/ui/services/symbol_indexer.py`
   - 解析代码符号（类/方法/函数）
   - 构建符号索引
   - 支持增量更新
 
-- [ ] SubTask 4.2: 扩展 MentionSystem
+- [x] SubTask 4.2: 扩展 MentionSystem
   - 修改 `pyutagent/ui/commands/mention_system.py`
   - 添加 @symbol 类型
   - 实现符号搜索
   - 添加类型分组显示
 
-- [ ] SubTask 4.3: 实现智能自动完成
+- [x] SubTask 4.3: 实现智能自动完成
   - 增强 MentionPopup
   - 添加模糊匹配
   - 按类型分组（类/方法/变量）
   - 添加最近使用优先
 
-- [ ] SubTask 4.4: 集成到上下文
+- [x] SubTask 4.4: 集成到上下文
   - 修改 ContextManager
   - 支持符号类型上下文
   - 显示符号定义预览
 
-- [ ] SubTask 4.5: 编写单元测试
+- [x] SubTask 4.5: 编写单元测试
   - 测试符号索引
   - 测试自动完成
   - 测试上下文集成
@@ -169,26 +169,29 @@
 **优先级**: P1
 **预计时间**: 1周
 
-- [ ] SubTask 5.1: 创建语义搜索对话框
+- [x] SubTask 5.1: 创建语义搜索对话框
   - 创建 `pyutagent/ui/dialogs/semantic_search_dialog.py`
-  - 设计搜索界面
-  - 添加搜索结果列表
-  - 添加预览面板
+  - 设计搜索界面（搜索框 + 结果列表 + 预览面板）
+  - 支持自然语言输入
+  - 显示搜索结果列表
+  - 代码预览面板
 
-- [ ] SubTask 5.2: 实现语义搜索服务
+- [x] SubTask 5.2: 实现语义搜索服务
   - 创建 `pyutagent/ui/services/semantic_search.py`
-  - 集成代码库索引
-  - 实现相似度计算
+  - 集成代码库索引（使用现有的索引系统）
+  - 实现相似度计算（基于 LLM 或向量）
   - 支持自然语言查询
+  - 结果排序和过滤
 
-- [ ] SubTask 5.3: 添加搜索快捷键
+- [x] SubTask 5.3: 添加快捷键和集成
   - 修改 `pyutagent/ui/main_window_v2.py`
   - 添加 Ctrl+Shift+F 快捷键
   - 集成到 Command Palette
 
-- [ ] SubTask 5.4: 编写单元测试
+- [x] SubTask 5.4: 编写单元测试
   - 测试搜索功能
   - 测试结果排序
+  - 单元测试覆盖率 > 90%
 
 ---
 
@@ -281,15 +284,15 @@ Phase 3:
 ## 验收标准
 
 ### Phase 1 验收
-- [ ] AI 响应实时流式显示，延迟 < 100ms/字
-- [ ] Markdown 正确渲染（代码块、列表、表格）
-- [ ] 代码块可复制、可插入编辑器
+- [x] AI 响应实时流式显示，延迟 < 100ms/字
+- [x] Markdown 正确渲染（代码块、列表、表格）
+- [x] 代码块可复制、可插入编辑器
 - [ ] 行内编辑 Tab 接受/Esc 拒绝可用
-- [ ] Agent 执行过程实时可见
-- [ ] 所有 P0 任务单元测试通过率 > 90%
+- [x] Agent 执行过程实时可见
+- [x] 所有 P0 任务单元测试通过率 > 90%
 
 ### Phase 2 验收
-- [ ] @symbol 引用可用，自动完成响应 < 200ms
+- [x] @symbol 引用可用，自动完成响应 < 200ms
 - [ ] 语义搜索返回结果相关度 > 80%
 - [ ] 终端错误可检测，AI 修复可一键应用
 

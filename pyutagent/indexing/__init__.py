@@ -4,6 +4,7 @@ This module provides:
 - CodeChunker: Intelligent code splitting into chunks
 - CodeIndexer: Building and maintaining code indices
 - ContextAssembler: Assembling relevant context for LLM prompts
+- CodebaseIndexer: Comprehensive codebase indexing with dependency graphs
 """
 
 from .code_chunker import (
@@ -24,6 +25,18 @@ from .context_assembler import (
     AssemblerConfig,
     ContextAssembler,
 )
+from .codebase_indexer import (
+    SymbolType,
+    RelationType,
+    CodeSymbol,
+    SymbolRelation,
+    FileIndex,
+    CodebaseIndexState,
+    IndexerConfig,
+    DependencyGraph,
+    JavaSymbolExtractor,
+    CodebaseIndexer,
+)
 
 __all__ = [
     "ChunkType",
@@ -38,4 +51,15 @@ __all__ = [
     "ContextWindow",
     "AssemblerConfig",
     "ContextAssembler",
+    # Codebase indexer exports
+    "SymbolType",
+    "RelationType",
+    "CodeSymbol",
+    "SymbolRelation",
+    "FileIndex",
+    "CodebaseIndexState",
+    "IndexerConfig",
+    "DependencyGraph",
+    "JavaSymbolExtractor",
+    "CodebaseIndexer",
 ]
