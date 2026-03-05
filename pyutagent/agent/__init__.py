@@ -141,14 +141,22 @@ from .tool_use_agent import (
 from .intelligence_enhancer import IntelligenceEnhancer
 
 # Universal Agent Components (P0 Gap Fill)
-from .task_understanding import (
+from .universal_planner import (
+    UniversalTaskPlanner,
     TaskType,
+    TaskUnderstanding,
+    Subtask,
+    SubtaskResult,
+    ExecutionPlan,
+    TaskHandler,
+    ExecutionResult,
+)
+from .task_understanding import (
     TaskPriority,
     TaskComplexity,
     TargetScope,
     Constraint,
     SuccessCriterion,
-    TaskUnderstanding,
     TaskClassifier,
     EnhancedTaskClassifier,
     Intent,
@@ -158,7 +166,6 @@ from .task_planner import (
     SubTaskStatus,
     SubTaskType,
     SubTask,
-    ExecutionPlan,
     TaskPlanner,
     PlanExecutor,
     EnhancedTaskPlanner,
@@ -236,7 +243,7 @@ from .delegating_subagent import (
     DelegationContext,
     DelegationMode,
     DelegationResult,
-    ProgressUpdate,
+    ProgressUpdate as DelegationProgressUpdate,
     create_delegating_subagent,
 )
 from .subagent_factory import (
@@ -454,19 +461,26 @@ __all__ = [
     "create_tool_use_agent",
     "IntelligenceEnhancer",
     
-    # Universal Agent Components (P0 Gap Fill)
+    # Universal Task Planner
+    "UniversalTaskPlanner",
     "TaskType",
+    "TaskUnderstanding",
+    "Subtask",
+    "SubtaskResult",
+    "ExecutionPlan",
+    "TaskHandler",
+    "ExecutionResult",
+
+    # Universal Agent Components (P0 Gap Fill)
     "TaskPriority",
     "TaskComplexity",
     "TargetScope",
     "Constraint",
     "SuccessCriterion",
-    "TaskUnderstanding",
     "TaskClassifier",
     "SubTaskStatus",
     "SubTaskType",
     "SubTask",
-    "ExecutionPlan",
     "TaskPlanner",
     "PlanExecutor",
     "EnhancedTaskPlanner",

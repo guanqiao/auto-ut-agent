@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import shutil
 import platform
@@ -138,6 +138,35 @@ def _find_maven_unix() -> Optional[str]:
             return str(mvn)
     
     return None
+
+
+@dataclass
+class CoverageThreshold:
+    """Coverage threshold configuration."""
+    line: float = 0.8
+    branch: float = 0.7
+    method: float = 0.9
+    class_: float = 1.0
+
+
+@dataclass
+class CoverageChange:
+    """Coverage change data."""
+    metric: str
+    old_value: float
+    new_value: float
+    change: float
+    timestamp: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class CoverageTrend:
+    """Coverage trend data point."""
+    timestamp: datetime
+    line_coverage: float
+    branch_coverage: float
+    instruction_coverage: float
+    total_tests: int = 0
 
 
 @dataclass
@@ -836,6 +865,247 @@ class CoverageAnalyzer:
                 return file_coverage
         
         return None
+    
+    def get_coverage_history_file(self) -> Path:
+        """Get coverage history file path.
+        
+        Returns:
+            Path to history file
+        """
+        history_dir = self.project_path / ".pyutagent"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        return history_dir / "coverage_history.json"
+    
+    def save_coverage_snapshot(self, report: CoverageReport, total_tests: int = 0):
+        """Save coverage snapshot to history.
+        
+        Args:
+            report: Coverage report
+            total_tests: Total number of tests
+        """
+        history_file = self.get_coverage_history_file()
+        
+        # Load existing history
+        history = []
+        if history_file.exists():
+            try:
+                history = json.loads(history_file.read_text(encoding='utf-8'))
+            except Exception as e:
+                logger.warning(f"Failed to load coverage history: {e}")
+                history = []
+        
+        # Add new entry
+        history.append({
+            'timestamp': datetime.now().isoformat(),
+            'line_coverage': report.line_coverage,
+            'branch_coverage': report.branch_coverage,
+            'instruction_coverage': report.instruction_coverage,
+            'method_coverage': report.method_coverage,
+            'class_coverage': report.class_coverage,
+            'total_tests': total_tests
+        })
+        
+        # Keep only last 100 entries
+        history = history[-100:]
+        
+        # Save history
+        try:
+            history_file.write_text(json.dumps(history, indent=2), encoding='utf-8')
+            logger.debug(f"Saved coverage snapshot: line={report.line_coverage:.1%}")
+        except Exception as e:
+            logger.error(f"Failed to save coverage history: {e}")
+    
+    def get_coverage_trend(self, days: int = 30) -> List[CoverageTrend]:
+        """Get coverage trend for the last N days.
+        
+        Args:
+            days: Number of days to look back
+            
+        Returns:
+            List of CoverageTrend objects
+        """
+        history_file = self.get_coverage_history_file()
+        if not history_file.exists():
+            return []
+        
+        try:
+            history = json.loads(history_file.read_text(encoding='utf-8'))
+            trends = []
+            
+            # Filter by days
+            cutoff = datetime.now() - timedelta(days=days)
+            
+            for entry in history:
+                entry_time = datetime.fromisoformat(entry['timestamp'])
+                if entry_time >= cutoff:
+                    trends.append(CoverageTrend(
+                        timestamp=entry_time,
+                        line_coverage=entry['line_coverage'],
+                        branch_coverage=entry['branch_coverage'],
+                        instruction_coverage=entry.get('instruction_coverage', 0.0),
+                        total_tests=entry.get('total_tests', 0)
+                    ))
+            
+            return trends
+        except Exception as e:
+            logger.error(f"Failed to load coverage trend: {e}")
+            return []
+    
+    def compare_coverage(self, baseline_index: int = -2) -> List[CoverageChange]:
+        """Compare current coverage with baseline.
+        
+        Args:
+            baseline_index: Index of baseline entry in history (-2 = previous)
+            
+        Returns:
+            List of CoverageChange objects
+        """
+        history_file = self.get_coverage_history_file()
+        if not history_file.exists():
+            return []
+        
+        try:
+            history = json.loads(history_file.read_text(encoding='utf-8'))
+            if len(history) < 2:
+                return []
+            
+            # Get current and baseline
+            current_entry = history[-1]
+            baseline_entry = history[baseline_index]
+            
+            changes = []
+            metrics = [
+                ('line_coverage', 'Line Coverage'),
+                ('branch_coverage', 'Branch Coverage'),
+                ('instruction_coverage', 'Instruction Coverage'),
+                ('method_coverage', 'Method Coverage'),
+                ('class_coverage', 'Class Coverage')
+            ]
+            
+            for metric_key, metric_name in metrics:
+                old_value = baseline_entry.get(metric_key, 0.0)
+                new_value = current_entry.get(metric_key, 0.0)
+                change = new_value - old_value
+                
+                changes.append(CoverageChange(
+                    metric=metric_name,
+                    old_value=old_value,
+                    new_value=new_value,
+                    change=change
+                ))
+            
+            return changes
+        except Exception as e:
+            logger.error(f"Failed to compare coverage: {e}")
+            return []
+    
+    def check_thresholds(self, thresholds: CoverageThreshold) -> List[str]:
+        """Check if coverage meets thresholds.
+        
+        Args:
+            thresholds: Coverage thresholds
+            
+        Returns:
+            List of threshold violations
+        """
+        report = self.parse_report()
+        if not report:
+            return ["无法解析覆盖率报告"]
+        
+        violations = []
+        
+        if report.line_coverage < thresholds.line:
+            violations.append(
+                f"行覆盖率 {report.line_coverage:.1%} < 目标 {thresholds.line:.1%}"
+            )
+        
+        if report.branch_coverage < thresholds.branch:
+            violations.append(
+                f"分支覆盖率 {report.branch_coverage:.1%} < 目标 {thresholds.branch:.1%}"
+            )
+        
+        if report.method_coverage < thresholds.method:
+            violations.append(
+                f"方法覆盖率 {report.method_coverage:.1%} < 目标 {thresholds.method:.1%}"
+            )
+        
+        if report.class_coverage < thresholds.class_:
+            violations.append(
+                f"类覆盖率 {report.class_coverage:.1%} < 目标 {thresholds.class_:.1%}"
+            )
+        
+        return violations
+    
+    def get_coverage_summary(self) -> str:
+        """Get coverage summary as markdown.
+        
+        Returns:
+            Markdown formatted summary
+        """
+        report = self.parse_report()
+        if not report:
+            return "无法获取覆盖率数据"
+        
+        summary = []
+        summary.append("## 覆盖率报告\n")
+        summary.append(f"- **行覆盖率**: {report.line_coverage:.1%}")
+        summary.append(f"- **分支覆盖率**: {report.branch_coverage:.1%}")
+        summary.append(f"- **指令覆盖率**: {report.instruction_coverage:.1%}")
+        summary.append(f"- **方法覆盖率**: {report.method_coverage:.1%}")
+        summary.append(f"- **类覆盖率**: {report.class_coverage:.1%}")
+        summary.append(f"- **覆盖文件数**: {len(report.files)}\n")
+        
+        # Lowest coverage files
+        sorted_files = sorted(report.files, key=lambda f: f.line_coverage)
+        if sorted_files:
+            summary.append("### 覆盖率最低的文件\n")
+            for file_cov in sorted_files[:5]:
+                summary.append(f"- `{file_cov.path}`: {file_cov.line_coverage:.1%}")
+        
+        return "\n".join(summary)
+    
+    def get_uncovered_methods(self, file_path: str) -> List[Dict[str, Any]]:
+        """Get methods with low coverage in a file.
+        
+        Args:
+            file_path: Path to source file
+            
+        Returns:
+            List of method information
+        """
+        # This would require parsing the Java source file
+        # For now, return uncovered lines
+        uncovered_lines = self.get_uncovered_lines(file_path)
+        
+        return [
+            {'line': line, 'type': 'uncovered_line'}
+            for line in uncovered_lines[:20]  # Limit to 20
+        ]
+    
+    def suggest_tests_for_coverage(self, file_path: str) -> List[Dict[str, Any]]:
+        """Suggest tests to improve coverage.
+        
+        Args:
+            file_path: Path to source file
+            
+        Returns:
+            List of test suggestions
+        """
+        uncovered_lines = self.get_uncovered_lines(file_path)
+        if not uncovered_lines:
+            return []
+        
+        # Group uncovered lines into ranges
+        suggestions = []
+        if uncovered_lines:
+            suggestions.append({
+                'type': 'cover_uncovered_lines',
+                'priority': 'high',
+                'lines': uncovered_lines[:10],
+                'description': f'为 {len(uncovered_lines)} 行未覆盖的代码添加测试'
+            })
+        
+        return suggestions
 
 
 class ProjectScanner:
