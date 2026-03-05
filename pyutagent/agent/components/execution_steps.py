@@ -1835,6 +1835,7 @@ class StepExecutor:
         
         Uses unified error classification service for consistent categorization.
         Includes smart detection of dependency issues for targeted recovery.
+        Now includes smart LLM analysis for compilation and test failures.
         
         Args:
             error: The error that occurred
@@ -1859,6 +1860,8 @@ class StepExecutor:
         detailed_error_info = self.error_classifier.get_detailed_error_info(error, context)
         error_category = self.error_classifier.classify(error, context)
         
+        step_name = context.get("step", "")
+        
         if detailed_error_info.get("needs_dependency_resolution"):
             logger.info("[StepExecutor] Detected dependency issue, using INSTALL_DEPENDENCIES strategy")
             return await self._recover_from_dependency_issue(error, context, detailed_error_info)
@@ -1866,6 +1869,11 @@ class StepExecutor:
         if detailed_error_info.get("is_environment_issue"):
             logger.info("[StepExecutor] Detected environment issue, using FIX_ENVIRONMENT strategy")
             return await self._recover_from_environment_issue(error, context, detailed_error_info)
+        
+        if step_name in ("compilation", "test_execution") and self.retry_config.enable_smart_retry:
+            smart_result = await self._smart_recover_with_llm_analysis(error, context, step_name)
+            if smart_result:
+                return smart_result
         
         suggested_strategy = self.components["error_learner"].suggest_strategy(error, error_category, context)
         if suggested_strategy:
@@ -1887,8 +1895,6 @@ class StepExecutor:
         
         from pyutagent.core.error_recovery import RecoveryStrategy
         
-        # Phase 2: Use IntelligenceEnhancedCoT for enhanced error fix prompts
-        enhanced_fix_context = {}
         if "intelligence_enhanced_cot" in self.components and current_test_code:
             try:
                 self.agent_core._update_state(AgentState.FIXING, "🧠 正在进行根因分析...")
@@ -1897,7 +1903,6 @@ class StepExecutor:
                 source_code = self.agent_core.target_class_info.get("source", "")
                 test_method = context.get("step", "unknown")
                 
-                # Generate enhanced fix prompt using root cause analysis
                 enhanced_fix_prompt = self.components["intelligence_enhanced_cot"].generate_enhanced_fix_prompt(
                     error_message=error_message,
                     test_code=current_test_code,
@@ -1905,13 +1910,10 @@ class StepExecutor:
                     test_method=test_method
                 )
                 
-                enhanced_fix_context["enhanced_prompt"] = enhanced_fix_prompt
+                context = {**context, "enhanced_prompt": enhanced_fix_prompt}
                 logger.info("[StepExecutor] ✅ Phase 2: Enhanced error analysis complete")
             except Exception as e:
                 logger.warning(f"[StepExecutor] Phase 2: Failed to generate enhanced fix prompt, falling back: {e}")
-        
-        # Merge enhanced context into the error context
-        context = {**context, **enhanced_fix_context}
         
         recovery_result = await self.components["error_recovery"].recover(
             error,
@@ -1955,6 +1957,136 @@ class StepExecutor:
         logger.info(f"[StepExecutor] Recovery result - Action: {recovery_result.get('action')}, ShouldContinue: {recovery_result.get('should_continue')}")
         
         return recovery_result
+    
+    async def _smart_recover_with_llm_analysis(
+        self,
+        error: Exception,
+        context: Dict[str, Any],
+        step_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """使用智能 LLM 分析进行恢复。
+        
+        这是增强版的恢复流程，会：
+        1. 收集完整的编译/测试输出
+        2. 调用 LLM 进行深度分析
+        3. 解析 LLM 给出的行动方案
+        4. 执行行动方案
+        
+        Args:
+            error: 发生的异常
+            context: 错误上下文
+            step_name: 步骤名称
+            
+        Returns:
+            恢复结果，如果无法智能恢复则返回 None
+        """
+        try:
+            error_recovery = self.components.get("error_recovery")
+            if not error_recovery or not hasattr(error_recovery, 'analyze_with_smart_context'):
+                return None
+            
+            self.agent_core._update_state(
+                AgentState.FIXING,
+                f"🧠 正在使用 LLM 智能分析 {step_name} 错误..."
+            )
+            
+            logger.info(f"[StepExecutor] 🧠 Starting smart LLM analysis for {step_name}")
+            
+            error_context = {
+                **context,
+                "source_file": self.agent_core.target_file,
+                "test_file": self.agent_core.current_test_file,
+            }
+            
+            if step_name == "compilation":
+                compiler_output = context.get("compiler_output", str(error))
+                error_context["compiler_output"] = compiler_output
+                error_type = "compilation"
+            else:
+                test_output = context.get("test_output", str(error))
+                error_context["test_output"] = test_output
+                error_type = "test_failure"
+            
+            analysis_result = await error_recovery.analyze_with_smart_context(
+                error=error,
+                error_context=error_context,
+                error_type=error_type
+            )
+            
+            if not analysis_result.get("success"):
+                logger.warning(f"[StepExecutor] Smart analysis failed: {analysis_result.get('message')}")
+                return None
+            
+            action_plan = analysis_result.get("action_plan", [])
+            confidence = analysis_result.get("confidence", 0.5)
+            
+            logger.info(
+                f"[StepExecutor] 🧠 Smart analysis complete - "
+                f"Root cause: {analysis_result.get('root_cause', 'Unknown')[:100]}, "
+                f"Actions: {len(action_plan)}, "
+                f"Confidence: {confidence:.2f}"
+            )
+            
+            if not action_plan:
+                logger.warning("[StepExecutor] No action plan from LLM analysis")
+                return None
+            
+            for action in action_plan:
+                action_type = action.get("action", "unknown")
+                logger.info(f"[StepExecutor] 📋 LLM recommended action: {action_type}")
+                
+                if action_type in ("regenerate_test", "regenerate"):
+                    logger.info("[StepExecutor] 🔄 LLM recommends test regeneration")
+                    return {
+                        "should_continue": True,
+                        "action": "reset",
+                        "reason": "LLM analysis recommends regeneration",
+                        "confidence": confidence
+                    }
+                
+                if action_type == "skip_test":
+                    logger.info("[StepExecutor] ⏭️ LLM recommends skipping test")
+                    return {
+                        "should_continue": True,
+                        "action": "skip",
+                        "reason": "LLM analysis recommends skipping",
+                        "confidence": confidence
+                    }
+            
+            execution_result = await error_recovery.execute_action_plan(
+                action_plan,
+                {
+                    **error_context,
+                    "confidence": confidence,
+                    "test_file": self.agent_core.current_test_file,
+                    "project_path": self.agent_core.project_path
+                }
+            )
+            
+            if execution_result.get("success"):
+                modified_files = execution_result.get("modified_files", [])
+                logger.info(f"[StepExecutor] ✅ Smart recovery executed - Modified: {modified_files}")
+                
+                return {
+                    "should_continue": True,
+                    "action": "fix",
+                    "message": f"Applied {len(execution_result.get('results', []))} fixes",
+                    "modified_files": modified_files,
+                    "confidence": confidence,
+                    "analysis": analysis_result.get("analysis", "")
+                }
+            else:
+                logger.warning(f"[StepExecutor] Smart recovery execution failed: {execution_result.get('message')}")
+                return {
+                    "should_continue": True,
+                    "action": "retry",
+                    "reason": "Smart recovery execution failed, falling back to retry",
+                    "confidence": confidence
+                }
+                
+        except Exception as e:
+            logger.exception(f"[StepExecutor] Smart recovery failed: {e}")
+            return None
     
     async def _recover_from_dependency_issue(
         self, 
