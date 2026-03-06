@@ -337,10 +337,11 @@ class TestLLMClient:
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient')
     async def test_quick_endpoint_check_success(self, mock_async_client, client):
-        """Test quick endpoint check - success."""
+        """Test quick endpoint check - success via /chat/completions."""
         mock_response = Mock()
         mock_response.status_code = 200
         mock_context = AsyncMock()
+        mock_context.post.return_value = mock_response
         mock_context.get.return_value = mock_response
         mock_context.__aenter__ = AsyncMock(return_value=mock_context)
         mock_context.__aexit__ = AsyncMock(return_value=None)
@@ -350,15 +351,18 @@ class TestLLMClient:
 
         assert success is True
         assert "reachable" in message.lower()
+        # Verify POST was called for /chat/completions
+        mock_context.post.assert_called_once()
 
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient')
     async def test_quick_endpoint_check_404(self, mock_async_client, client):
         """Test quick endpoint check - 404 error (acceptable for custom endpoints)."""
-        mock_response = Mock()
-        mock_response.status_code = 404
+        mock_response_404 = Mock()
+        mock_response_404.status_code = 404
         mock_context = AsyncMock()
-        mock_context.get.return_value = mock_response
+        mock_context.post.return_value = mock_response_404
+        mock_context.get.return_value = mock_response_404
         mock_context.__aenter__ = AsyncMock(return_value=mock_context)
         mock_context.__aexit__ = AsyncMock(return_value=None)
         mock_async_client.return_value = mock_context
@@ -374,6 +378,7 @@ class TestLLMClient:
         """Test quick endpoint check - timeout."""
         import httpx
         mock_context = AsyncMock()
+        mock_context.post.side_effect = httpx.TimeoutException("Timeout")
         mock_context.get.side_effect = httpx.TimeoutException("Timeout")
         mock_context.__aenter__ = AsyncMock(return_value=mock_context)
         mock_context.__aexit__ = AsyncMock(return_value=None)
@@ -391,6 +396,7 @@ class TestLLMClient:
         mock_response = Mock()
         mock_response.status_code = 401
         mock_context = AsyncMock()
+        mock_context.post.return_value = mock_response
         mock_context.get.return_value = mock_response
         mock_context.__aenter__ = AsyncMock(return_value=mock_context)
         mock_context.__aexit__ = AsyncMock(return_value=None)
@@ -454,6 +460,7 @@ class TestLLMClient:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_context = AsyncMock()
+        mock_context.post.return_value = mock_response
         mock_context.get.return_value = mock_response
         mock_context.__aenter__ = AsyncMock(return_value=mock_context)
         mock_context.__aexit__ = AsyncMock(return_value=None)

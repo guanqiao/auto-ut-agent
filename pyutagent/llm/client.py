@@ -600,10 +600,45 @@ class LLMClient:
         try:
             async with httpx.AsyncClient(timeout=timeout, verify=verify_setting) as client:
                 headers = {
-                    "Authorization": f"Bearer {self.api_key[:10]}..." if self.api_key else "",
+                    "Authorization": f"Bearer {self.api_key}" if self.api_key else "",
                     "Content-Type": "application/json"
                 }
                 
+                # First, try /chat/completions with a minimal request
+                try:
+                    test_payload = {
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "max_tokens": 1
+                    }
+                    
+                    response = await client.post(
+                        f"{self.endpoint.rstrip('/')}/chat/completions",
+                        headers=headers,
+                        json=test_payload
+                    )
+                    
+                    elapsed = time.time() - start_time
+                    
+                    if response.status_code == 200:
+                        logger.info(f"[LLM] Endpoint check successful via /chat/completions - Status: 200, Elapsed: {elapsed:.2f}s")
+                        return True, f"Endpoint reachable: {self.endpoint}"
+                    elif response.status_code == 401:
+                        logger.warning(f"[LLM] Endpoint check failed - Status: 401 Unauthorized")
+                        return False, "API Key 无效或未授权"
+                    elif response.status_code == 403:
+                        logger.warning(f"[LLM] Endpoint check failed - Status: 403 Forbidden")
+                        return False, "API 访问被拒绝，请检查权限"
+                    elif response.status_code == 404:
+                        logger.info(f"[LLM] /chat/completions returned 404, trying /models endpoint")
+                    else:
+                        logger.warning(f"[LLM] Endpoint check returned status {response.status_code}")
+                        return True, f"Endpoint returned status {response.status_code}"
+                        
+                except Exception as e:
+                    logger.debug(f"[LLM] /chat/completions check failed: {e}, trying /models endpoint")
+                
+                # Fallback to /models endpoint
                 response = await client.get(
                     f"{self.endpoint.rstrip('/')}/models",
                     headers=headers
@@ -612,7 +647,7 @@ class LLMClient:
                 elapsed = time.time() - start_time
                 
                 if response.status_code == 200:
-                    logger.info(f"[LLM] Endpoint check successful - Status: 200, Elapsed: {elapsed:.2f}s")
+                    logger.info(f"[LLM] Endpoint check successful via /models - Status: 200, Elapsed: {elapsed:.2f}s")
                     return True, f"Endpoint reachable: {self.endpoint}"
                 elif response.status_code == 401:
                     logger.warning(f"[LLM] Endpoint check failed - Status: 401 Unauthorized")
