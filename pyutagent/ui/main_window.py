@@ -196,14 +196,14 @@ class AgentWorker(QThread):
         
         # Strategy 3: Wait for graceful shutdown
         if self.isRunning():
-            logger.info("[AgentWorker] Waiting for graceful shutdown (max 2 seconds)")
-            self.wait(2000)
+            logger.info("[AgentWorker] Waiting for graceful shutdown (max 3 seconds)")
+            self.wait(3000)
         
-        # Strategy 4: Force termination if still running (last resort)
+        # Strategy 4: If still running, log warning but don't force kill
+        # Force killing with QThread.terminate() is dangerous and can crash the app
         if self.isRunning():
-            logger.warning("[AgentWorker] Force terminating worker thread")
-            super().terminate()  # QThread.terminate() - force kill
-            self.wait(500)
+            logger.warning("[AgentWorker] Thread still running after termination request, but avoiding force kill to prevent app crash")
+            logger.warning("[AgentWorker] Thread will be cleaned up when app exits")
         
         # Update state
         self._is_paused = False
