@@ -1,10 +1,13 @@
-"""Enhanced ReAct Agent with full P0/P1/P2/P3 integration.
+"""Enhanced ReAct Agent with full P0/P1/P2/P3/P4 integration.
 
 This module provides an enhanced agent that deeply integrates all enhancement layers:
 - P0: Context management, quality evaluation, partial success handling
 - P1: Prompt optimization, error learning, tool orchestration
 - P2: Multi-agent collaboration
 - P3: Error prediction, strategy optimization, sandbox execution, user interaction, smart analysis
+- P4: Self-reflection, knowledge graph, pattern library, boundary analysis
+
+Refactored to use the modular Capability system for better maintainability.
 """
 
 import asyncio
@@ -15,6 +18,37 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from .react_agent import ReActAgent
+from .capabilities import CapabilityRegistry, CapabilityPriority
+from .capabilities.p0 import (
+    ContextManagementCapability,
+    GenerationEvaluationCapability,
+    PartialSuccessCapability,
+)
+from .capabilities.p1 import (
+    PromptOptimizationCapability,
+    ErrorLearningCapability,
+    BuildToolCapability,
+)
+from .capabilities.p2 import (
+    MultiAgentCapability,
+    KnowledgeSharingCapability,
+)
+from .capabilities.p3 import (
+    ErrorPredictionCapability,
+    AdaptiveStrategyCapability,
+    SandboxExecutionCapability,
+    UserInteractionCapability,
+    SmartAnalysisCapability,
+)
+from .capabilities.p4 import (
+    SelfReflectionCapability,
+    KnowledgeGraphCapability,
+    PatternLibraryCapability,
+    BoundaryAnalysisCapability,
+    ChainOfThoughtCapability,
+)
+from .execution.retry import RetryExecutor, RetryConfig, SmartRetryPolicy
+from .execution.compiler import IncrementalCompiler
 from .multi_agent import (
     AgentCoordinator, MessageBus, SharedKnowledgeBase, ExperienceReplay,
     CodeAnalysisAgent, TestGenerationAgent, TestFixAgent, AgentRole, AgentCapability
@@ -51,6 +85,15 @@ logger = logging.getLogger(__name__)
 @dataclass
 class EnhancedAgentConfig:
     """Configuration for EnhancedAgent."""
+    
+    # Capability System
+    use_capability_system: bool = True
+    enable_p0_capabilities: bool = True
+    enable_p1_capabilities: bool = True
+    enable_p2_capabilities: bool = True
+    enable_p3_capabilities: bool = True
+    enable_p4_capabilities: bool = True
+    
     # P0 Configuration
     context_max_tokens: int = 8000
     context_target_tokens: int = 6000
@@ -91,6 +134,15 @@ class EnhancedAgentConfig:
     pattern_library_db_path: Optional[str] = None
     feedback_loop_db_path: Optional[str] = None
     
+    # Retry Configuration
+    max_retry_attempts: int = 3
+    retry_base_delay: float = 1.0
+    use_smart_retry: bool = True
+    
+    # Incremental Compilation
+    enable_incremental_compilation: bool = True
+    force_recompile: bool = False
+    
     # Performance
     enable_metrics: bool = True
     metrics_report_interval: int = 300  # 5 minutes
@@ -103,7 +155,10 @@ class EnhancedAgent(ReActAgent):
     """Enhanced ReAct Agent with full integration of all enhancement layers.
     
     Features:
-    - Deep P0/P1/P2/P3 component integration
+    - Deep P0/P1/P2/P3/P4 component integration
+    - Modular capability system for better maintainability
+    - Unified retry mechanism
+    - Incremental compilation support
     - Automatic metrics collection
     - Multi-agent collaboration support
     - Performance monitoring
@@ -134,14 +189,20 @@ class EnhancedAgent(ReActAgent):
         # Initialize metrics
         self.metrics = get_metrics() if self.config.enable_metrics else MetricsCollector(enabled=False)
         
+        # Initialize capability registry
+        self.capability_registry: Optional[CapabilityRegistry] = None
+        
+        # Initialize retry executor
+        self.retry_executor = self._create_retry_executor()
+        
+        # Initialize incremental compiler
+        self.incremental_compiler: Optional[IncrementalCompiler] = None
+        
         # Initialize multi-agent components if enabled
         self.agent_coordinator: Optional[AgentCoordinator] = None
         self.message_bus: Optional[MessageBus] = None
         self.shared_knowledge: Optional[SharedKnowledgeBase] = None
         self.experience_replay: Optional[ExperienceReplay] = None
-        
-        if self.config.enable_multi_agent:
-            self._init_multi_agent()
         
         # Initialize P3 components
         self.error_predictor: Optional[ErrorPredictor] = None
@@ -150,8 +211,18 @@ class EnhancedAgent(ReActAgent):
         self.user_interaction: Optional[UserInteractionHandler] = None
         self.smart_analyzer: Optional[SmartCodeAnalyzer] = None
         
-        self._init_p3_components()
-        self._init_p4_components()
+        # Initialize using capability system or legacy method
+        if self.config.use_capability_system:
+            self._init_with_capabilities(container)
+        else:
+            if self.config.enable_multi_agent:
+                self._init_multi_agent()
+            self._init_p3_components()
+            self._init_p4_components()
+        
+        # Initialize incremental compiler
+        if self.config.enable_incremental_compilation:
+            self._init_incremental_compiler()
         
         # Call parent init with model name for P1 prompt optimization
         super().__init__(
@@ -172,6 +243,106 @@ class EnhancedAgent(ReActAgent):
         self._stop_requested = False
         
         logger.info(f"[EnhancedAgent] Initialized with config: {self.config}")
+    
+    def _create_retry_executor(self) -> RetryExecutor:
+        """Create retry executor with configuration."""
+        config = RetryConfig(
+            max_attempts=self.config.max_retry_attempts,
+            base_delay=self.config.retry_base_delay
+        )
+        
+        policy = SmartRetryPolicy() if self.config.use_smart_retry else None
+        
+        return RetryExecutor(config=config, policy=policy)
+    
+    def _init_incremental_compiler(self) -> None:
+        """Initialize incremental compiler."""
+        self.incremental_compiler = IncrementalCompiler(
+            project_path=self.project_path if hasattr(self, 'project_path') else ".",
+            cache_enabled=True,
+            force_recompile=self.config.force_recompile
+        )
+        logger.info("[EnhancedAgent] Incremental compiler initialized")
+    
+    def _init_with_capabilities(self, container: Optional[Container]) -> None:
+        """Initialize using the capability system.
+        
+        Args:
+            container: DI container
+        """
+        self.capability_registry = CapabilityRegistry(container=container)
+        
+        # Register P0 capabilities
+        if self.config.enable_p0_capabilities:
+            self._register_p0_capabilities()
+        
+        # Register P1 capabilities
+        if self.config.enable_p1_capabilities:
+            self._register_p1_capabilities()
+        
+        # Register P2 capabilities
+        if self.config.enable_p2_capabilities:
+            self._register_p2_capabilities()
+        
+        # Register P3 capabilities
+        if self.config.enable_p3_capabilities:
+            self._register_p3_capabilities()
+        
+        # Register P4 capabilities
+        if self.config.enable_p4_capabilities:
+            self._register_p4_capabilities()
+        
+        # Load all capabilities
+        results = self.capability_registry.load_all()
+        
+        success_count = sum(1 for v in results.values() if v)
+        logger.info(f"[EnhancedAgent] Loaded {success_count}/{len(results)} capabilities")
+    
+    def _register_p0_capabilities(self) -> None:
+        """Register P0 core capabilities."""
+        self.capability_registry.register(ContextManagementCapability)
+        self.capability_registry.register(GenerationEvaluationCapability)
+        self.capability_registry.register(PartialSuccessCapability)
+    
+    def _register_p1_capabilities(self) -> None:
+        """Register P1 enhanced capabilities."""
+        self.capability_registry.register(PromptOptimizationCapability)
+        self.capability_registry.register(ErrorLearningCapability)
+        self.capability_registry.register(BuildToolCapability)
+    
+    def _register_p2_capabilities(self) -> None:
+        """Register P2 multi-agent capabilities."""
+        self.capability_registry.register(MultiAgentCapability)
+        self.capability_registry.register(KnowledgeSharingCapability)
+    
+    def _register_p3_capabilities(self) -> None:
+        """Register P3 advanced capabilities."""
+        self.capability_registry.register(ErrorPredictionCapability)
+        self.capability_registry.register(AdaptiveStrategyCapability)
+        self.capability_registry.register(SandboxExecutionCapability)
+        self.capability_registry.register(UserInteractionCapability)
+        self.capability_registry.register(SmartAnalysisCapability)
+    
+    def _register_p4_capabilities(self) -> None:
+        """Register P4 intelligent enhancement capabilities."""
+        self.capability_registry.register(SelfReflectionCapability)
+        self.capability_registry.register(KnowledgeGraphCapability)
+        self.capability_registry.register(PatternLibraryCapability)
+        self.capability_registry.register(BoundaryAnalysisCapability)
+        self.capability_registry.register(ChainOfThoughtCapability)
+    
+    def get_capability(self, name: str) -> Optional[Any]:
+        """Get a capability by name.
+        
+        Args:
+            name: Capability name
+            
+        Returns:
+            Capability instance or None
+        """
+        if self.capability_registry:
+            return self.capability_registry.get(name)
+        return None
     
     def _init_multi_agent(self):
         """Initialize multi-agent collaboration components."""
