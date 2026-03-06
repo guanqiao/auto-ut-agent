@@ -968,3 +968,145 @@ def get_available_models(provider: LLMProvider) -> List[str]:
     models = PROVIDER_MODELS.get(provider, [])
     logger.debug(f"[Config] Got available models - Provider: {provider}, Models: {models}")
     return models
+
+
+# Unified AppConfig - Consolidated configuration management
+class AppConfig(Settings):
+    """Unified Application Configuration.
+
+    This class extends Settings to provide a unified interface for all
+    application configuration. It serves as the single entry point for
+    accessing and managing all configuration settings.
+
+    Example:
+        >>> from pyutagent.core.config import AppConfig, get_app_config
+        >>>
+        >>> # Get global config
+        >>> config = get_app_config()
+        >>>
+        >>> # Access settings
+        >>> print(config.data_dir)
+        >>> print(config.project_paths.src_main_java)
+        >>>
+        >>> # Save configuration
+        >>> config.save()
+    """
+
+    def save(self) -> None:
+        """Save configuration to file."""
+        save_app_config(self)
+
+    @classmethod
+    def load(cls) -> "AppConfig":
+        """Load configuration from file.
+
+        Returns:
+            AppConfig instance loaded from file, or default if file doesn't exist
+        """
+        settings = load_app_config()
+        # Convert Settings to AppConfig
+        return cls(**settings.model_dump())
+
+    def reload(self) -> None:
+        """Reload configuration from file."""
+        loaded = self.load()
+        for key, value in loaded.model_dump().items():
+            setattr(self, key, value)
+
+    def validate(self) -> bool:
+        """Validate configuration.
+
+        Returns:
+            True if valid, False otherwise
+        """
+        try:
+            # Validate data directory
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+
+            # Validate project paths
+            if not self.project_paths.src_main_java:
+                logger.warning("[AppConfig] src_main_java not set")
+
+            # Validate coverage settings
+            if not 0 <= self.coverage.target_coverage <= 1:
+                logger.warning("[AppConfig] target_coverage should be between 0 and 1")
+
+            return True
+        except Exception as e:
+            logger.error(f"[AppConfig] Validation failed: {e}")
+            return False
+
+    def get_llm_configs(self) -> LLMConfigCollection:
+        """Get LLM configuration collection.
+
+        Returns:
+            LLMConfigCollection with all LLM configurations
+        """
+        return load_llm_config()
+
+    def save_llm_configs(self, configs: LLMConfigCollection) -> None:
+        """Save LLM configuration collection.
+
+        Args:
+            configs: LLMConfigCollection to save
+        """
+        save_llm_config(configs)
+
+    def get_aider_config(self) -> AiderConfig:
+        """Get Aider configuration.
+
+        Returns:
+            AiderConfig instance
+        """
+        return load_aider_config()
+
+    def save_aider_config(self, config: AiderConfig) -> None:
+        """Save Aider configuration.
+
+        Args:
+            config: AiderConfig to save
+        """
+        save_aider_config(config)
+
+    def get_app_state(self) -> AppState:
+        """Get application state.
+
+        Returns:
+            AppState instance
+        """
+        return load_app_state()
+
+    def save_app_state(self, state: AppState) -> None:
+        """Save application state.
+
+        Args:
+            state: AppState to save
+        """
+        save_app_state(state)
+
+
+# Global AppConfig instance
+_global_app_config: Optional[AppConfig] = None
+
+
+def get_app_config() -> AppConfig:
+    """Get global AppConfig instance.
+
+    Returns:
+        Global AppConfig instance (creates if not exists)
+    """
+    global _global_app_config
+    if _global_app_config is None:
+        _global_app_config = AppConfig()
+        logger.info(f"[AppConfig] Created global config - DataDir: {_global_app_config.data_dir}")
+    return _global_app_config
+
+
+def reset_app_config() -> None:
+    """Reset global AppConfig instance.
+
+    Useful for testing.
+    """
+    global _global_app_config
+    _global_app_config = None
+    logger.debug("[AppConfig] Reset global config")
