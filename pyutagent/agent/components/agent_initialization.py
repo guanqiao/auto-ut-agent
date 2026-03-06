@@ -295,6 +295,7 @@ class AgentInitializer:
         from pyutagent.core.strategy_optimizer import create_strategy_optimizer
         from pyutagent.agent.user_interaction import create_user_interaction_handler, InteractiveFixer
         from pyutagent.agent.tool_validator import create_tool_validator
+        from pyutagent.agent.thinking_engine import ThinkingEngine
         
         components = {}
         
@@ -312,6 +313,14 @@ class AgentInitializer:
         
         tool_validator = create_tool_validator()
         components["tool_validator"] = tool_validator
+        
+        thinking_engine = ThinkingEngine(
+            enable_deep_thinking=False,
+            max_reasoning_steps=5,
+            thinking_timeout=15.0,
+            enable_prediction=True
+        )
+        components["thinking_engine"] = thinking_engine
         
         logger.debug("[AgentInitializer] P3 components initialized")
         return components

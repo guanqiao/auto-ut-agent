@@ -128,6 +128,10 @@ class ReActAgent(BaseAgent):
             setattr(self, key, value)
         
         self._step_executor = StepExecutor(self._core, components)
+        
+        if components.get("thinking_engine"):
+            self._step_executor.enable_thinking(llm_client=self.llm_client)
+        
         self._feedback_loop = FeedbackLoopExecutor(self._core, self._step_executor)
         self._recovery_manager = AgentRecoveryManager(components, self._core)
         self._helpers = AgentHelpers(self._core, components)

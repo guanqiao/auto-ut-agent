@@ -12,6 +12,7 @@ from pyutagent.core.config import get_settings
 from pyutagent.core.retry_config import RetryConfig, DEFAULT_RETRY_CONFIG
 from pyutagent.core.error_classification import get_error_classification_service
 from pyutagent.core.failure_pattern_tracker import FailurePatternTracker
+from pyutagent.agent.thinking_engine import ThinkingEngine, ThinkingType, ThinkingSession
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,10 @@ class StepExecutor:
             pattern_expiry_seconds=600
         )
 
+        self._thinking_engine: Optional[ThinkingEngine] = None
+        self._thinking_session: Optional[ThinkingSession] = None
+        self._enable_thinking = False
+
         self._global_attempt_count: int = 0
         self._step_attempt_counts: Dict[str, int] = {}
 
@@ -66,6 +71,26 @@ class StepExecutor:
         self._global_attempt_count = 0
         self._step_attempt_counts.clear()
         logger.info("[StepExecutor] Attempt counters reset")
+    
+    def enable_thinking(self, llm_client: Any = None):
+        """Enable thinking engine for enhanced error analysis.
+        
+        Args:
+            llm_client: Optional LLM client for thinking engine
+        """
+        if self._thinking_engine is None:
+            self._thinking_engine = ThinkingEngine(
+                llm_client=llm_client,
+                enable_deep_thinking=True,
+                max_reasoning_steps=5,
+                thinking_timeout=15.0,
+                enable_prediction=True
+            )
+            self._thinking_session = self._thinking_engine.create_session()
+            self._enable_thinking = True
+            logger.info("[StepExecutor] Thinking engine enabled")
+        else:
+            logger.debug("[StepExecutor] Thinking engine already enabled")
     
     def get_attempt_stats(self) -> Dict[str, Any]:
         """Get current attempt statistics."""
@@ -1860,6 +1885,28 @@ class StepExecutor:
         detailed_error_info = self.error_classifier.get_detailed_error_info(error, context)
         error_category = self.error_classifier.classify(error, context)
         
+        thinking_result = None
+        
+        if self._enable_thinking and self._thinking_engine and self._thinking_session:
+            try:
+                thinking_context = {
+                    "error": str(error),
+                    "error_category": error_category.name if hasattr(error_category, 'name') else str(error_category),
+                    "step": context.get("step", "unknown"),
+                    "attempt": context.get("attempt", 1),
+                    "detailed_error": detailed_error_info
+                }
+                thinking_result = await self._thinking_engine.think_about_error(
+                    error=error,
+                    context=thinking_context,
+                    session=self._thinking_session
+                )
+                logger.info(f"[StepExecutor] 🤖 Thinking engine result - Confidence: {thinking_result.confidence:.2f}, Conclusions: {len(thinking_result.conclusions)}")
+                if thinking_result.recovery_strategy:
+                    logger.info(f"[StepExecutor] 🤖 Recovery strategy suggestion: {thinking_result.recovery_strategy}")
+            except Exception as e:
+                logger.warning(f"[StepExecutor] Thinking engine error (non-fatal): {e}")
+        
         step_name = context.get("step", "")
         
         if detailed_error_info.get("needs_dependency_resolution"):
@@ -1870,18 +1917,36 @@ class StepExecutor:
             logger.info("[StepExecutor] Detected environment issue, using FIX_ENVIRONMENT strategy")
             return await self._recover_from_environment_issue(error, context, detailed_error_info)
         
+        suggested_strategy = None
+        
+        if thinking_result and thinking_result.recovery_strategy:
+            recovery_str = thinking_result.recovery_strategy.lower()
+            if "fix" in recovery_str or "analyze" in recovery_str:
+                from pyutagent.core.error_recovery import RecoveryStrategy
+                suggested_strategy = (RecoveryStrategy.ANALYZE_AND_FIX, thinking_result.confidence)
+                logger.info(f"[StepExecutor] 🤖 Using thinking engine strategy: {suggested_strategy[0].name}")
+            elif "reset" in recovery_str or "regenerate" in recovery_str:
+                from pyutagent.core.error_recovery import RecoveryStrategy
+                suggested_strategy = (RecoveryStrategy.RESET_AND_REGENERATE, thinking_result.confidence)
+                logger.info(f"[StepExecutor] 🤖 Using thinking engine strategy: {suggested_strategy[0].name}")
+            elif "retry" in recovery_str:
+                from pyutagent.core.error_recovery import RecoveryStrategy
+                suggested_strategy = (RecoveryStrategy.RETRY_IMMEDIATE, thinking_result.confidence)
+                logger.info(f"[StepExecutor] 🤖 Using thinking engine strategy: {suggested_strategy[0].name}")
+        
         if step_name in ("compilation", "test_execution") and self.retry_config.enable_smart_retry:
             smart_result = await self._smart_recover_with_llm_analysis(error, context, step_name)
             if smart_result:
                 return smart_result
         
-        suggested_strategy = self.components["error_learner"].suggest_strategy(error, error_category, context)
-        if suggested_strategy:
-            strategy, confidence = suggested_strategy
-            logger.info(f"[StepExecutor] Error learner suggests {strategy.name} with confidence {confidence:.2f}")
-            
-            optimization = self.components["strategy_optimizer"].optimize_strategy_selection(error_category, context)
-            logger.info(f"[StepExecutor] Strategy optimizer recommends {optimization.recommended_strategy.name}")
+        if suggested_strategy is None:
+            suggested_strategy = self.components["error_learner"].suggest_strategy(error, error_category, context)
+            if suggested_strategy:
+                strategy, confidence = suggested_strategy
+                logger.info(f"[StepExecutor] Error learner suggests {strategy.name} with confidence {confidence:.2f}")
+                
+                optimization = self.components["strategy_optimizer"].optimize_strategy_selection(error_category, context)
+                logger.info(f"[StepExecutor] Strategy optimizer recommends {optimization.recommended_strategy.name}")
         
         current_test_code = None
         if self.agent_core.current_test_file:

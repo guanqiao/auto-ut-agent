@@ -17,8 +17,12 @@ class LifecycleState(Enum):
 
 
 @dataclass
-class AgentState:
-    """Agent 状态"""
+class AgentStateData:
+    """Agent 状态数据
+    
+    注意：此类名已从 AgentState 重命名为 AgentStateData，
+    以避免与 protocols.py 中的 AgentState 枚举冲突。
+    """
     lifecycle_state: LifecycleState = LifecycleState.IDLE
     current_phase: str = "IDLE"
     current_iteration: int = 0
@@ -28,6 +32,10 @@ class AgentState:
     error_state: Dict[str, Any] = field(default_factory=dict)
     metrics: Dict[str, Any] = field(default_factory=dict)
     state_history: List[Dict[str, Any]] = field(default_factory=list)
+
+
+# 向后兼容别名
+AgentState = AgentStateData
 
 
 class Action(ABC):
