@@ -6,7 +6,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from pyutagent.agent.base_agent import StepResult
+# StepResult is deprecated, use AgentResult from unified_agent_base instead
+from pyutagent.agent.unified_agent_base import AgentResult as StepResult
 from pyutagent.core.protocols import AgentState
 from pyutagent.core.config import get_settings
 from pyutagent.core.retry_config import RetryConfig, DEFAULT_RETRY_CONFIG
