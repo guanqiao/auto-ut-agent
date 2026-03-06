@@ -7,7 +7,7 @@ eliminating duplication across the codebase.
 import logging
 import re
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from pyutagent.core.error_recovery import ErrorCategory, ErrorClassifier
 
