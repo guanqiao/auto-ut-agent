@@ -38,6 +38,16 @@ from pyutagent.core.cache import (
     create_tool_cache,
     create_result_cache,
 )
+from pyutagent.core.error_types import (
+    ErrorCategory,
+    RecoveryStrategy,
+    ErrorSeverity,
+    ErrorContext,
+    PyUTError,
+    RecoveryAttempt,
+    RecoveryResult,
+    classify_error,
+)
 
 __all__ = [
     'EventBus',
@@ -70,4 +80,12 @@ __all__ = [
     'CachedToolExecutor',
     'create_tool_cache',
     'create_result_cache',
+    'ErrorCategory',
+    'RecoveryStrategy',
+    'ErrorSeverity',
+    'ErrorContext',
+    'PyUTError',
+    'RecoveryAttempt',
+    'RecoveryResult',
+    'classify_error',
 ]

@@ -37,95 +37,18 @@ from typing import (
 logger = logging.getLogger(__name__)
 
 from ..utils.code_extractor import CodeExtractor
+from .error_types import (
+    ErrorCategory,
+    RecoveryStrategy,
+    ErrorSeverity,
+    ErrorContext,
+    PyUTError,
+    RecoveryAttempt,
+    RecoveryResult,
+    classify_error,
+)
 
 T = TypeVar('T')
-
-
-class ErrorCategory(Enum):
-    """Categories of errors for recovery strategy selection."""
-    TRANSIENT = auto()
-    PERMANENT = auto()
-    RESOURCE = auto()
-    NETWORK = auto()
-    TIMEOUT = auto()
-    VALIDATION = auto()
-    SYNTAX = auto()
-    LOGIC = auto()
-    COMPILATION_ERROR = auto()
-    TEST_FAILURE = auto()
-    TOOL_EXECUTION_ERROR = auto()
-    PARSING_ERROR = auto()
-    GENERATION_ERROR = auto()
-    FILE_IO_ERROR = auto()
-    LLM_API_ERROR = auto()
-    UNKNOWN = auto()
-
-
-class RecoveryStrategy(Enum):
-    """Recovery strategies."""
-    RETRY = auto()
-    RETRY_IMMEDIATE = auto()
-    RETRY_WITH_BACKOFF = auto()
-    BACKOFF = auto()
-    FALLBACK = auto()
-    RESET = auto()
-    SKIP = auto()
-    SKIP_AND_CONTINUE = auto()
-    ABORT = auto()
-    MANUAL = auto()
-    ANALYZE_AND_FIX = auto()
-    RESET_AND_REGENERATE = auto()
-    FALLBACK_ALTERNATIVE = auto()
-    ESCALATE_TO_USER = auto()
-    INSTALL_DEPENDENCIES = auto()
-    RESOLVE_DEPENDENCIES = auto()
-    FIX_ENVIRONMENT = auto()
-
-
-@dataclass
-class ErrorContext:
-    """Context information about an error."""
-    error: Exception
-    error_type: Type[Exception]
-    error_message: str
-    stack_trace: str
-    category: ErrorCategory
-    timestamp: datetime
-    operation: str
-    attempt: int
-    context_data: Dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def from_exception(
-        cls,
-        error: Exception,
-        operation: str,
-        attempt: int = 1,
-        context_data: Optional[Dict[str, Any]] = None
-    ) -> "ErrorContext":
-        return cls(
-            error=error,
-            error_type=type(error),
-            error_message=str(error),
-            stack_trace=traceback.format_exc(),
-            category=ErrorClassifier.classify(error),
-            timestamp=datetime.now(),
-            operation=operation,
-            attempt=attempt,
-            context_data=context_data or {}
-        )
-
-
-@dataclass
-class RecoveryAttempt:
-    """Record of a recovery attempt."""
-    timestamp: str
-    error_category: ErrorCategory
-    error_message: str
-    strategy_used: RecoveryStrategy
-    attempt_number: int
-    success: bool
-    details: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

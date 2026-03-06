@@ -1,44 +1,36 @@
-"""统一错误处理机制"""
+"""统一错误处理机制
+
+This module provides error handling infrastructure using the unified error types
+from error_types.py.
+"""
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Callable
 import logging
+
+from .error_types import (
+    ErrorCategory,
+    RecoveryStrategy as RecoveryStrategyEnum,
+    ErrorSeverity,
+    ErrorContext,
+    PyUTError as PyUTErrorBase,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class ErrorSeverity(Enum):
     """错误严重级别"""
-    CRITICAL = 1    # 致命错误，系统无法继续
-    HIGH = 2        # 严重错误，需要立即处理
-    MEDIUM = 3      # 中等错误，可以稍后处理
-    LOW = 4         # 轻微错误，警告级别
-
-
-class ErrorCategory(Enum):
-    """错误类别"""
-    COMPILATION = "compilation"
-    RUNTIME = "runtime"
-    LOGIC = "logic"
-    NETWORK = "network"
-    CONFIGURATION = "configuration"
-    VALIDATION = "validation"
-    UNKNOWN = "unknown"
+    CRITICAL = 1
+    HIGH = 2
+    MEDIUM = 3
+    LOW = 4
 
 
 @dataclass
-class PyUTError:
-    """统一错误定义"""
-    error_type: str
-    message: str
-    category: ErrorCategory
-    severity: ErrorSeverity
-    context: Dict[str, Any] = field(default_factory=dict)
-    cause: Optional[Exception] = None
-    recovery_suggestions: List[str] = field(default_factory=list)
-    
-    def __str__(self) -> str:
-        return f"[{self.category.value}:{self.severity.name}] {self.error_type} - {self.message}"
+class PyUTError(PyUTErrorBase):
+    """统一错误定义 - 继承自 error_types.PyUTError"""
+    pass
 
 
 class ErrorHandler:
@@ -63,12 +55,17 @@ class LoggingErrorHandler(ErrorHandler):
         return True
 
 
-class RecoveryStrategy:
-    """恢复策略"""
+class RecoveryStrategyHandler:
+    """恢复策略处理器
     
-    def __init__(self, name: str, handler: Callable[[PyUTError], bool]):
+    Note: This is a handler class, not to be confused with RecoveryStrategy enum
+    in error_types.py which defines the strategy types.
+    """
+    
+    def __init__(self, name: str, handler: Callable[[PyUTError], bool], strategy_type: Optional[RecoveryStrategyEnum] = None):
         self.name = name
         self.handler = handler
+        self.strategy_type = strategy_type or RecoveryStrategyEnum.RETRY
     
     def execute(self, error: PyUTError) -> bool:
         """执行恢复策略"""
@@ -84,13 +81,13 @@ class ErrorPropagationChain:
     
     def __init__(self):
         self.handlers: List[ErrorHandler] = []
-        self.strategies: Dict[ErrorCategory, List[RecoveryStrategy]] = {}
+        self.strategies: Dict[ErrorCategory, List[RecoveryStrategyHandler]] = {}
     
     def add_handler(self, handler: ErrorHandler):
         """添加错误处理器"""
         self.handlers.append(handler)
     
-    def add_recovery_strategy(self, category: ErrorCategory, strategy: RecoveryStrategy):
+    def add_recovery_strategy(self, category: ErrorCategory, strategy: RecoveryStrategyHandler):
         """添加恢复策略"""
         if category not in self.strategies:
             self.strategies[category] = []
@@ -98,12 +95,10 @@ class ErrorPropagationChain:
     
     def handle_error(self, error: PyUTError) -> bool:
         """处理错误"""
-        # 1. 记录错误
         for handler in self.handlers:
             if handler.can_handle(error):
                 handler.handle(error)
         
-        # 2. 尝试恢复
         if error.category in self.strategies:
             for strategy in self.strategies[error.category]:
                 if strategy.execute(error):
@@ -125,11 +120,9 @@ class ErrorTracker:
         """追踪错误"""
         self.errors.append(error)
         
-        # 统计错误次数
-        key = f"{error.category.value}:{error.error_type}"
+        key = f"{error.category.name}:{error.error_type}"
         self.error_counts[key] = self.error_counts.get(key, 0) + 1
         
-        # 限制历史记录
         if len(self.errors) > self.max_history:
             self.errors.pop(0)
     
@@ -137,7 +130,7 @@ class ErrorTracker:
         """获取某类错误的发生频率"""
         return sum(
             count for key, count in self.error_counts.items()
-            if key.startswith(category.value)
+            if key.startswith(category.name)
         )
     
     def get_recent_errors(self, limit: int = 10) -> List[PyUTError]:
@@ -150,15 +143,13 @@ class ErrorTracker:
         self.error_counts.clear()
 
 
-# 预定义的恢复策略
 def retry_strategy_factory(max_retries: int = 3):
     """重试策略工厂"""
     def retry_handler(error: PyUTError) -> bool:
-        # 这里只是示例，实际需要结合具体场景
         logger.info(f"Retry strategy for error: {error.error_type}")
-        return True  # 假设总是成功
+        return True
     
-    return RecoveryStrategy(f"retry_{max_retries}", retry_handler)
+    return RecoveryStrategyHandler(f"retry_{max_retries}", retry_handler, RecoveryStrategyEnum.RETRY)
 
 
 def fallback_strategy_factory(fallback_action: Callable):
@@ -168,4 +159,4 @@ def fallback_strategy_factory(fallback_action: Callable):
         fallback_action(error)
         return True
     
-    return RecoveryStrategy("fallback", fallback_handler)
+    return RecoveryStrategyHandler("fallback", fallback_handler, RecoveryStrategyEnum.FALLBACK)
