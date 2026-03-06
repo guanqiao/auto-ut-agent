@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from pydantic import SecretStr
 
-from pyutagent.llm.client import LLMClient
+from pyutagent.llm.client import LLMClient, _normalize_endpoint
 from pyutagent.llm.config import LLMConfig, LLMProvider
 
 
@@ -485,3 +485,65 @@ class TestLLMClient:
         # Verify that AsyncClient was called with verify=True (default)
         call_args = mock_async_client.call_args
         assert call_args.kwargs['verify'] is True
+
+
+class TestNormalizeEndpoint:
+    """Tests for _normalize_endpoint function."""
+
+    def test_normalize_endpoint_with_chat_completions(self):
+        """Test that '/chat/completions' suffix is removed."""
+        endpoint = "https://api.example.com/v1/chat/completions"
+        normalized = _normalize_endpoint(endpoint)
+        assert normalized == "https://api.example.com/v1"
+
+    def test_normalize_endpoint_with_trailing_slash_and_chat_completions(self):
+        """Test that '/chat/completions/' suffix is properly handled."""
+        endpoint = "https://api.example.com/v1/chat/completions/"
+        normalized = _normalize_endpoint(endpoint)
+        assert normalized == "https://api.example.com/v1"
+
+    def test_normalize_endpoint_without_chat_completions(self):
+        """Test that endpoint without '/chat/completions' is unchanged."""
+        endpoint = "https://api.openai.com/v1"
+        normalized = _normalize_endpoint(endpoint)
+        assert normalized == "https://api.openai.com/v1"
+
+    def test_normalize_endpoint_with_trailing_slash(self):
+        """Test that trailing slash is removed."""
+        endpoint = "https://api.example.com/v1/"
+        normalized = _normalize_endpoint(endpoint)
+        assert normalized == "https://api.example.com/v1"
+
+    def test_normalize_endpoint_localhost(self):
+        """Test normalization with localhost endpoint."""
+        endpoint = "http://localhost:11434/v1/chat/completions"
+        normalized = _normalize_endpoint(endpoint)
+        assert normalized == "http://localhost:11434/v1"
+
+    def test_normalize_endpoint_empty(self):
+        """Test normalization with empty endpoint."""
+        endpoint = ""
+        normalized = _normalize_endpoint(endpoint)
+        assert normalized == ""
+
+    def test_client_initialization_normalizes_endpoint(self):
+        """Test that LLMClient normalizes endpoint on initialization."""
+        client = LLMClient(
+            endpoint="https://api.example.com/v1/chat/completions",
+            api_key="test-key",
+            model="gpt-4"
+        )
+        # The endpoint should be normalized (without /chat/completions)
+        assert client.endpoint == "https://api.example.com/v1"
+        # The raw endpoint should be preserved
+        assert client._raw_endpoint == "https://api.example.com/v1/chat/completions"
+
+    def test_client_initialization_without_chat_completions(self):
+        """Test that LLMClient works correctly with standard endpoint."""
+        client = LLMClient(
+            endpoint="https://api.openai.com/v1",
+            api_key="test-key",
+            model="gpt-4"
+        )
+        assert client.endpoint == "https://api.openai.com/v1"
+        assert client._raw_endpoint == "https://api.openai.com/v1"

@@ -10,6 +10,39 @@ from ..core.config import LLMConfig, LLMProvider
 logger = logging.getLogger(__name__)
 
 
+def _normalize_endpoint(endpoint: str) -> str:
+    """Normalize endpoint URL for LangChain compatibility.
+    
+    LangChain's ChatOpenAI automatically appends '/chat/completions' to base_url.
+    This function ensures the endpoint is in the correct format:
+    - Removes trailing '/chat/completions' if present
+    - Ensures the endpoint ends with '/v1' or similar API version path
+    
+    Args:
+        endpoint: Raw endpoint URL from configuration
+        
+    Returns:
+        Normalized endpoint URL suitable for LangChain ChatOpenAI
+    """
+    if not endpoint:
+        return endpoint
+    
+    original_endpoint = endpoint
+    endpoint = endpoint.rstrip('/')
+    
+    # Remove '/chat/completions' suffix if present
+    # This handles cases like: https://api.example.com/v1/chat/completions
+    if endpoint.endswith('/chat/completions'):
+        endpoint = endpoint[:-len('/chat/completions')]
+        logger.debug(f"[LLMClient] Removed '/chat/completions' from endpoint: {original_endpoint} -> {endpoint}")
+    
+    # Log the normalization result
+    if endpoint != original_endpoint:
+        logger.info(f"[LLMClient] Endpoint normalized: {original_endpoint} -> {endpoint}")
+    
+    return endpoint
+
+
 class LLMClient:
     """Unified LLM client supporting multiple providers.
     
@@ -48,7 +81,10 @@ class LLMClient:
             max_tokens: Maximum tokens
             provider: Provider name
         """
-        self.endpoint = endpoint
+        # Normalize endpoint for LangChain compatibility
+        # LangChain ChatOpenAI automatically appends '/chat/completions'
+        self._raw_endpoint = endpoint  # Keep original for reference
+        self.endpoint = _normalize_endpoint(endpoint)
         self.api_key = api_key
         self.model = model
         self.ca_cert = ca_cert

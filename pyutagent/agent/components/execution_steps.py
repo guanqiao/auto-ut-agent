@@ -562,9 +562,11 @@ class StepExecutor:
                             )
                         )
                         
+                        streaming_result = None
+                        streaming_error = None
+                        
                         try:
                             # Wait with periodic termination checks
-                            streaming_result = None
                             while not streaming_task.done():
                                 # Check for termination
                                 if self.agent_core._terminated or self.agent_core._stop_requested:
@@ -583,10 +585,20 @@ class StepExecutor:
                             
                             if streaming_result is None:
                                 streaming_result = streaming_task.result()
-                        except asyncio.TimeoutError:
+                        except asyncio.TimeoutError as e:
                             logger.warning(f"[StepExecutor] ⏰ Streaming generation timeout ({streaming_timeout/60:.0f} minutes), falling back to normal generation")
                             self.agent_core._update_state(AgentState.GENERATING, f"⏰ 流式生成超时 (>{streaming_timeout/60:.0f}分钟),切换到普通模式...")
-                            streaming_result = None
+                            streaming_error = e
+                        except Exception as e:
+                            # Catch all other exceptions (404, connection errors, etc.)
+                            error_str = str(e).lower()
+                            if "404" in error_str or "not found" in error_str:
+                                logger.warning(f"[StepExecutor] ❌ Streaming endpoint not found (404), falling back to normal generation: {e}")
+                                self.agent_core._update_state(AgentState.GENERATING, "⚠️ 流式端点不可用 (404)，切换到普通模式...")
+                            else:
+                                logger.warning(f"[StepExecutor] ⚠️ Streaming generation failed ({type(e).__name__}), falling back to normal generation: {e}")
+                                self.agent_core._update_state(AgentState.GENERATING, f"⚠️ 流式生成失败，切换到普通模式...")
+                            streaming_error = e
                         
                         if streaming_result and streaming_result.success:
                             test_code = self.agent_core._extract_java_code(streaming_result.complete_code)
@@ -597,9 +609,15 @@ class StepExecutor:
                         else:
                             if streaming_result:
                                 logger.warning(f"[StepExecutor] Streaming generation failed: {streaming_result.state}")
-                            self.agent_core._update_state(AgentState.GENERATING, "⚠️ 切换到普通生成模式...")
-                            response = await self.agent_core.llm_client.agenerate(prompt)
-                            test_code = self.agent_core._extract_java_code(response)
+                            # Fallback to normal generation using agenerate (same as GUI test_connection)
+                            logger.info("[StepExecutor] 🔄 Falling back to normal generation using agenerate (OpenAI compatible)")
+                            self.agent_core._update_state(AgentState.GENERATING, "🔄 使用普通模式生成 (兼容模式)...")
+                            try:
+                                response = await self.agent_core.llm_client.agenerate(prompt)
+                                test_code = self.agent_core._extract_java_code(response)
+                            except Exception as agenerate_error:
+                                logger.error(f"[StepExecutor] ❌ Normal generation also failed: {agenerate_error}")
+                                raise agenerate_error
                     else:
                         self.agent_core._update_state(AgentState.GENERATING, "🚀 正在调用 LLM 生成测试代码...")
                         response = await self.agent_core.llm_client.agenerate(prompt)
@@ -884,10 +902,21 @@ class StepExecutor:
                                 test_code = self.agent_core._extract_java_code(streaming_result.complete_code)
                                 logger.info(f"[StepExecutor] Streaming incremental generation complete")
                             else:
+                                # Fallback to normal generation (OpenAI compatible)
+                                logger.info("[StepExecutor] 🔄 Falling back to normal generation for incremental tests")
                                 response = await self.agent_core.llm_client.agenerate(prompt, timeout=180.0)
                                 test_code = self.agent_core._extract_java_code(response)
                         except asyncio.TimeoutError:
                             logger.warning("[StepExecutor] Streaming timeout, falling back")
+                            response = await self.agent_core.llm_client.agenerate(prompt, timeout=180.0)
+                            test_code = self.agent_core._extract_java_code(response)
+                        except Exception as e:
+                            # Catch all other exceptions (404, connection errors, etc.)
+                            error_str = str(e).lower()
+                            if "404" in error_str or "not found" in error_str:
+                                logger.warning(f"[StepExecutor] ❌ Streaming endpoint not found (404), falling back: {e}")
+                            else:
+                                logger.warning(f"[StepExecutor] ⚠️ Streaming failed ({type(e).__name__}), falling back: {e}")
                             response = await self.agent_core.llm_client.agenerate(prompt, timeout=180.0)
                             test_code = self.agent_core._extract_java_code(response)
                     else:
