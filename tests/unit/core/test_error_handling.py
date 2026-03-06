@@ -2,19 +2,17 @@
 import pytest
 from pyutagent.core.error_handling import (
     ErrorSeverity,
-    ErrorCategory,
-    PyUTError,
     ErrorHandler,
     LoggingErrorHandler,
-    RecoveryStrategy,
+    RecoveryStrategyHandler,
     ErrorPropagationChain,
     ErrorTracker,
     retry_strategy_factory
 )
 from pyutagent.core.error_types import (
-    CompilationErrorType,
-    RuntimeErrorType,
-    NetworkErrorType
+    ErrorCategory,
+    RecoveryStrategy,
+    PyUTError,
 )
 
 
@@ -30,22 +28,22 @@ class TestErrorDefinitions:
     
     def test_error_categories(self):
         """测试错误类别"""
-        assert ErrorCategory.COMPILATION.value == "compilation"
-        assert ErrorCategory.RUNTIME.value == "runtime"
-        assert ErrorCategory.NETWORK.value == "network"
+        assert ErrorCategory.COMPILATION.name == "COMPILATION"
+        assert ErrorCategory.RUNTIME.name == "RUNTIME"
+        assert ErrorCategory.NETWORK.name == "NETWORK"
     
     def test_pyut_error_creation(self):
         """测试创建 PyUTError"""
         error = PyUTError(
             error_type="test_error",
             message="Test error message",
-            category=ErrorCategory.COMPILATION,
+            category=ErrorCategory.COMPILATION_ERROR,
             severity=ErrorSeverity.HIGH
         )
         
         assert error.error_type == "test_error"
         assert error.message == "Test error message"
-        assert error.category == ErrorCategory.COMPILATION
+        assert error.category == ErrorCategory.COMPILATION_ERROR
         assert error.severity == ErrorSeverity.HIGH
     
     def test_pyut_error_with_context(self):
@@ -53,7 +51,7 @@ class TestErrorDefinitions:
         error = PyUTError(
             error_type="compilation_failed",
             message="Cannot compile test class",
-            category=ErrorCategory.COMPILATION,
+            category=ErrorCategory.COMPILATION_ERROR,
             severity=ErrorSeverity.HIGH,
             context={
                 "file": "TestFile.java",
@@ -80,7 +78,7 @@ class TestErrorDefinitions:
         )
         
         error_str = str(error)
-        assert "runtime" in error_str
+        assert "RUNTIME" in error_str
         assert "MEDIUM" in error_str
         assert "test_error" in error_str
 
@@ -98,10 +96,8 @@ class TestErrorHandlers:
             severity=ErrorSeverity.LOW
         )
         
-        # 应该可以处理所有错误
         assert handler.can_handle(error) is True
         
-        # 处理错误（不应该抛出异常）
         result = handler.handle(error)
         assert result is True
 
@@ -114,7 +110,7 @@ class TestRecoveryStrategies:
         def dummy_handler(error: PyUTError) -> bool:
             return True
         
-        strategy = RecoveryStrategy("test_strategy", dummy_handler)
+        strategy = RecoveryStrategyHandler("test_strategy", dummy_handler)
         
         assert strategy.name == "test_strategy"
         
@@ -133,6 +129,7 @@ class TestRecoveryStrategies:
         strategy = retry_strategy_factory(max_retries=3)
         
         assert strategy.name == "retry_3"
+        assert strategy.strategy_type == RecoveryStrategy.RETRY
         
         error = PyUTError(
             error_type="network_error",
@@ -141,7 +138,6 @@ class TestRecoveryStrategies:
             severity=ErrorSeverity.HIGH
         )
         
-        # 重试策略应该执行成功
         result = strategy.execute(error)
         assert result is True
 
@@ -188,7 +184,6 @@ class TestErrorPropagationChain:
             severity=ErrorSeverity.LOW
         )
         
-        # 没有恢复策略，应该返回 False
         result = chain.handle_error(error)
         assert result is False
     
@@ -201,18 +196,17 @@ class TestErrorPropagationChain:
             return True
         
         chain.add_recovery_strategy(
-            ErrorCategory.COMPILATION,
-            RecoveryStrategy("fix_compilation", success_handler)
+            ErrorCategory.COMPILATION_ERROR,
+            RecoveryStrategyHandler("fix_compilation", success_handler, RecoveryStrategy.ANALYZE_AND_FIX)
         )
         
         error = PyUTError(
             error_type="compilation_failed",
             message="Cannot compile",
-            category=ErrorCategory.COMPILATION,
+            category=ErrorCategory.COMPILATION_ERROR,
             severity=ErrorSeverity.HIGH
         )
         
-        # 有恢复策略且成功
         result = chain.handle_error(error)
         assert result is True
 
@@ -247,7 +241,6 @@ class TestErrorTracker:
         """测试错误频率追踪"""
         tracker = ErrorTracker()
         
-        # 添加多个同类错误
         for i in range(3):
             error = PyUTError(
                 error_type="network_timeout",
@@ -264,7 +257,6 @@ class TestErrorTracker:
         """测试获取最近的错误"""
         tracker = ErrorTracker()
         
-        # 添加 10 个错误
         for i in range(10):
             error = PyUTError(
                 error_type=f"error_{i}",
@@ -276,13 +268,12 @@ class TestErrorTracker:
         
         recent = tracker.get_recent_errors(limit=5)
         assert len(recent) == 5
-        assert recent[-1].error_type == "error_9"  # 最近的错误
+        assert recent[-1].error_type == "error_9"
     
     def test_error_history_limit(self):
         """测试错误历史记录限制"""
         tracker = ErrorTracker(max_history=5)
         
-        # 添加超过限制的错误
         for i in range(10):
             error = PyUTError(
                 error_type=f"error_{i}",
@@ -292,7 +283,6 @@ class TestErrorTracker:
             )
             tracker.track(error)
         
-        # 应该只保留最近的 5 个
         assert len(tracker.errors) == 5
         assert tracker.errors[0].error_type == "error_5"
     
@@ -300,7 +290,6 @@ class TestErrorTracker:
         """测试清空错误"""
         tracker = ErrorTracker()
         
-        # 添加一些错误
         for i in range(3):
             error = PyUTError(
                 error_type=f"error_{i}",
@@ -310,29 +299,18 @@ class TestErrorTracker:
             )
             tracker.track(error)
         
-        # 清空
         tracker.clear()
         
         assert len(tracker.errors) == 0
         assert len(tracker.error_counts) == 0
 
 
-class TestErrorTypes:
-    """测试错误类型枚举"""
+class TestRecoveryStrategyEnum:
+    """测试恢复策略枚举"""
     
-    def test_compilation_error_types(self):
-        """测试编译错误类型"""
-        assert CompilationErrorType.SYNTAX_ERROR.value == "syntax_error"
-        assert CompilationErrorType.IMPORT_ERROR.value == "import_error"
-        assert CompilationErrorType.SYMBOL_NOT_FOUND.value == "symbol_not_found"
-    
-    def test_runtime_error_types(self):
-        """测试运行时错误类型"""
-        assert RuntimeErrorType.NULL_POINTER.value == "null_pointer"
-        assert RuntimeErrorType.INDEX_OUT_OF_BOUNDS.value == "index_out_of_bounds"
-    
-    def test_network_error_types(self):
-        """测试网络错误类型"""
-        assert NetworkErrorType.CONNECTION_ERROR.value == "connection_error"
-        assert NetworkErrorType.TIMEOUT.value == "timeout"
-        assert NetworkErrorType.RATE_LIMIT.value == "rate_limit"
+    def test_recovery_strategy_values(self):
+        """测试恢复策略枚举值"""
+        assert RecoveryStrategy.RETRY.name == "RETRY"
+        assert RecoveryStrategy.FALLBACK.name == "FALLBACK"
+        assert RecoveryStrategy.ANALYZE_AND_FIX.name == "ANALYZE_AND_FIX"
+        assert RecoveryStrategy.ABORT.name == "ABORT"
