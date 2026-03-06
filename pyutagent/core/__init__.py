@@ -10,36 +10,45 @@ from pyutagent.core.messaging import (
     MessagePriority,
 )
 
-# Legacy event bus (deprecated, for backward compatibility)
-from pyutagent.core.event_bus import EventBus as _EventBus, AsyncEventBus as _AsyncEventBus
-
-warnings.warn(
-    "pyutagent.core.EventBus and AsyncEventBus are deprecated. "
-    "Use pyutagent.core.messaging.UnifiedMessageBus instead.",
-    DeprecationWarning,
-    stacklevel=2
+# Unified event bus (recommended for event-driven patterns)
+from pyutagent.core.event_bus import (
+    EventBus,
+    Event,
+    Subscription,
+    create_event_bus,
+    publish_event,
 )
 
-# Provide backward compatible aliases
-class EventBus(_EventBus):
-    """EventBus - Deprecated, use UnifiedMessageBus instead."""
+# Legacy event bus adapters (deprecated, for backward compatibility)
+from pyutagent.core.messaging.adapters import (
+    EventBusAdapter as _EventBusAdapter,
+    AsyncEventBusAdapter as _AsyncEventBusAdapter,
+)
+
+# Provide backward compatible aliases with deprecation warnings
+class _LegacyEventBus(_EventBusAdapter):
+    """Legacy EventBus - Deprecated, use EventBus or UnifiedMessageBus instead."""
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         warnings.warn(
-            "EventBus is deprecated. Use UnifiedMessageBus from pyutagent.core.messaging instead.",
+            "core.EventBus is deprecated. Use core.event_bus.EventBus or core.messaging.UnifiedMessageBus instead.",
             DeprecationWarning,
             stacklevel=2
         )
         super().__init__(*args, **kwargs)
 
-class AsyncEventBus(_AsyncEventBus):
-    """AsyncEventBus - Deprecated, use UnifiedMessageBus instead."""
+class _LegacyAsyncEventBus(_AsyncEventBusAdapter):
+    """Legacy AsyncEventBus - Deprecated, use EventBus or UnifiedMessageBus instead."""
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         warnings.warn(
-            "AsyncEventBus is deprecated. Use UnifiedMessageBus from pyutagent.core.messaging instead.",
+            "core.AsyncEventBus is deprecated. Use core.event_bus.EventBus or core.messaging.UnifiedMessageBus instead.",
             DeprecationWarning,
             stacklevel=2
         )
         super().__init__(*args, **kwargs)
+
+# Keep old names for backward compatibility
+EventBusAdapter = _LegacyEventBus
+AsyncEventBusAdapter = _LegacyAsyncEventBus
 
 from pyutagent.core.test_strategy_selector import (
     TestStrategySelector,
@@ -107,9 +116,15 @@ __all__ = [
     'Message',
     'MessageType',
     'MessagePriority',
-    # Legacy event bus (deprecated)
+    # Unified event bus (recommended for event-driven patterns)
     'EventBus',
-    'AsyncEventBus',
+    'Event',
+    'Subscription',
+    'create_event_bus',
+    'publish_event',
+    # Legacy event bus adapters (deprecated)
+    'EventBusAdapter',
+    'AsyncEventBusAdapter',
     'TestStrategySelector',
     'TestStrategy',
     'CodeCharacteristic',
