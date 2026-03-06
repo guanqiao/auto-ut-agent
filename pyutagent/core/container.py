@@ -1,367 +1,303 @@
-"""Dependency injection container for PyUT Agent.
+"""Unified Dependency Injection Container.
 
-This module provides a simple dependency injection container that manages
-the lifecycle of components and their dependencies.
+This module provides a centralized dependency injection system to replace
+dispersed Manager class instances and improve testability and maintainability.
 
-Features:
-- Singleton and transient lifecycle management
-- Lazy initialization
-- Factory-based component creation
-- Configuration injection
-- Easy testing with mock injection
-- Thread-safe singleton initialization
+Example:
+    >>> from pyutagent.core.container import DIContainer
+    >>> 
+    >>> # Register a singleton
+    >>> DIContainer.register_singleton(MessageBus, UnifiedMessageBus())
+    >>> 
+    >>> # Register a factory
+    >>> DIContainer.register_factory(StateManager, lambda: StateManager())
+    >>> 
+    >>> # Resolve dependencies
+    >>> bus = DIContainer.resolve(MessageBus)
+    >>> state = DIContainer.resolve(StateManager)
 """
 
 import logging
-import threading
-from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Optional, Type, TypeVar, cast
+from dataclasses import dataclass
 from enum import Enum, auto
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Generic,
-    Optional,
-    Type,
-    TypeVar,
-    Union,
-)
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
 
 
-class Lifecycle(Enum):
-    """Component lifecycle types."""
-    SINGLETON = auto()
-    TRANSIENT = auto()
+class RegistrationType(Enum):
+    """Type of dependency registration."""
+    SINGLETON = auto()  # Single instance shared across all resolutions
+    TRANSIENT = auto()  # New instance created for each resolution
+    SCOPED = auto()     # Instance shared within a scope
 
 
-@dataclass
-class ComponentRegistration(Generic[T]):
-    """Registration info for a component."""
-    component_type: Type[T]
-    factory: Optional[Callable[[], T]] = None
-    instance: Optional[T] = None
-    lifecycle: Lifecycle = Lifecycle.SINGLETON
-    dependencies: Dict[str, str] = field(default_factory=dict)
+class Registration:
+    """Dependency registration entry."""
+    
+    def __init__(
+        self,
+        interface: Type,
+        implementation: Optional[Type] = None,
+        factory: Optional[Callable[..., Any]] = None,
+        instance: Optional[Any] = None,
+        registration_type: RegistrationType = RegistrationType.SINGLETON
+    ):
+        self.interface = interface
+        self.implementation = implementation
+        self.factory = factory
+        self.instance = instance
+        self.registration_type = registration_type
+        # Track if instance was explicitly set (even to None)
+        self._instance_set = 'instance' in locals() and instance is not None
+    
+    def get_instance(self) -> Any:
+        """Get or create instance based on registration type."""
+        if self.registration_type == RegistrationType.SINGLETON:
+            # If instance was explicitly set (even to None), return it
+            if hasattr(self, '_instance_set') and self._instance_set:
+                return self.instance
+            # Otherwise, create and cache the instance
+            if self.instance is None:
+                self.instance = self._create_instance()
+                self._instance_set = True
+            return self.instance
+        elif self.registration_type == RegistrationType.TRANSIENT:
+            return self._create_instance()
+        else:  # SCOPED
+            # For scoped, we would need scope context
+            # For now, treat as transient
+            return self._create_instance()
+    
+    def _create_instance(self) -> Any:
+        """Create a new instance."""
+        if self.factory:
+            return self.factory()
+        elif self.implementation:
+            return self.implementation()
+        else:
+            raise ValueError(f"No factory or implementation for {self.interface}")
 
 
-class Container:
-    """Dependency injection container.
-
-    Manages component registration, lifecycle, and dependency resolution.
-
-    Example:
-        container = Container()
-
-        # Register with factory
-        container.register_factory(LLMClient, create_llm_client)
-
-        # Register singleton instance
-        container.register_instance(Settings, settings)
-
-        # Resolve dependencies
-        client = container.resolve(LLMClient)
+class DIContainer:
+    """Unified Dependency Injection Container.
+    
+    Provides centralized dependency management with support for:
+    - Singleton registration
+    - Factory registration
+    - Transient and scoped lifetimes
+    - Interface-to-implementation mapping
+    
+    This replaces the dispersed Manager class instances throughout the codebase.
     """
-
-    def __init__(self):
-        self._registrations: Dict[Type, ComponentRegistration] = {}
-        self._named_instances: Dict[str, Any] = {}
-        self._resolving: set = set()
-
+    
+    _registrations: Dict[Type, Registration] = {}
+    _instance_cache: Dict[Type, Any] = {}
+    
+    @classmethod
     def register_singleton(
-        self,
-        component_type: Type[T],
-        factory: Optional[Callable[[], T]] = None
+        cls,
+        interface: Type[T],
+        instance: T
     ) -> None:
-        """Register a singleton component.
-
+        """Register a singleton instance.
+        
         Args:
-            component_type: The type to register
-            factory: Optional factory function (default: component_type())
+            interface: Interface type (usually abstract base class or protocol)
+            instance: Singleton instance to register
+            
+        Example:
+            >>> DIContainer.register_singleton(MessageBus, UnifiedMessageBus())
         """
-        self._registrations[component_type] = ComponentRegistration(
-            component_type=component_type,
-            factory=factory,
-            lifecycle=Lifecycle.SINGLETON
-        )
-        logger.debug(f"[Container] Registered singleton: {component_type.__name__}")
-
-    def register_transient(
-        self,
-        component_type: Type[T],
-        factory: Optional[Callable[[], T]] = None
-    ) -> None:
-        """Register a transient component (new instance each time).
-
-        Args:
-            component_type: The type to register
-            factory: Optional factory function
-        """
-        self._registrations[component_type] = ComponentRegistration(
-            component_type=component_type,
-            factory=factory,
-            lifecycle=Lifecycle.TRANSIENT
-        )
-        logger.debug(f"[Container] Registered transient: {component_type.__name__}")
-
-    def register_factory(
-        self,
-        component_type: Type[T],
-        factory: Callable[[], T],
-        lifecycle: Lifecycle = Lifecycle.SINGLETON
-    ) -> None:
-        """Register a component with a factory function.
-
-        Args:
-            component_type: The type to register
-            factory: Factory function to create instances
-            lifecycle: Component lifecycle
-        """
-        self._registrations[component_type] = ComponentRegistration(
-            component_type=component_type,
-            factory=factory,
-            lifecycle=lifecycle
-        )
-        logger.debug(f"[Container] Registered factory for {component_type.__name__} with {lifecycle.name} lifecycle")
-
-    def register_instance(self, component_type: Type[T], instance: T) -> None:
-        """Register an existing instance as a singleton.
-
-        Args:
-            component_type: The type to register
-            instance: The instance to register
-        """
-        self._registrations[component_type] = ComponentRegistration(
-            component_type=component_type,
+        cls._registrations[interface] = Registration(
+            interface=interface,
             instance=instance,
-            lifecycle=Lifecycle.SINGLETON
+            registration_type=RegistrationType.SINGLETON
         )
-        logger.debug(f"[Container] Registered instance of {component_type.__name__}")
-
-    def register_named(self, name: str, instance: Any) -> None:
-        """Register a named instance.
-
+        logger.debug(f"Registered singleton for {interface.__name__}")
+    
+    @classmethod
+    def register_factory(
+        cls,
+        interface: Type[T],
+        factory: Callable[..., T],
+        registration_type: RegistrationType = RegistrationType.TRANSIENT
+    ) -> None:
+        """Register a factory function.
+        
         Args:
-            name: Name for the instance
-            instance: The instance to register
+            interface: Interface type
+            factory: Factory function to create instances
+            registration_type: Lifetime of created instances
+            
+        Example:
+            >>> DIContainer.register_factory(StateManager, lambda: StateManager())
         """
-        self._named_instances[name] = instance
-        logger.debug(f"[Container] Registered named instance: {name}")
-
-    def resolve(self, component_type: Type[T]) -> T:
-        """Resolve a component by type.
-
+        cls._registrations[interface] = Registration(
+            interface=interface,
+            factory=factory,
+            registration_type=registration_type
+        )
+        logger.debug(f"Registered factory for {interface.__name__}")
+    
+    @classmethod
+    def register_implementation(
+        cls,
+        interface: Type[T],
+        implementation: Type[T],
+        registration_type: RegistrationType = RegistrationType.SINGLETON
+    ) -> None:
+        """Register an implementation type for an interface.
+        
         Args:
-            component_type: The type to resolve
-
+            interface: Interface type
+            implementation: Concrete implementation type
+            registration_type: Lifetime of created instances
+            
+        Example:
+            >>> DIContainer.register_implementation(MessageBus, UnifiedMessageBus)
+        """
+        cls._registrations[interface] = Registration(
+            interface=interface,
+            implementation=implementation,
+            registration_type=registration_type
+        )
+        logger.debug(f"Registered implementation {implementation.__name__} for {interface.__name__}")
+    
+    @classmethod
+    def resolve(cls, interface: Type[T]) -> T:
+        """Resolve a dependency.
+        
+        Args:
+            interface: Interface type to resolve
+            
         Returns:
-            The resolved instance
-
+            Instance of the registered implementation
+            
         Raises:
-            KeyError: If component is not registered
-            RuntimeError: If circular dependency is detected
+            KeyError: If interface is not registered
+            
+        Example:
+            >>> bus = DIContainer.resolve(MessageBus)
         """
-        if component_type not in self._registrations:
-            raise KeyError(f"Component {component_type.__name__} is not registered")
-
-        registration = self._registrations[component_type]
-
-        if registration.lifecycle == Lifecycle.SINGLETON:
-            if registration.instance is not None:
-                return registration.instance
-
-            if component_type in self._resolving:
-                raise RuntimeError(f"Circular dependency detected for {component_type.__name__}")
-
-            self._resolving.add(component_type)
-            try:
-                instance = self._create_instance(registration)
-                registration.instance = instance
-                return instance
-            finally:
-                self._resolving.discard(component_type)
-
-        elif registration.lifecycle == Lifecycle.TRANSIENT:
-            return self._create_instance(registration)
-
-        raise RuntimeError(f"Unknown lifecycle: {registration.lifecycle}")
-
-    def resolve_named(self, name: str) -> Any:
-        """Resolve a named instance.
-
+        if interface not in cls._registrations:
+            raise KeyError(f"No registration found for {interface.__name__}")
+        
+        registration = cls._registrations[interface]
+        instance = registration.get_instance()
+        return cast(T, instance)
+    
+    @classmethod
+    def try_resolve(cls, interface: Type[T]) -> Optional[T]:
+        """Try to resolve a dependency, returning None if not registered.
+        
         Args:
-            name: Name of the instance
-
+            interface: Interface type to resolve
+            
         Returns:
-            The resolved instance
-
-        Raises:
-            KeyError: If named instance is not registered
-        """
-        if name not in self._named_instances:
-            raise KeyError(f"Named instance '{name}' is not registered")
-        return self._named_instances[name]
-
-    def try_resolve(self, component_type: Type[T]) -> Optional[T]:
-        """Try to resolve a component, returning None if not registered.
-
-        Args:
-            component_type: The type to resolve
-
-        Returns:
-            The resolved instance or None
+            Instance or None if not registered
         """
         try:
-            return self.resolve(component_type)
+            return cls.resolve(interface)
         except KeyError:
             return None
-
-    def _create_instance(self, registration: ComponentRegistration[T]) -> T:
-        """Create an instance using the registration info.
-
+    
+    @classmethod
+    def is_registered(cls, interface: Type) -> bool:
+        """Check if an interface is registered.
+        
         Args:
-            registration: The component registration
-
+            interface: Interface type to check
+            
         Returns:
-            The created instance
+            True if registered, False otherwise
         """
-        if registration.factory:
-            return registration.factory()
-
-        component_type = registration.component_type
-
-        try:
-            import inspect
-            sig = inspect.signature(component_type.__init__)
-            params = {}
-
-            for param_name, param in sig.parameters.items():
-                if param_name == 'self':
-                    continue
-
-                if param_name in registration.dependencies:
-                    dep_name = registration.dependencies[param_name]
-                    params[param_name] = self.resolve_named(dep_name)
-                elif param.annotation != inspect.Parameter.empty:
-                    if isinstance(param.annotation, type):
-                        try:
-                            params[param_name] = self.resolve(param.annotation)
-                        except KeyError:
-                            if param.default != inspect.Parameter.empty:
-                                continue
-                            raise
-
-            return component_type(**params)
-
-        except Exception as e:
-            logger.warning(f"[Container] Failed to resolve dependencies for {component_type.__name__}: {e}, using default constructor")
-            return component_type()
-
-    def is_registered(self, component_type: Type) -> bool:
-        """Check if a component type is registered.
-
+        return interface in cls._registrations
+    
+    @classmethod
+    def unregister(cls, interface: Type) -> bool:
+        """Unregister an interface.
+        
         Args:
-            component_type: The type to check
-
+            interface: Interface type to unregister
+            
         Returns:
-            True if registered
+            True if unregistered, False if not found
         """
-        return component_type in self._registrations
-
-    def is_named_registered(self, name: str) -> bool:
-        """Check if a named instance is registered.
-
-        Args:
-            name: Name to check
-
+        if interface in cls._registrations:
+            del cls._registrations[interface]
+            cls._instance_cache.pop(interface, None)
+            logger.debug(f"Unregistered {interface.__name__}")
+            return True
+        return False
+    
+    @classmethod
+    def clear(cls) -> None:
+        """Clear all registrations. Useful for testing."""
+        cls._registrations.clear()
+        cls._instance_cache.clear()
+        logger.debug("Cleared all registrations")
+    
+    @classmethod
+    def get_registered_interfaces(cls) -> list[Type]:
+        """Get list of all registered interfaces.
+        
         Returns:
-            True if registered
+            List of registered interface types
         """
-        return name in self._named_instances
-
-    def clear(self) -> None:
-        """Clear all registrations."""
-        self._registrations.clear()
-        self._named_instances.clear()
-        self._resolving.clear()
-        logger.info("[Container] Cleared all registrations")
-
-    def get_registrations(self) -> Dict[Type, ComponentRegistration]:
-        """Get all registrations (for debugging)."""
-        return self._registrations.copy()
-
-    def get_named_instances(self) -> Dict[str, Any]:
-        """Get all named instances (for debugging)."""
-        return self._named_instances.copy()
+        return list(cls._registrations.keys())
 
 
-_global_container: Optional[Container] = None
-_container_lock = threading.Lock()
+# Convenience functions for common patterns
+
+def register_singleton(interface: Type[T], instance: T) -> None:
+    """Convenience function to register a singleton."""
+    DIContainer.register_singleton(interface, instance)
 
 
-def get_container() -> Container:
-    """Get the global container instance (thread-safe).
+def register_factory(interface: Type[T], factory: Callable[..., T]) -> None:
+    """Convenience function to register a factory."""
+    DIContainer.register_factory(interface, factory)
 
+
+def resolve(interface: Type[T]) -> T:
+    """Convenience function to resolve a dependency."""
+    return DIContainer.resolve(interface)
+
+
+def try_resolve(interface: Type[T]) -> Optional[T]:
+    """Convenience function to try resolving a dependency."""
+    return DIContainer.try_resolve(interface)
+
+
+# Backward compatibility aliases
+# These are provided for compatibility with existing code
+Container = DIContainer
+
+
+def get_container() -> DIContainer:
+    """Get the global DIContainer instance.
+    
+    This is a convenience function for backward compatibility.
+    
     Returns:
-        The global Container instance
+        DIContainer instance
     """
-    global _global_container
-    if _global_container is None:
-        with _container_lock:
-            # Double-checked locking pattern
-            if _global_container is None:
-                _global_container = Container()
-                logger.info("[Container] Created global container")
-    return _global_container
+    return DIContainer
 
 
-def reset_container() -> None:
-    """Reset the global container (useful for testing)."""
-    global _global_container
-    with _container_lock:
-        if _global_container is not None:
-            _global_container.clear()
-        _global_container = None
-        logger.info("[Container] Reset global container")
-
-
-def configure_container(
-    settings: Optional[Any] = None,
-    llm_config_collection: Optional[Any] = None,
-    aider_config: Optional[Any] = None
-) -> Container:
-    """Configure the global container with application components.
-
-    Args:
-        settings: Application settings
-        llm_config_collection: LLM configuration collection
-        aider_config: Aider configuration
-
-    Returns:
-        The configured container
+def configure_container() -> None:
+    """Configure the container with default registrations.
+    
+    This function registers the default implementations for common interfaces.
+    Call this at application startup.
     """
-    container = get_container()
-
-    if settings is not None:
-        from .config import Settings
-        container.register_instance(Settings, settings)
-
-    if llm_config_collection is not None:
-        from .config import LLMConfigCollection
-        container.register_instance(LLMConfigCollection, llm_config_collection)
-
-    if aider_config is not None:
-        from .config import AiderConfig
-        container.register_instance(AiderConfig, aider_config)
-
-    from .retry_manager import RetryManager, RetryManagerConfig
-    container.register_singleton(RetryManager, lambda: RetryManager())
-
-    from .error_recovery import ErrorRecoveryManager
-    container.register_singleton(ErrorRecoveryManager, lambda: ErrorRecoveryManager())
-
-    logger.info("[Container] Configured with application components")
-    return container
+    from pyutagent.core.messaging import UnifiedMessageBus
+    
+    # Register default implementations if not already registered
+    if not DIContainer.is_registered(UnifiedMessageBus):
+        DIContainer.register_singleton(UnifiedMessageBus, UnifiedMessageBus())
+    
+    logger.debug("Container configured with default registrations")
