@@ -15,7 +15,8 @@ from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Set, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pyutagent.agent.subagent_base import SubAgent
+    # SubAgent is deprecated, use UnifiedAgentBase instead
+    from pyutagent.agent.unified_agent_base import UnifiedAgentBase as SubAgent
 
 logger = logging.getLogger(__name__)
 
