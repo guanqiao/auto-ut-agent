@@ -77,11 +77,12 @@ class LogEmitter(QObject):
         super().__init__(parent)
         self._handler: Optional[QtLogHandler] = None
     
-    def install_handler(self, logger_name: str = 'pyutagent') -> QtLogHandler:
+    def install_handler(self, logger_name: str = 'pyutagent', level: Optional[int] = None) -> QtLogHandler:
         """Install the log handler on the specified logger.
         
         Args:
             logger_name: Name of the logger to install handler on
+            level: Optional log level to set on the logger (defaults to root logger's effective level)
             
         Returns:
             The installed handler
@@ -91,6 +92,14 @@ class LogEmitter(QObject):
         
         logger = logging.getLogger(logger_name)
         logger.addHandler(self._handler)
+        
+        # Set logger level to ensure logs are captured
+        if level is not None:
+            logger.setLevel(level)
+        else:
+            # Use root logger's effective level
+            root_level = logging.getLogger().getEffectiveLevel()
+            logger.setLevel(root_level)
         
         return self._handler
     
