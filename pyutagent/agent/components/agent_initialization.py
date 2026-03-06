@@ -195,7 +195,8 @@ class AgentInitializer:
     
     def _init_p0_components(self) -> Dict[str, Any]:
         """Initialize P0 enhancement components."""
-        from pyutagent.agent.context_manager import ContextManager, CompressionStrategy
+        # ContextManager is deprecated, use UnifiedContextManager instead
+        from pyutagent.agent.unified_context_manager import UnifiedContextManager, CompressionStrategy
         from pyutagent.agent.generation_evaluator import GenerationEvaluator
         from pyutagent.agent.partial_success_handler import PartialSuccessHandler
         from pyutagent.agent.streaming import StreamingTestGenerator, StreamingConfig
@@ -203,7 +204,7 @@ class AgentInitializer:
         
         components = {}
         
-        context_manager = ContextManager(
+        context_manager = UnifiedContextManager(
             max_tokens=8000,
             target_tokens=6000,
             strategy=CompressionStrategy.HYBRID
