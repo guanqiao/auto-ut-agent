@@ -31,6 +31,19 @@ class MigrationRule:
     note: str = ""
 
 
+# Files that are allowed to import deprecated modules for backward compatibility
+ALLOWED_DEPRECATED_IMPORTS: Dict[str, List[str]] = {
+    # core/__init__.py imports deprecated modules to provide backward compatible aliases
+    "pyutagent/core/__init__.py": ["pyutagent.core.event_bus"],
+    # agent/__init__.py imports deprecated modules to provide backward compatible exports
+    "pyutagent/agent/__init__.py": [
+        "pyutagent.agent.base_agent",
+        "pyutagent.agent.autonomous_loop",
+        "pyutagent.agent.context_manager",
+    ],
+}
+
+
 # Migration rules mapping
 MIGRATION_RULES: List[MigrationRule] = [
     # Message Bus
@@ -172,8 +185,21 @@ def find_deprecated_imports(file_path: Path) -> List[Tuple[str, str, int, Migrat
         finder = ImportFinder()
         finder.visit(tree)
         
+        # Check if this file is allowed to import certain deprecated modules
+        # Normalize path for matching
+        file_str = str(file_path).replace("\\", "/")
+        # Extract relative path from pyutagent
+        if "pyutagent/" in file_str:
+            file_key = "pyutagent/" + file_str.split("pyutagent/")[1]
+        else:
+            file_key = file_str
+        allowed_modules = ALLOWED_DEPRECATED_IMPORTS.get(file_key, [])
+        
         deprecated = []
         for module, name, line in finder.imports:
+            # Skip if this module is allowed for this file
+            if module in allowed_modules:
+                continue
             for rule in MIGRATION_RULES:
                 if module == rule.old_module and name == rule.old_name:
                     deprecated.append((module, name, line, rule))

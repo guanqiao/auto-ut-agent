@@ -1,5 +1,46 @@
 """Core module - 核心基础设施"""
-from pyutagent.core.event_bus import EventBus, AsyncEventBus
+import warnings
+from typing import Any
+
+# Unified messaging (recommended)
+from pyutagent.core.messaging import (
+    UnifiedMessageBus,
+    Message,
+    MessageType,
+    MessagePriority,
+)
+
+# Legacy event bus (deprecated, for backward compatibility)
+from pyutagent.core.event_bus import EventBus as _EventBus, AsyncEventBus as _AsyncEventBus
+
+warnings.warn(
+    "pyutagent.core.EventBus and AsyncEventBus are deprecated. "
+    "Use pyutagent.core.messaging.UnifiedMessageBus instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Provide backward compatible aliases
+class EventBus(_EventBus):
+    """EventBus - Deprecated, use UnifiedMessageBus instead."""
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        warnings.warn(
+            "EventBus is deprecated. Use UnifiedMessageBus from pyutagent.core.messaging instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        super().__init__(*args, **kwargs)
+
+class AsyncEventBus(_AsyncEventBus):
+    """AsyncEventBus - Deprecated, use UnifiedMessageBus instead."""
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        warnings.warn(
+            "AsyncEventBus is deprecated. Use UnifiedMessageBus from pyutagent.core.messaging instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        super().__init__(*args, **kwargs)
+
 from pyutagent.core.test_strategy_selector import (
     TestStrategySelector,
     TestStrategy,
@@ -61,6 +102,12 @@ from pyutagent.core.checkpoint import (
 )
 
 __all__ = [
+    # Unified messaging (recommended)
+    'UnifiedMessageBus',
+    'Message',
+    'MessageType',
+    'MessagePriority',
+    # Legacy event bus (deprecated)
     'EventBus',
     'AsyncEventBus',
     'TestStrategySelector',
