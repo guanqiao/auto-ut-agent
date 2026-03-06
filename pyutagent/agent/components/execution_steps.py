@@ -727,11 +727,11 @@ class StepExecutor:
             if package_path:
                 test_dir = test_dir / package_path
             
-            logger.debug(f"[StepExecutor] Creating test directory: {test_dir}")
+            logger.info(f"[StepExecutor] Creating test directory: {test_dir}")
             test_dir.mkdir(parents=True, exist_ok=True)
             test_file_path = test_dir / test_file_name
             
-            logger.debug(f"[StepExecutor] Writing initial test file: {test_file_path} ({len(test_code)} chars)")
+            logger.info(f"[StepExecutor] Writing initial test file: {test_file_path} ({len(test_code)} chars)")
             with open(test_file_path, 'w', encoding='utf-8') as f:
                 f.write(test_code)
             
@@ -1809,7 +1809,7 @@ class StepExecutor:
         Args:
             code: Test code to write
         """
-        logger.debug(f"[StepExecutor] _write_test_file called - current_test_file: {self.agent_core.current_test_file}, code_length: {len(code) if code else 0}")
+        logger.info(f"[StepExecutor] _write_test_file called - current_test_file: {self.agent_core.current_test_file}, code_length: {len(code) if code else 0}")
         
         if not self.agent_core.current_test_file:
             logger.warning("[StepExecutor] Cannot write test file - current_test_file is empty")
@@ -1822,18 +1822,18 @@ class StepExecutor:
         
         # Check if code looks like valid Java test code
         is_valid = self._is_valid_test_code(code)
-        logger.debug(f"[StepExecutor] Code validation result: {is_valid}")
+        logger.info(f"[StepExecutor] Code validation result: {is_valid}")
         if not is_valid:
             logger.warning("[StepExecutor] Refusing to write invalid test code - keeping existing file")
             return
         
         try:
             test_file_path = Path(self.agent_core.project_path) / self.agent_core.current_test_file
-            logger.debug(f"[StepExecutor] Writing test file to: {test_file_path}")
+            logger.info(f"[StepExecutor] Writing test file to: {test_file_path}")
             
             # Ensure parent directory exists
             test_file_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"[StepExecutor] Parent directory ensured: {test_file_path.parent}")
+            logger.info(f"[StepExecutor] Parent directory ensured: {test_file_path.parent}")
             
             test_file_path.write_text(code, encoding='utf-8')
             
