@@ -5,7 +5,8 @@ from typing import Dict, List, Optional, Any, Callable
 from pathlib import Path
 import asyncio
 
-from pyutagent.agent.base_agent import StepResult
+# StepResult is deprecated, use AgentResult from unified_agent_base instead
+from pyutagent.agent.unified_agent_base import AgentResult as StepResult
 from pyutagent.core.protocols import AgentState, AgentResult
 from pyutagent.memory.working_memory import WorkingMemory
 from pyutagent.llm.client import LLMClient
