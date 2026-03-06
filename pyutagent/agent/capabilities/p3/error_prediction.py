@@ -7,6 +7,7 @@ before compilation.
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from ..base import Capability, CapabilityMetadata, CapabilityPriority
+from ...execution.retry import RetryConfig
 
 if TYPE_CHECKING:
     from ....core.container import Container
@@ -42,6 +43,18 @@ class ErrorPredictionCapability(Capability):
             provides={"error_predictor"},
             dependencies={"generation_evaluation"},
             tags={"p3", "prediction", "quality"}
+        )
+    
+    def _create_default_retry_config(self) -> "RetryConfig":
+        """Create default retry config for error prediction.
+        
+        Error prediction is a best-effort feature and can accept
+        more failures with faster backoff.
+        """
+        return RetryConfig(
+            max_attempts=2,
+            base_delay=0.5,
+            max_delay=10.0,
         )
     
     def initialize(self, container: "Container") -> None:

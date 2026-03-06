@@ -9,10 +9,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from pyutagent.agent.base_agent import StepResult
 from pyutagent.core.protocols import AgentState
 from pyutagent.core.config import get_settings
-from pyutagent.core.retry_config import RetryConfig, DEFAULT_RETRY_CONFIG
+from pyutagent.core.retry_config import RetryConfig as CoreRetryConfig, DEFAULT_RETRY_CONFIG
 from pyutagent.core.error_classification import get_error_classification_service
 from pyutagent.core.failure_pattern_tracker import FailurePatternTracker
 from pyutagent.agent.thinking_engine import ThinkingEngine, ThinkingType, ThinkingSession
+from pyutagent.agent.execution.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -40,18 +41,23 @@ class StepExecutor:
         self.agent_core = agent_core
         self.components = components
         
-        if retry_config is None:
-            settings = get_settings()
-            retry_config = RetryConfig(
-                max_step_attempts=settings.coverage.max_step_attempts,
-                max_compilation_attempts=settings.coverage.max_compilation_attempts,
-                max_test_attempts=settings.coverage.max_test_attempts,
-            )
+        self._capability_registry = components.get("capability_registry")
         
-        self.retry_config = retry_config
+        if retry_config is None:
+            if self._capability_registry:
+                self.retry_config = self._get_capability_retry_config()
+            else:
+                settings = get_settings()
+                self.retry_config = RetryConfig.from_core(CoreRetryConfig(
+                    max_step_attempts=settings.coverage.max_step_attempts,
+                    max_compilation_attempts=settings.coverage.max_compilation_attempts,
+                    max_test_attempts=settings.coverage.max_test_attempts,
+                ))
+        else:
+            self.retry_config = retry_config
+        
         self.error_classifier = get_error_classification_service()
 
-        # Initialize failure pattern tracker for intelligent retry
         self.failure_tracker = FailurePatternTracker(
             max_repeated_failures=3,
             pattern_expiry_seconds=600
@@ -65,6 +71,27 @@ class StepExecutor:
         self._step_attempt_counts: Dict[str, int] = {}
 
         logger.debug("[StepExecutor] Initialized with failure pattern tracking")
+    
+    def _get_capability_retry_config(self) -> RetryConfig:
+        """Get retry config from capability system.
+        
+        Merges retry configurations from all ready capabilities,
+        using the most conservative (strictest) settings.
+        """
+        configs = []
+        for cap in self._capability_registry.get_all_ready():
+            cap_config = cap.get_retry_config()
+            if cap_config:
+                configs.append(cap_config)
+        
+        if not configs:
+            return RetryConfig(max_attempts=3)
+        
+        return RetryConfig(
+            max_attempts=min(c.max_attempts for c in configs),
+            base_delay=max(c.base_delay for c in configs),
+            max_delay=max(c.max_delay for c in configs),
+        )
     
     def reset_attempt_counts(self):
         """Reset all attempt counters."""
@@ -2121,6 +2148,15 @@ class StepExecutor:
                 f"Confidence: {confidence:.2f}"
             )
             
+            if confidence < 0.5:
+                logger.warning(f"[StepExecutor] ⚠️ Low confidence ({confidence:.2f}), falling back to retry instead of executing actions")
+                return {
+                    "should_continue": True,
+                    "action": "retry",
+                    "reason": f"Low confidence analysis ({confidence:.2f}), not executing potentially invalid actions",
+                    "confidence": confidence
+                }
+            
             if not action_plan:
                 logger.warning("[StepExecutor] No action plan from LLM analysis")
                 return None
@@ -2157,24 +2193,57 @@ class StepExecutor:
                 }
             )
             
-            if execution_result.get("success"):
+            results = execution_result.get("results", [])
+            success_count = sum(1 for r in results if r.get("success", False))
+            failed_count = len(results) - success_count
+            
+            unknown_failures = sum(
+                1 for r in results 
+                if not r.get("success", False) and 
+                r.get("action", "").lower() in ("unknown", "unknown action")
+            )
+            
+            if unknown_failures > 0:
+                logger.warning(f"[StepExecutor] ⚠️ Detected {unknown_failures} unknown action failures out of {len(results)} total")
+                
+                if unknown_failures >= len(results) * 0.5 or unknown_failures >= 3:
+                    logger.error(f"[StepExecutor] ❌ Too many unknown actions ({unknown_failures}/{len(results)}), LLM likely returned invalid actions. Stopping retry cycle.")
+                    return {
+                        "should_continue": False,
+                        "action": "escalate",
+                        "reason": f"LLM returned mostly invalid actions ({unknown_failures} unknown out of {len(results)}). Need manual intervention.",
+                        "confidence": confidence,
+                        "error_type": "invalid_llm_response"
+                    }
+            
+            if execution_result.get("success") and success_count > 0:
                 modified_files = execution_result.get("modified_files", [])
-                logger.info(f"[StepExecutor] ✅ Smart recovery executed - Modified: {modified_files}")
+                logger.info(f"[StepExecutor] ✅ Smart recovery executed - Success: {success_count}/{len(results)}, Modified: {modified_files}")
                 
                 return {
                     "should_continue": True,
                     "action": "fix",
-                    "message": f"Applied {len(execution_result.get('results', []))} fixes",
+                    "message": f"Applied {success_count} fixes out of {len(results)} actions",
                     "modified_files": modified_files,
                     "confidence": confidence,
                     "analysis": analysis_result.get("analysis", "")
                 }
             else:
-                logger.warning(f"[StepExecutor] Smart recovery execution failed: {execution_result.get('message')}")
+                logger.warning(f"[StepExecutor] Smart recovery execution failed: {execution_result.get('message')}, Success: {success_count}/{len(results)}")
+                
+                if failed_count > 0 and success_count == 0:
+                    logger.error(f"[StepExecutor] ❌ All actions failed ({failed_count}), escalating instead of retrying")
+                    return {
+                        "should_continue": False,
+                        "action": "escalate",
+                        "reason": f"All {failed_count} recovery actions failed. No more automatic retries.",
+                        "confidence": confidence
+                    }
+                
                 return {
                     "should_continue": True,
                     "action": "retry",
-                    "reason": "Smart recovery execution failed, falling back to retry",
+                    "reason": f"Smart recovery partially failed ({success_count}/{len(results)} succeeded), will retry",
                     "confidence": confidence
                 }
                 

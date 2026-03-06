@@ -6,11 +6,13 @@ and the metadata that describes them.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ...core.container import Container
+    from ...execution.retry import RetryConfig
 
 logger = __import__('logging').getLogger(__name__)
 
@@ -55,6 +57,41 @@ class CapabilityMetadata:
         return self.name == other.name
 
 
+@dataclass
+class RetryStats:
+    """Statistics for retry operations within a capability."""
+    total_attempts: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+    errors: List[Exception] = field(default_factory=list)
+    last_attempt_time: Optional[datetime] = None
+    
+    def record_attempt(self, success: bool, error: Optional[Exception] = None):
+        """Record a retry attempt."""
+        self.total_attempts += 1
+        self.last_attempt_time = datetime.now()
+        if success:
+            self.success_count += 1
+        else:
+            self.failure_count += 1
+            if error:
+                self.errors.append(error)
+    
+    @property
+    def success_rate(self) -> float:
+        """Calculate success rate."""
+        if self.total_attempts == 0:
+            return 0.0
+        return self.success_count / self.total_attempts
+    
+    @property
+    def failure_rate(self) -> float:
+        """Calculate failure rate."""
+        if self.total_attempts == 0:
+            return 0.0
+        return self.failure_count / self.total_attempts
+
+
 class Capability(ABC):
     """Abstract base class for all agent capabilities.
     
@@ -65,6 +102,8 @@ class Capability(ABC):
     2. Can be initialized with a dependency injection container
     3. Can be enabled/disabled via configuration
     4. Provides specific functionality to the agent
+    5. Supports custom retry configuration
+    6. Tracks retry statistics
     
     Example:
         class ContextManagementCapability(Capability):
@@ -86,6 +125,8 @@ class Capability(ABC):
         self._state: CapabilityState = CapabilityState.UNINITIALIZED
         self._error: Optional[Exception] = None
         self._container: Optional["Container"] = None
+        self._retry_config: Optional["RetryConfig"] = None
+        self._retry_stats: Dict[str, RetryStats] = {}
     
     @classmethod
     @abstractmethod
@@ -117,6 +158,136 @@ class Capability(ABC):
         """Check if capability is ready to use."""
         return self._state == CapabilityState.READY
     
+    def get_retry_config(self) -> "RetryConfig":
+        """Get retry configuration for this capability.
+        
+        Returns:
+            RetryConfig instance
+        """
+        if self._retry_config is None:
+            self._retry_config = self._create_default_retry_config()
+        return self._retry_config
+    
+    def set_retry_config(self, config: "RetryConfig") -> None:
+        """Set custom retry configuration.
+        
+        Args:
+            config: RetryConfig instance
+        """
+        self._retry_config = config
+    
+    def _create_default_retry_config(self) -> "RetryConfig":
+        """Create default retry config for this capability.
+        
+        Override this method to customize retry behavior for specific capabilities.
+        
+        Returns:
+            Default RetryConfig instance
+        """
+        from ..execution.retry import RetryConfig
+        return RetryConfig(max_attempts=3)
+    
+    def record_retry(
+        self,
+        operation: str,
+        success: bool,
+        attempts: int,
+        error: Optional[Exception] = None
+    ) -> None:
+        """Record retry attempt statistics.
+        
+        Args:
+            operation: Name of the operation
+            success: Whether the operation eventually succeeded
+            attempts: Number of attempts made
+            error: Final error if failed
+        """
+        if operation not in self._retry_stats:
+            self._retry_stats[operation] = RetryStats()
+        
+        stats = self._retry_stats[operation]
+        for _ in range(attempts - 1):
+            stats.record_attempt(success=False, error=None)
+        stats.record_attempt(success=success, error=error)
+        
+        logger.debug(
+            f"[Capability] {self.name} recorded retry for {operation}: "
+            f"success={success}, attempts={attempts}"
+        )
+    
+    def get_retry_stats(self) -> Dict[str, Any]:
+        """Get retry statistics for this capability.
+        
+        Returns:
+            Dictionary with retry statistics
+        """
+        return {
+            "capability_name": self.name,
+            "operations": {
+                op: {
+                    "total_attempts": stats.total_attempts,
+                    "success_count": stats.success_count,
+                    "failure_count": stats.failure_count,
+                    "success_rate": stats.success_rate,
+                    "failure_rate": stats.failure_rate,
+                    "last_attempt": stats.last_attempt_time.isoformat() if stats.last_attempt_time else None,
+                }
+                for op, stats in self._retry_stats.items()
+            },
+            "total_operations": len(self._retry_stats),
+        }
+    
+    def check_health(self) -> Dict[str, Any]:
+        """Check capability health based on retry statistics.
+        
+        Returns:
+            Health status dictionary
+        """
+        if not self._retry_stats:
+            return {"healthy": True, "reason": "no_data", "recommendation": None}
+        
+        total_attempts = sum(s.total_attempts for s in self._retry_stats.values())
+        total_failures = sum(s.failure_count for s in self._retry_stats.values())
+        
+        if total_attempts == 0:
+            return {"healthy": True, "reason": "no_attempts", "recommendation": None}
+        
+        failure_rate = total_failures / total_attempts
+        
+        if failure_rate > 0.8:
+            return {
+                "healthy": False,
+                "reason": f"high_failure_rate:{failure_rate:.1%}",
+                "recommendation": "disable",
+                "stats": {
+                    "total_attempts": total_attempts,
+                    "total_failures": total_failures,
+                    "failure_rate": failure_rate,
+                }
+            }
+        elif failure_rate > 0.5:
+            return {
+                "healthy": True,
+                "reason": f"elevated_failure_rate:{failure_rate:.1%}",
+                "recommendation": "monitor",
+                "stats": {
+                    "total_attempts": total_attempts,
+                    "total_failures": total_failures,
+                    "failure_rate": failure_rate,
+                }
+            }
+        
+        return {
+            "healthy": True,
+            "reason": "normal_operation",
+            "recommendation": None,
+            "stats": {
+                "total_attempts": total_attempts,
+                "total_failures": total_failures,
+                "failure_rate": failure_rate,
+            }
+        }
+    
     def initialize(self, container: "Container") -> None:
         """Initialize the capability with dependencies.
         
@@ -141,6 +312,7 @@ class Capability(ABC):
         is no longer needed.
         """
         self._state = CapabilityState.UNINITIALIZED
+        self._retry_stats.clear()
         logger.info(f"[Capability] {self.name} shutdown complete")
     
     def enable(self) -> None:

@@ -353,6 +353,82 @@ class CapabilityRegistry:
             }
         }
     
+    def check_all_health(self) -> Dict[str, Dict[str, Any]]:
+        """Check health of all capabilities.
+        
+        Returns:
+            Dictionary mapping capability names to health status
+        """
+        return {
+            name: cap.check_health()
+            for name, cap in self._capabilities.items()
+            if cap.is_ready
+        }
+    
+    def auto_disable_unhealthy(self) -> List[str]:
+        """Automatically disable unhealthy capabilities.
+        
+        This method checks the health of all ready capabilities
+        and disables those that are unhealthy with 'disable' recommendation.
+        
+        Returns:
+            List of disabled capability names
+        """
+        disabled = []
+        for name, cap in self._capabilities.items():
+            if not cap.is_ready:
+                continue
+            
+            health = cap.check_health()
+            if not health.get("healthy") and health.get("recommendation") == "disable":
+                cap.disable()
+                disabled.append(name)
+                logger.warning(
+                    f"[CapabilityRegistry] Auto-disabled unhealthy capability: {name} "
+                    f"(reason: {health.get('reason')})"
+                )
+        
+        if disabled:
+            logger.info(f"[CapabilityRegistry] Auto-disabled {len(disabled)} unhealthy capabilities")
+        
+        return disabled
+    
+    def get_retry_stats(self) -> Dict[str, Any]:
+        """Get retry statistics from all capabilities.
+        
+        Returns:
+            Dictionary with retry statistics for all ready capabilities
+        """
+        return {
+            name: cap.get_retry_stats()
+            for name, cap in self._capabilities.items()
+            if cap.is_ready
+        }
+    
+    def get_health_summary(self) -> Dict[str, Any]:
+        """Get a summary of all capability health.
+        
+        Returns:
+            Dictionary with health summary
+        """
+        health_status = self.check_all_health()
+        
+        healthy_count = sum(1 for h in health_status.values() if h.get("healthy"))
+        unhealthy_count = len(health_status) - healthy_count
+        monitor_count = sum(
+            1 for h in health_status.values()
+            if h.get("recommendation") == "monitor"
+        )
+        
+        return {
+            "total_capabilities": len(self._capabilities),
+            "ready_capabilities": len(self.get_all_ready()),
+            "healthy_count": healthy_count,
+            "unhealthy_count": unhealthy_count,
+            "monitor_recommended_count": monitor_count,
+            "health_details": health_status,
+        }
+    
     def __contains__(self, name: str) -> bool:
         """Check if a capability is registered."""
         return name in self._capabilities

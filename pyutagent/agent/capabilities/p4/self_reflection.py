@@ -6,6 +6,7 @@ Provides self-reflection and quality assessment for generated code.
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from ..base import Capability, CapabilityMetadata, CapabilityPriority
+from ...execution.retry import RetryConfig
 
 if TYPE_CHECKING:
     from ....core.container import Container
@@ -41,6 +42,18 @@ class SelfReflectionCapability(Capability):
             provides={"self_reflection"},
             dependencies={"generation_evaluation"},
             tags={"p4", "quality", "reflection"}
+        )
+    
+    def _create_default_retry_config(self) -> "RetryConfig":
+        """Create default retry config for self-reflection.
+        
+        Self-reflection involves LLM calls and should have smart retry
+        with moderate backoff.
+        """
+        return RetryConfig(
+            max_attempts=3,
+            base_delay=2.0,
+            max_delay=30.0,
         )
     
     def initialize(self, container: "Container") -> None:

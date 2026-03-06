@@ -231,6 +231,15 @@ class ActionExecutor:
     ) -> ActionResult:
         imports_to_add = action.get('imports', action.get('import_list', []))
         test_file = action.get('file') or context.get('test_file', '')
+        compiler_output = context.get('compiler_output', '')
+        
+        if isinstance(imports_to_add, str):
+            imports_to_add = [i.strip() for i in imports_to_add.split(',')]
+        
+        if not imports_to_add and compiler_output:
+            from pyutagent.core.error_classification import detect_missing_imports
+            imports_to_add = detect_missing_imports(compiler_output)
+            logger.info(f"🔧 从编译错误中提取到的导入: {imports_to_add}")
         
         logger.info(f"🔧 修复导入 - 文件: {test_file}, 导入数: {len(imports_to_add)}")
         
@@ -260,19 +269,32 @@ class ActionExecutor:
             
             content = test_path.read_text(encoding='utf-8')
             
-            existing_imports = set(re.findall(r'import\s+([\w.]+);', content))
+            existing_regular_imports = set(re.findall(r'^import\s+([\w.]+);', content, re.MULTILINE))
+            existing_static_imports = set(re.findall(r'^import\s+static\s+([\w.]+);', content, re.MULTILINE))
             
-            new_imports = []
+            new_regular_imports = []
+            new_static_imports = []
+            
             for imp in imports_to_add:
-                imp_str = imp if imp.endswith(';') else f"{imp};"
-                if not imp_str.startswith('import '):
-                    imp_str = f"import {imp_str}"
+                imp = imp.strip().rstrip(';')
+                if not imp:
+                    continue
                 
-                import_path = re.search(r'import\s+([\w.]+);', imp_str)
-                if import_path and import_path.group(1) not in existing_imports:
-                    new_imports.append(imp_str)
+                if 'import ' in imp:
+                    imp = re.sub(r'^import\s+', '', imp).rstrip(';')
+                
+                is_static = '.*' in imp or '.class' in imp or imp.startswith('static ')
+                if is_static:
+                    imp = imp.replace('static ', '')
+                    if imp not in existing_static_imports:
+                        new_static_imports.append(f"import static {imp};")
+                else:
+                    if imp not in existing_regular_imports:
+                        new_regular_imports.append(f"import {imp};")
             
-            if not new_imports:
+            all_new_imports = new_regular_imports + new_static_imports
+            
+            if not all_new_imports:
                 logger.info(f"✓ 所有导入已存在")
                 return ActionResult(
                     action_type=ActionType.FIX_IMPORTS,
@@ -281,29 +303,46 @@ class ActionExecutor:
                     modified_file=str(test_file)
                 )
             
-            logger.info(f"➕ 添加 {len(new_imports)} 个新导入")
+            new_regular_imports.sort()
+            new_static_imports.sort()
+            
+            logger.info(f"➕ 添加 {len(all_new_imports)} 个新导入 (普通: {len(new_regular_imports)}, 静态: {len(new_static_imports)})")
+            
             package_match = re.search(r'package\s+[\w.]+;', content)
             package_line = package_match.group(0) if package_match else ""
             
+            regular_block = "\n".join(new_regular_imports)
+            static_block = "\n".join(new_static_imports)
+            
             if package_line:
                 insert_pos = content.find(package_line) + len(package_line)
-                import_block = "\n\n" + "\n".join(new_imports)
+                if new_regular_imports and new_static_imports:
+                    import_block = f"\n\n{regular_block}\n\n{static_block}\n"
+                elif new_regular_imports:
+                    import_block = f"\n\n{regular_block}\n"
+                else:
+                    import_block = f"\n\n{static_block}\n"
                 modified_content = content[:insert_pos] + import_block + content[insert_pos:]
             else:
-                import_block = "\n".join(new_imports) + "\n\n"
+                if new_regular_imports and new_static_imports:
+                    import_block = f"{regular_block}\n\n{static_block}\n\n"
+                elif new_regular_imports:
+                    import_block = f"{regular_block}\n\n"
+                else:
+                    import_block = f"{static_block}\n\n"
                 modified_content = import_block + content
             
             test_path.write_text(modified_content, encoding='utf-8')
             
-            logger.info(f"✅ 成功添加导入: {', '.join(new_imports[:3])}{'...' if len(new_imports) > 3 else ''}")
+            logger.info(f"✅ 成功添加导入: {len(all_new_imports)} 个")
             
             return ActionResult(
                 action_type=ActionType.FIX_IMPORTS,
                 success=True,
-                message=f"Added {len(new_imports)} imports",
+                message=f"Added {len(all_new_imports)} imports ({len(new_regular_imports)} regular, {len(new_static_imports)} static)",
                 modified_code=modified_content,
                 modified_file=str(test_file),
-                details={"added_imports": new_imports}
+                details={"added_imports": all_new_imports}
             )
         except Exception as e:
             logger.error(f"❌ 添加导入失败: {str(e)}")
@@ -322,6 +361,18 @@ class ActionExecutor:
         artifact_id = action.get('artifact_id', '')
         version = action.get('version', '')
         scope = action.get('scope', 'test')
+        class_name = action.get('class_name', '')
+        
+        if not version and class_name:
+            from pyutagent.core.error_classification import get_dependency_info
+            dep_info = get_dependency_info(class_name)
+            if dep_info:
+                group_id = dep_info.get('group_id', group_id)
+                artifact_id = dep_info.get('artifact_id', artifact_id)
+                version = dep_info.get('version', version)
+                logger.info(f"🔍 从类映射表获取依赖信息: {group_id}:{artifact_id}:{version}")
+            else:
+                logger.warning(f"⚠️ 未找到类 {class_name} 对应的依赖信息")
         
         logger.info(f"📦 添加依赖 - {group_id}:{artifact_id}:{version} (scope: {scope})")
         
@@ -809,9 +860,10 @@ def parse_llm_action_plan(llm_response: str) -> ActionPlan:
     current_section = None
     
     for line in lines:
-        line_lower = line.lower().strip()
+        line_stripped = line.strip()
+        line_lower = line_stripped.lower()
         
-        if 'action_plan:' in line_lower or 'actions:' in line_lower:
+        if ('action' in line_lower and 'plan' in line_lower) or 'actions:' in line_lower:
             current_section = 'actions'
         elif 'reasoning:' in line_lower:
             current_section = 'reasoning'
@@ -824,16 +876,157 @@ def parse_llm_action_plan(llm_response: str) -> ActionPlan:
                 confidence = 0.5
         elif current_section == 'actions' and line.strip():
             action = _parse_single_action(line)
-            if action:
+            if action and _is_valid_action(action):
                 actions.append(action)
         elif current_section == 'reasoning' and line.strip():
             reasoning += " " + line.strip()
     
+    filtered_actions = _filter_and_merge_actions(actions)
+    
+    logger.info(f"[ActionExecutor] Parsed {len(actions)} raw actions, filtered to {len(filtered_actions)} valid actions")
+    
     return ActionPlan(
-        actions=actions,
+        actions=filtered_actions,
         reasoning=reasoning.strip(),
         confidence=confidence
     )
+
+
+def _is_valid_action(action: Dict[str, Any]) -> bool:
+    """Validate if an action is meaningful and should be executed.
+    
+    Filters out:
+    - Field names (action, imports, group_id, etc.)
+    - Code snippets without action type
+    - Too short or meaningless values
+    
+    Args:
+        action: Parsed action dictionary
+        
+    Returns:
+        True if action is valid and meaningful
+    """
+    action_type = action.get('action', '').lower().strip()
+    
+    if not action_type:
+        return False
+    
+    invalid_action_types = {
+        'action', 'imports', 'group_id', 'artifact_id', 'version', 'scope',
+        'file', 'test_file', 'test_method', 'fixed_code', 'reasoning',
+        'confidence', 'root_cause', 'analysis', 'description', 'package',
+        'import', 'code', 'class', 'test', 'method', 'result', 'error'
+    }
+    
+    if action_type in invalid_action_types:
+        return False
+    
+    if len(action_type) < 3:
+        return False
+    
+    if action_type.startswith('import '):
+        return False
+    
+    if action_type.startswith('package '):
+        return False
+    
+    if action_type.startswith('public ') or action_type.startswith('private '):
+        return False
+    
+    code_indicators = ['{', '}', 'void ', 'class ', 'public ', 'private ', '@', '//']
+    if any(action_type.startswith(indicator) for indicator in code_indicators):
+        return False
+    
+    if _is_import_statement(action_type):
+        return False
+    
+    return True
+
+
+def _is_import_statement(text: str) -> bool:
+    """Check if text is an import statement.
+    
+    Args:
+        text: Text to check
+        
+    Returns:
+        True if it's an import statement
+    """
+    return (
+        text.strip().startswith('import ') or
+        text.strip().startswith('import static') or
+        bool(re.match(r'^import\s+[\w.]+;?\s*$', text.strip()))
+    )
+
+
+def _filter_and_merge_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Filter and merge similar actions to avoid redundant operations.
+    
+    Args:
+        actions: List of parsed actions
+        
+    Returns:
+        Filtered and merged action list
+    """
+    if not actions:
+        return []
+    
+    valid_actions = []
+    import_statements = []
+    dependency_actions = []
+    
+    for action in actions:
+        action_type = action.get('action', '').lower()
+        
+        if action_type in ('fix_imports', 'add_import', 'add_imports'):
+            import_value = action.get('imports', action.get('import_list', ''))
+            if isinstance(import_value, list):
+                import_statements.extend(import_value)
+            elif import_value and isinstance(import_value, str):
+                imports = [i.strip() for i in import_value.split(',')]
+                import_statements.extend(imports)
+        
+        elif action_type in ('add_dependency', 'add_dependencies'):
+            dep_info = {
+                'group_id': action.get('group_id', ''),
+                'artifact_id': action.get('artifact_id', ''),
+                'version': action.get('version', ''),
+                'scope': action.get('scope', 'test')
+            }
+            if dep_info.get('group_id') and dep_info.get('artifact_id'):
+                dependency_actions.append(dep_info)
+        
+        else:
+            valid_actions.append(action)
+    
+    if import_statements:
+        unique_imports = list(dict.fromkeys(import_statements))
+        valid_actions.insert(0, {
+            'action': 'fix_imports',
+            'imports': unique_imports,
+            'description': f'Add {len(unique_imports)} imports'
+        })
+    
+    if dependency_actions:
+        unique_deps = []
+        seen = set()
+        for dep in dependency_actions:
+            key = (dep.get('group_id'), dep.get('artifact_id'))
+            if key not in seen:
+                seen.add(key)
+                unique_deps.append(dep)
+        
+        for dep in unique_deps:
+            valid_actions.insert(0, {
+                'action': 'add_dependency',
+                'group_id': dep.get('group_id'),
+                'artifact_id': dep.get('artifact_id'),
+                'version': dep.get('version', ''),
+                'scope': dep.get('scope', 'test'),
+                'description': f'Add dependency {dep.get("group_id")}:{dep.get("artifact_id")}'
+            })
+    
+    return valid_actions
 
 
 def _parse_single_action(line: str) -> Optional[Dict[str, Any]]:
@@ -863,15 +1056,15 @@ def _parse_single_action(line: str) -> Optional[Dict[str, Any]]:
         }
         
         detail_patterns = {
-            'imports': r'imports?:\s*\[([^\]]+)\]',
-            'import_list': r'imports?:\s*\[([^\]]+)\]',
-            'group_id': r'group_id:\s*([\w.]+)',
-            'artifact_id': r'artifact_id:\s*([\w-]+)',
-            'version': r'version:\s*([\w.-]+)',
-            'scope': r'scope:\s*(\w+)',
-            'file': r'file:\s*([\w/\\.-]+)',
-            'test_file': r'test_file:\s*([\w/\\.-]+)',
-            'test_method': r'test_method:\s*(\w+)',
+            'imports': r'imports?[:\s]+(?:\[?([^\]\n]+)\]?)?',
+            'import_list': r'imports?[:\s]+(?:\[?([^\]\n]+)\]?)?',
+            'group_id': r'group_id[:\s]+([\w.]+)',
+            'artifact_id': r'artifact_id[:\s]+([\w-]+)',
+            'version': r'version[:\s]+([\w.-]+)',
+            'scope': r'scope[:\s]+(\w+)',
+            'file': r'file[:\s]+([\w/\\.-]+)',
+            'test_file': r'test_file[:\s]+([\w/\\.-]+)',
+            'test_method': r'test_method[:\s]+(\w+)',
             'fixed_code': r'code:\s*```(?:java)?\s*([^`]+)```',
         }
         

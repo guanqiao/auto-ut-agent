@@ -18,6 +18,7 @@ class TestReActAgentInitialization:
     def test_init_with_dependencies(self):
         """Test initialization with all dependencies."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
         project_path = "/test/project"
 
@@ -37,6 +38,7 @@ class TestReActAgentInitialization:
     def test_init_with_container(self):
         """Test initialization with dependency injection container."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
         project_path = "/test/project"
 
@@ -55,6 +57,7 @@ class TestReActAgentInitialization:
     def test_init_creates_default_dependencies(self):
         """Test that default dependencies are created when not in container."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
         project_path = "/test/project"
 
@@ -79,6 +82,7 @@ class TestReActAgentStopAndReset:
     def agent(self):
         """Create a test agent."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
         return ReActAgent(
             llm_client=llm_client,
@@ -110,6 +114,7 @@ class TestReActAgentTryResolve:
     def agent(self):
         """Create a test agent."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
         return ReActAgent(
             llm_client=llm_client,
@@ -150,6 +155,7 @@ class TestReActAgentParseTargetFile:
     def agent(self, tmp_path):
         """Create a test agent with temporary project path."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
         return ReActAgent(
             llm_client=llm_client,
@@ -174,6 +180,7 @@ class TestReActAgentGenerateInitialTests:
     def agent(self, tmp_path):
         """Create a test agent."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
         agent = ReActAgent(
             llm_client=llm_client,
@@ -224,6 +231,7 @@ class TestReActAgentStateManagement:
     def agent(self):
         """Create a test agent."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
         return ReActAgent(
             llm_client=llm_client,
@@ -257,6 +265,7 @@ class TestReActAgentProgressCallback:
     def agent(self):
         """Create a test agent."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
         return ReActAgent(
             llm_client=llm_client,
@@ -281,6 +290,7 @@ class TestReActAgentAiderFixer:
     def test_init_aider_fixer_success(self):
         """Test successful Aider fixer initialization."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
 
         with patch('pyutagent.agent.react_agent.AiderCodeFixer') as mock_fixer:
@@ -296,9 +306,10 @@ class TestReActAgentAiderFixer:
     def test_init_aider_fixer_import_error(self):
         """Test Aider fixer initialization with import error."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
 
-        with patch('pyutagent.agent.react_agent.AiderCodeFixer', side_effect=ImportError()):
+        with patch('pyutagent.agent.react_agent.AiderCodeFixer', side_effect=ImportError("Not found")):
             agent = ReActAgent(
                 llm_client=llm_client,
                 working_memory=working_memory,
@@ -308,11 +319,12 @@ class TestReActAgentAiderFixer:
             assert agent.aider_fixer is None
 
     def test_init_aider_fixer_from_container(self):
-        """Test Aider fixer resolved from container."""
+        """Test Aider fixer initialization from container."""
         llm_client = Mock(spec=LLMClient)
+        llm_client.model = "gpt-4"
         working_memory = Mock(spec=WorkingMemory)
-        mock_fixer = Mock()
 
+        mock_fixer = Mock()
         container = Mock()
         container.resolve = Mock(return_value=mock_fixer)
 

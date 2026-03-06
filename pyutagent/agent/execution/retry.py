@@ -5,6 +5,8 @@ This module provides a unified retry mechanism with:
 - Multiple backoff strategies
 - Smart retry policies
 - Error classification-based retry
+
+This module integrates with the core RetryConfig for consistent behavior.
 """
 
 import asyncio
@@ -17,21 +19,55 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
+from ...core.retry_config import (
+    RetryConfig as CoreRetryConfig,
+    RetryStrategy as CoreRetryStrategy,
+    get_default_retry_config,
+)
+
 logger = logging.getLogger(__name__)
 
 
 class BackoffStrategy(Enum):
-    """Backoff strategies for retry."""
+    """Backoff strategies for retry (maps to core RetryStrategy)."""
     FIXED = auto()
     LINEAR = auto()
     EXPONENTIAL = auto()
     EXPONENTIAL_JITTER = auto()
     CUSTOM = auto()
+    
+    @classmethod
+    def from_core(cls, strategy: CoreRetryStrategy) -> 'BackoffStrategy':
+        """Convert core RetryStrategy to BackoffStrategy."""
+        mapping = {
+            CoreRetryStrategy.IMMEDIATE: cls.FIXED,
+            CoreRetryStrategy.FIXED_DELAY: cls.FIXED,
+            CoreRetryStrategy.LINEAR_BACKOFF: cls.LINEAR,
+            CoreRetryStrategy.EXPONENTIAL_BACKOFF: cls.EXPONENTIAL,
+            CoreRetryStrategy.EXPONENTIAL_JITTER: cls.EXPONENTIAL_JITTER,
+            CoreRetryStrategy.ADAPTIVE: cls.CUSTOM,
+        }
+        return mapping.get(strategy, cls.EXPONENTIAL)
+    
+    def to_core(self) -> CoreRetryStrategy:
+        """Convert to core RetryStrategy."""
+        mapping = {
+            self.FIXED: CoreRetryStrategy.FIXED_DELAY,
+            self.LINEAR: CoreRetryStrategy.LINEAR_BACKOFF,
+            self.EXPONENTIAL: CoreRetryStrategy.EXPONENTIAL_BACKOFF,
+            self.EXPONENTIAL_JITTER: CoreRetryStrategy.EXPONENTIAL_JITTER,
+            self.CUSTOM: CoreRetryStrategy.ADAPTIVE,
+        }
+        return mapping[self]
 
 
 @dataclass
 class RetryConfig:
-    """Configuration for retry behavior."""
+    """Configuration for retry behavior.
+    
+    This is an adapter that wraps core RetryConfig for backward compatibility
+    while providing a simpler interface for decorator-based retry.
+    """
     max_attempts: int = 3
     backoff_strategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL
     base_delay: float = 1.0
@@ -40,6 +76,56 @@ class RetryConfig:
     jitter: bool = True
     retryable_exceptions: List[Type[Exception]] = field(default_factory=list)
     non_retryable_exceptions: List[Type[Exception]] = field(default_factory=list)
+    
+    _core_config: Optional[CoreRetryConfig] = field(default=None, repr=False)
+    
+    def __post_init__(self):
+        if self._core_config is None:
+            self._core_config = self._to_core_config()
+    
+    def _to_core_config(self) -> CoreRetryConfig:
+        """Convert to core RetryConfig."""
+        strategy_mapping = {
+            BackoffStrategy.FIXED: CoreRetryStrategy.FIXED_DELAY,
+            BackoffStrategy.LINEAR: CoreRetryStrategy.LINEAR_BACKOFF,
+            BackoffStrategy.EXPONENTIAL: CoreRetryStrategy.EXPONENTIAL_BACKOFF,
+            BackoffStrategy.EXPONENTIAL_JITTER: CoreRetryStrategy.EXPONENTIAL_JITTER,
+            BackoffStrategy.CUSTOM: CoreRetryStrategy.ADAPTIVE,
+        }
+        return CoreRetryConfig(
+            max_step_attempts=self.max_attempts,
+            backoff_base=self.base_delay,
+            backoff_max=self.max_delay,
+            backoff_strategy=strategy_mapping[self.backoff_strategy],
+        )
+    
+    @classmethod
+    def from_core(cls, core_config: CoreRetryConfig) -> 'RetryConfig':
+        """Create RetryConfig from core RetryConfig."""
+        return cls(
+            max_attempts=core_config.max_step_attempts,
+            backoff_strategy=BackoffStrategy.from_core(core_config.backoff_strategy),
+            base_delay=core_config.backoff_base,
+            max_delay=core_config.backoff_max,
+            _core_config=core_config,
+        )
+    
+    @property
+    def core_config(self) -> CoreRetryConfig:
+        """Get the core RetryConfig."""
+        if self._core_config is None:
+            self._core_config = self._to_core_config()
+        return self._core_config
+    
+    @property
+    def max_total_attempts(self) -> int:
+        """Get max total attempts from core config."""
+        return self.core_config.max_total_attempts
+    
+    @property
+    def max_reset_count(self) -> int:
+        """Get max reset count from core config."""
+        return self.core_config.max_reset_count
     
     def get_delay(self, attempt: int) -> float:
         """Calculate delay for a given attempt.

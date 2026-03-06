@@ -7,6 +7,7 @@ and maintaining relevant context during test generation.
 from typing import Any, Dict, TYPE_CHECKING
 
 from ..base import Capability, CapabilityMetadata, CapabilityPriority
+from pyutagent.core.retry_config import RetryConfig
 
 if TYPE_CHECKING:
     from ....core.container import Container
@@ -46,6 +47,9 @@ class ContextManagementCapability(Capability):
             provides={"context_manager", "context_compressor"},
             tags={"p0", "core", "context"}
         )
+    
+    def _create_default_retry_config(self) -> "RetryConfig":
+        return RetryConfig()
     
     def initialize(self, container: "Container") -> None:
         """Initialize context management components.
