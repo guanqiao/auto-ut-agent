@@ -573,6 +573,9 @@ class LLMClient:
         This performs a lightweight HTTP check to verify the endpoint is accessible
         before making a full LLM call. Useful for early detection of configuration issues.
         
+        Note: Many custom OpenAI-compatible endpoints (Azure, proxies) don't support /models API.
+        We handle this gracefully by not failing on 404 for /models.
+        
         Args:
             timeout: Timeout for the check in seconds
             
@@ -585,7 +588,6 @@ class LLMClient:
         logger.info(f"[LLM] Quick endpoint check - Endpoint: {self.endpoint}")
         start_time = time.time()
         
-        # Determine SSL verification setting
         verify_setting = True
         if self.ca_cert:
             cert_path = Path(self.ca_cert)
@@ -619,8 +621,8 @@ class LLMClient:
                     logger.warning(f"[LLM] Endpoint check failed - Status: 403 Forbidden")
                     return False, "API 访问被拒绝，请检查权限"
                 elif response.status_code == 404:
-                    logger.warning(f"[LLM] Endpoint check failed - Status: 404 Not Found")
-                    return False, f"API 端点不存在 (404)，请检查 URL: {self.endpoint}"
+                    logger.warning(f"[LLM] Endpoint /models not found (404) - This is normal for custom OpenAI-compatible endpoints")
+                    return True, f"Endpoint may be reachable (404 on /models is acceptable for custom endpoints): {self.endpoint}"
                 else:
                     logger.warning(f"[LLM] Endpoint check returned status {response.status_code}")
                     return True, f"Endpoint returned status {response.status_code}"

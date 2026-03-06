@@ -354,7 +354,7 @@ class TestLLMClient:
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient')
     async def test_quick_endpoint_check_404(self, mock_async_client, client):
-        """Test quick endpoint check - 404 error."""
+        """Test quick endpoint check - 404 error (acceptable for custom endpoints)."""
         mock_response = Mock()
         mock_response.status_code = 404
         mock_context = AsyncMock()
@@ -365,8 +365,8 @@ class TestLLMClient:
 
         success, message = await client.quick_endpoint_check()
 
-        assert success is False
-        assert "404" in message or "不存在" in message
+        assert success is True
+        assert "404" in message or "acceptable" in message.lower()
 
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient')
