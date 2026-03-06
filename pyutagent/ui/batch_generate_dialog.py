@@ -89,12 +89,13 @@ class BatchGenerateWorker(QThread):
                 current = batch_progress.current_file
                 status = batch_progress.current_status
                 self.progress_updated.emit(
-                    current, status, 
+                    current, status,
                     batch_progress.progress_percent,
                     batch_progress.completed_files + batch_progress.failed_files,
                     batch_progress.current_coverage,
                     batch_progress.coverage_source,
-                    batch_progress.coverage_confidence
+                    batch_progress.coverage_confidence,
+                    0.0  # elapsed_time - not used in this context
                 )
             
             generator = BatchGenerator(
@@ -602,7 +603,7 @@ class BatchGenerateDialog(QDialog):
         """Clear log area."""
         self.log_area.clear()
     
-    def on_progress_updated(self, current_file, status, progress, completed, coverage, coverage_source, coverage_confidence):
+    def on_progress_updated(self, current_file, status, progress, completed, coverage, coverage_source, coverage_confidence, elapsed_time):
         """Handle progress update."""
         self.progress_bar.setValue(int(progress))
         
