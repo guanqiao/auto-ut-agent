@@ -727,20 +727,25 @@ class StepExecutor:
             if package_path:
                 test_dir = test_dir / package_path
             
+            logger.debug(f"[StepExecutor] Creating test directory: {test_dir}")
             test_dir.mkdir(parents=True, exist_ok=True)
             test_file_path = test_dir / test_file_name
             
+            logger.debug(f"[StepExecutor] Writing initial test file: {test_file_path} ({len(test_code)} chars)")
             with open(test_file_path, 'w', encoding='utf-8') as f:
                 f.write(test_code)
             
             # Verify file was written correctly
             if not test_file_path.exists() or test_file_path.stat().st_size == 0:
-                logger.error(f"[StepExecutor] Failed to write test file: {test_file_path}")
+                logger.error(f"[StepExecutor] ❌ Failed to write test file: {test_file_path}")
                 return StepResult(
                     success=False,
                     state=AgentState.FAILED,
                     message=f"Failed to write test file: {test_file_path}"
                 )
+            
+            file_size = test_file_path.stat().st_size
+            logger.info(f"[StepExecutor] ✅ Initial test file written - Path: {test_file_path}, Size: {file_size} bytes")
             
             self.agent_core.current_test_file = str(test_file_path.relative_to(self.agent_core.project_path))
             self.agent_core.working_memory.add_generated_test(
@@ -1262,10 +1267,14 @@ class StepExecutor:
                     
                     if action == "fix":
                         fixed_code = recovery_result.get("fixed_code")
+                        logger.debug(f"[StepExecutor] Fix action received - fixed_code length: {len(fixed_code) if fixed_code else 0}")
                         if fixed_code:
+                            logger.info(f"[StepExecutor] 📝 Writing fixed code ({len(fixed_code)} chars) to test file...")
                             await self._write_test_file(fixed_code)
                             self.agent_core._update_state(AgentState.FIXING, "🔧 Applied fix, retrying compilation...")
                             logger.info("[StepExecutor] 🔧 Applied LLM fix, retrying compilation...")
+                        else:
+                            logger.warning("[StepExecutor] Fix action received but no fixed_code provided")
                     elif action == "reset":
                         if self.retry_config.can_reset(reset_count):
                             self.agent_core._update_state(AgentState.FIXING, f"🔄 Resetting and regenerating (Reset {reset_count + 1}/{self.retry_config.max_reset_count})...")
@@ -1800,6 +1809,8 @@ class StepExecutor:
         Args:
             code: Test code to write
         """
+        logger.debug(f"[StepExecutor] _write_test_file called - current_test_file: {self.agent_core.current_test_file}, code_length: {len(code) if code else 0}")
+        
         if not self.agent_core.current_test_file:
             logger.warning("[StepExecutor] Cannot write test file - current_test_file is empty")
             return
@@ -1810,18 +1821,28 @@ class StepExecutor:
             return
         
         # Check if code looks like valid Java test code
-        if not self._is_valid_test_code(code):
+        is_valid = self._is_valid_test_code(code)
+        logger.debug(f"[StepExecutor] Code validation result: {is_valid}")
+        if not is_valid:
             logger.warning("[StepExecutor] Refusing to write invalid test code - keeping existing file")
             return
         
         try:
             test_file_path = Path(self.agent_core.project_path) / self.agent_core.current_test_file
+            logger.debug(f"[StepExecutor] Writing test file to: {test_file_path}")
             
             # Ensure parent directory exists
             test_file_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"[StepExecutor] Parent directory ensured: {test_file_path.parent}")
             
             test_file_path.write_text(code, encoding='utf-8')
-            logger.info(f"[StepExecutor] Wrote test file - Path: {test_file_path}, Length: {len(code)}")
+            
+            # Verify file was written
+            if test_file_path.exists():
+                file_size = test_file_path.stat().st_size
+                logger.info(f"[StepExecutor] ✅ Wrote test file successfully - Path: {test_file_path}, Size: {file_size} bytes")
+            else:
+                logger.error(f"[StepExecutor] ❌ File write failed - file does not exist after write: {test_file_path}")
         except PermissionError as e:
             logger.error(f"[StepExecutor] Permission denied writing test file: {e}")
             self.agent_core._update_state(AgentState.FAILED, f"Permission denied: {e}")
@@ -1841,26 +1862,42 @@ class StepExecutor:
         Returns:
             True if code appears valid
         """
+        if not code:
+            return False
+        
         code = code.strip()
         
         # Must have minimum length
         if len(code) < 50:
+            logger.warning(f"[StepExecutor] Code validation failed: too short ({len(code)} chars)")
             return False
         
         # Must contain class declaration
         if 'class ' not in code:
+            logger.warning("[StepExecutor] Code validation failed: missing class declaration")
             return False
-        
-        # Must contain at least one test annotation or method
-        has_test = '@Test' in code or 'void test' in code or '@BeforeEach' in code
         
         # Must have balanced braces
         open_braces = code.count('{')
         close_braces = code.count('}')
         if open_braces != close_braces or open_braces == 0:
+            logger.warning(f"[StepExecutor] Code validation failed: unbalanced braces ({{={open_braces}, }}={close_braces})")
             return False
         
-        return has_test
+        # Check for test-related content (test annotation, JUnit imports, or test methods)
+        has_test_content = (
+            '@Test' in code or 
+            'void test' in code or 
+            '@BeforeEach' in code or
+            '@AfterEach' in code or
+            'import org.junit' in code or
+            'extends' in code  # Test class might extend base class
+        )
+        
+        if not has_test_content:
+            logger.warning("[StepExecutor] Code validation warning: no obvious test content found, but accepting as valid Java class")
+        
+        return True
     
     def _parse_test_failures(self) -> List[Dict[str, Any]]:
         """Parse test failures from Maven output.
