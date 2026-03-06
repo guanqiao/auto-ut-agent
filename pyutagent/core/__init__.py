@@ -30,7 +30,13 @@ from pyutagent.core.cache import (
     get_file_cache,
     MultiLevelCache,
     L1MemoryCache,
-    L2DiskCache
+    L2DiskCache,
+    CacheEntry,
+    ToolResultCache,
+    PromptCache,
+    CachedToolExecutor,
+    create_tool_cache,
+    create_result_cache,
 )
 
 __all__ = [
@@ -58,4 +64,10 @@ __all__ = [
     'MultiLevelCache',
     'L1MemoryCache',
     'L2DiskCache',
+    'CacheEntry',
+    'ToolResultCache',
+    'PromptCache',
+    'CachedToolExecutor',
+    'create_tool_cache',
+    'create_result_cache',
 ]

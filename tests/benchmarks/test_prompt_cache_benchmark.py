@@ -2,7 +2,7 @@
 import pytest
 import asyncio
 import time
-from pyutagent.llm.prompt_cache import PromptCache
+from pyutagent.core.cache import PromptCache
 
 
 class SlowLLMClient:
@@ -50,8 +50,8 @@ class TestPromptCacheBenchmark:
     @pytest.mark.asyncio
     async def test_cache_size_impact_on_performance(self):
         """测试缓存大小对性能的影响"""
-        small_cache = PromptCache(capacity=10)
-        large_cache = PromptCache(capacity=10000)
+        small_cache = PromptCache(max_memory_entries=10)
+        large_cache = PromptCache(max_memory_entries=10000)
         llm = SlowLLMClient(latency=0.01)
         
         # 填充小缓存
@@ -77,7 +77,7 @@ class TestPromptCacheBenchmark:
     @pytest.mark.asyncio
     async def test_concurrent_cache_access(self):
         """测试并发访问缓存的性能"""
-        cache = PromptCache(capacity=1000)
+        cache = PromptCache(max_memory_entries=1000)
         llm = SlowLLMClient(latency=0.01)
         
         # 预热缓存
@@ -107,7 +107,7 @@ class TestPromptCacheBenchmark:
     @pytest.mark.asyncio
     async def test_cache_eviction_performance(self):
         """测试缓存淘汰策略的性能"""
-        cache = PromptCache(capacity=100)
+        cache = PromptCache(max_memory_entries=100)
         llm = SlowLLMClient(latency=0.001)
         
         # 填充缓存并触发淘汰
@@ -121,7 +121,7 @@ class TestPromptCacheBenchmark:
         assert eviction_time < 5.0  # 应该在 5 秒内完成
         
         # 验证缓存大小保持在限制内
-        assert len(cache._cache) <= 100
+        assert cache._cache.size() <= 100
         
         # 计算平均每次操作的时间
         avg_time = eviction_time / 200
@@ -130,7 +130,7 @@ class TestPromptCacheBenchmark:
     @pytest.mark.asyncio
     async def test_cache_hit_rate_impact(self):
         """测试不同缓存命中率下的性能"""
-        cache = PromptCache(capacity=100)
+        cache = PromptCache(max_memory_entries=100)
         llm = SlowLLMClient(latency=0.01)
         
         # 场景 1: 0% 命中率（所有都不同）
@@ -155,7 +155,7 @@ class TestPromptCacheBenchmark:
     @pytest.mark.asyncio
     async def test_cache_warmup_benefit(self):
         """测试缓存预热的好处"""
-        cache = PromptCache(capacity=1000)
+        cache = PromptCache(max_memory_entries=1000)
         llm = SlowLLMClient(latency=0.02)
         
         # 预热缓存
@@ -176,7 +176,7 @@ class TestPromptCacheBenchmark:
         warmed_time = time.time() - start
         
         # 没有预热的情况
-        cache2 = PromptCache(capacity=1000)
+        cache2 = PromptCache(max_memory_entries=1000)
         llm2 = SlowLLMClient(latency=0.02)
         
         start = time.time()
@@ -197,7 +197,7 @@ class TestPromptCacheMetrics:
     @pytest.mark.asyncio
     async def test_cache_statistics_accuracy(self):
         """测试缓存统计的准确性"""
-        cache = PromptCache(capacity=100)
+        cache = PromptCache(max_memory_entries=100)
         llm = SlowLLMClient()
         
         # 执行一些操作
@@ -218,7 +218,7 @@ class TestPromptCacheMetrics:
     @pytest.mark.asyncio
     async def test_cache_monitoring(self):
         """测试缓存监控"""
-        cache = PromptCache(capacity=1000)
+        cache = PromptCache(max_memory_entries=1000)
         llm = SlowLLMClient(latency=0.001)
         
         # 模拟工作负载
@@ -242,7 +242,7 @@ class TestPromptCacheStress:
     @pytest.mark.asyncio
     async def test_high_load_scenario(self):
         """测试高负载场景"""
-        cache = PromptCache(capacity=10000)
+        cache = PromptCache(max_memory_entries=10000)
         llm = SlowLLMClient(latency=0.001)
         
         # 高负载：1000 次请求
@@ -263,7 +263,7 @@ class TestPromptCacheStress:
         """测试内存效率"""
         import sys
         
-        cache = PromptCache(capacity=1000)
+        cache = PromptCache(max_memory_entries=1000)
         llm = SlowLLMClient(response="x" * 1000)  # 1KB 响应
         
         # 填充缓存

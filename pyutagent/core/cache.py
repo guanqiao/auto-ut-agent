@@ -633,3 +633,365 @@ def init_global_cache(cache_dir: Optional[str] = None, **kwargs) -> MultiLevelCa
 def get_file_cache() -> MultiLevelCache:
     """获取文件缓存实例 (兼容旧代码)"""
     return get_global_cache()
+
+
+class ToolResultCache(MultiLevelCache):
+    """工具结果缓存 - 专用于工具执行结果
+    
+    Features:
+    - Content-based cache keys
+    - Dependency-aware invalidation
+    - File modification tracking
+    """
+    
+    def __init__(
+        self,
+        max_memory_entries: int = 500,
+        cache_dir: Optional[str] = None,
+        default_ttl: int = 3600
+    ):
+        """
+        初始化工具结果缓存
+        
+        Args:
+            max_memory_entries: 内存缓存最大条目数
+            cache_dir: 磁盘缓存目录（可选）
+            default_ttl: 默认过期时间（秒）
+        """
+        super().__init__(
+            cache_dir=cache_dir,
+            l1_max_size=max_memory_entries,
+            l1_ttl=default_ttl,
+            l2_ttl=default_ttl * 24
+        )
+        
+        self._file_hashes: Dict[str, str] = {}
+        self._tool_dependencies: Dict[str, List[str]] = {}
+        
+        logger.info(f"[ToolResultCache] Initialized (max={max_memory_entries}, ttl={default_ttl}s)")
+    
+    @staticmethod
+    def make_key(tool_name: str, args: tuple, kwargs: dict) -> str:
+        """生成缓存键
+        
+        Args:
+            tool_name: 工具名称
+            args: 位置参数
+            kwargs: 关键字参数
+            
+        Returns:
+            缓存键
+        """
+        key_data = {
+            "tool": tool_name,
+            "args": args,
+            "kwargs": kwargs
+        }
+        key_str = json.dumps(key_data, sort_keys=True, default=str)
+        return hashlib.md5(key_str.encode()).hexdigest()
+    
+    def compute_content_hash(self, content: str) -> str:
+        """计算内容哈希"""
+        return hashlib.sha256(content.encode()).hexdigest()[:16]
+    
+    def compute_file_hash(self, file_path: str) -> str:
+        """计算文件哈希"""
+        try:
+            with open(file_path, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()[:16]
+        except Exception:
+            return ""
+    
+    def register_file_dependency(self, tool_name: str, file_path: str):
+        """注册文件依赖"""
+        if tool_name not in self._tool_dependencies:
+            self._tool_dependencies[tool_name] = []
+        if file_path not in self._tool_dependencies[tool_name]:
+            self._tool_dependencies[tool_name].append(file_path)
+        
+        self._file_hashes[file_path] = self.compute_file_hash(file_path)
+    
+    def check_file_changed(self, file_path: str) -> bool:
+        """检查文件是否已更改"""
+        current_hash = self.compute_file_hash(file_path)
+        stored_hash = self._file_hashes.get(file_path, "")
+        return current_hash != stored_hash
+    
+    def get_cached(self, tool_name: str, params: Dict[str, Any]) -> Optional[Any]:
+        """获取缓存结果（兼容旧接口）"""
+        key = self.make_key(tool_name, (), params)
+        return self.get(key)
+    
+    def set_cached(
+        self,
+        tool_name: str,
+        params: Dict[str, Any],
+        value: Any,
+        ttl_seconds: Optional[int] = None
+    ):
+        """设置缓存结果（兼容旧接口）"""
+        key = self.make_key(tool_name, (), params)
+        self.set(key, value, ttl_l1=ttl_seconds)
+    
+    def invalidate(self, tool_name: Optional[str] = None, pattern: Optional[str] = None):
+        """使缓存失效"""
+        if tool_name is None and pattern is None:
+            self.clear()
+            return
+        
+        if tool_name:
+            self.l1_cache.clear()
+            if tool_name in self._tool_dependencies:
+                del self._tool_dependencies[tool_name]
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """获取缓存统计"""
+        l1_stats = self.l1_cache.stats()
+        return {
+            "size": l1_stats.get("size", 0),
+            "max_size": l1_stats.get("max_size", 0),
+            "hits": l1_stats.get("hits", 0),
+            "misses": l1_stats.get("misses", 0),
+            "hit_rate": l1_stats.get("hit_rate", "0.00%"),
+            "file_dependencies": len(self._file_hashes)
+        }
+
+
+class PromptCache:
+    """Prompt 缓存 - 专用于 LLM Prompt 结果
+    
+    Features:
+    - LRU 缓存策略
+    - 基于 prompt + model 的键生成
+    - 命中率统计
+    """
+    
+    def __init__(
+        self,
+        max_memory_entries: int = 1000,
+        default_ttl: int = 7200
+    ):
+        """
+        初始化 Prompt 缓存
+        
+        Args:
+            max_memory_entries: 最大缓存条目数
+            default_ttl: 默认过期时间（秒）
+        """
+        self._cache = L1MemoryCache(max_size=max_memory_entries, default_ttl=default_ttl)
+        self._hits = 0
+        self._misses = 0
+        
+        logger.info(f"[PromptCache] Initialized (max={max_memory_entries}, ttl={default_ttl}s)")
+    
+    @staticmethod
+    def make_key(prompt: str, model: str, **kwargs) -> str:
+        """生成缓存键
+        
+        Args:
+            prompt: Prompt 文本
+            model: 模型名称
+            **kwargs: 额外参数
+            
+        Returns:
+            缓存键
+        """
+        key_data = {
+            "prompt": prompt,
+            "model": model,
+            **kwargs
+        }
+        key_str = json.dumps(key_data, sort_keys=True)
+        return hashlib.md5(key_str.encode()).hexdigest()
+    
+    def get(self, prompt: str, model: str, **kwargs) -> Optional[str]:
+        """获取缓存结果
+        
+        Args:
+            prompt: Prompt 文本
+            model: 模型名称
+            **kwargs: 额外参数
+            
+        Returns:
+            缓存的响应或 None
+        """
+        key = self.make_key(prompt, model, **kwargs)
+        result = self._cache.get(key)
+        
+        if result is not None:
+            self._hits += 1
+            logger.debug(f"[PromptCache] Hit for model={model}")
+        else:
+            self._misses += 1
+        
+        return result
+    
+    def set(
+        self,
+        prompt: str,
+        model: str,
+        response: str,
+        ttl: Optional[int] = None,
+        **kwargs
+    ):
+        """设置缓存结果
+        
+        Args:
+            prompt: Prompt 文本
+            model: 模型名称
+            response: 响应文本
+            ttl: 过期时间（秒）
+            **kwargs: 额外参数
+        """
+        key = self.make_key(prompt, model, **kwargs)
+        self._cache.set(key, response, ttl=ttl)
+        logger.debug(f"[PromptCache] Set for model={model}")
+    
+    async def get_or_generate(
+        self,
+        prompt: str,
+        model: str,
+        llm_client,
+        system_prompt: Optional[str] = None,
+        **kwargs
+    ) -> str:
+        """获取或生成响应
+        
+        Args:
+            prompt: Prompt 文本
+            model: 模型名称
+            llm_client: LLM 客户端
+            system_prompt: 系统提示词
+            **kwargs: 额外参数
+            
+        Returns:
+            响应文本
+        """
+        cached = self.get(prompt, model, **kwargs)
+        if cached is not None:
+            return cached
+        
+        if system_prompt:
+            response = await llm_client.agenerate(prompt, system_prompt)
+        else:
+            response = await llm_client.agenerate(prompt)
+        
+        self.set(prompt, model, response, **kwargs)
+        return response
+    
+    def clear(self):
+        """清空缓存"""
+        self._cache.clear()
+        self._hits = 0
+        self._misses = 0
+        logger.info("[PromptCache] Cache cleared")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """获取缓存统计"""
+        total = self._hits + self._misses
+        hit_rate = self._hits / total if total > 0 else 0.0
+        
+        return {
+            "capacity": self._cache.max_size,
+            "current_size": self._cache.size(),
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": f"{hit_rate:.2%}"
+        }
+
+
+class CachedToolExecutor:
+    """带缓存的工具执行器
+    
+    Wraps tool execution with cache support.
+    """
+    
+    def __init__(self, tool_service, cache: Optional[ToolResultCache] = None):
+        """初始化缓存执行器
+        
+        Args:
+            tool_service: 工具服务
+            cache: 可选的缓存实例
+        """
+        self.tool_service = tool_service
+        self.cache = cache or ToolResultCache()
+    
+    async def execute(
+        self,
+        tool_name: str,
+        params: Dict[str, Any],
+        use_cache: bool = True,
+        cache_ttl: Optional[int] = None
+    ) -> Any:
+        """执行工具（带缓存）
+        
+        Args:
+            tool_name: 工具名称
+            params: 工具参数
+            use_cache: 是否使用缓存
+            cache_ttl: 可选的缓存 TTL 覆盖
+            
+        Returns:
+            工具结果
+        """
+        if use_cache:
+            cached = self.cache.get_cached(tool_name, params)
+            if cached is not None:
+                logger.debug(f"[CachedToolExecutor] Cache hit: {tool_name}")
+                return cached
+        
+        result = await self.tool_service.execute_tool(tool_name, params)
+        
+        if use_cache and result:
+            self.cache.set_cached(
+                tool_name, params, result,
+                ttl_seconds=cache_ttl
+            )
+        
+        return result
+    
+    def invalidate(self, tool_name: Optional[str] = None):
+        """使缓存失效
+        
+        Args:
+            tool_name: 可选的工具名称
+        """
+        self.cache.invalidate(tool_name=tool_name)
+
+
+def create_tool_cache(
+    max_size: int = 100,
+    ttl: int = 3600
+) -> ToolResultCache:
+    """创建工具结果缓存
+    
+    Args:
+        max_size: 最大缓存条目数
+        ttl: 默认 TTL（秒）
+        
+    Returns:
+        配置好的 ToolResultCache
+    """
+    return ToolResultCache(max_memory_entries=max_size, default_ttl=ttl)
+
+
+def create_result_cache(
+    max_size: int = 100,
+    ttl_seconds: int = 3600,
+    persistent_path: Optional[str] = None
+) -> ToolResultCache:
+    """创建工具结果缓存（兼容旧接口）
+    
+    Args:
+        max_size: 最大缓存大小
+        ttl_seconds: 默认 TTL
+        persistent_path: 可选的持久化路径
+        
+    Returns:
+        ToolResultCache 实例
+    """
+    return ToolResultCache(
+        max_memory_entries=max_size,
+        cache_dir=persistent_path,
+        default_ttl=ttl_seconds
+    )

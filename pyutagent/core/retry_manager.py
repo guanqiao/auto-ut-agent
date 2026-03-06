@@ -35,13 +35,18 @@ from typing import (
     Coroutine,
 )
 
+from .retry_config import RetryStrategy as CoreRetryStrategy
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
 
 
 class RetryStrategy(Enum):
-    """Retry strategies."""
+    """Extended retry strategies for RetryManager.
+    
+    This extends CoreRetryStrategy with additional strategies used by RetryManager.
+    """
     IMMEDIATE = auto()
     FIXED = auto()
     FIXED_DELAY = auto()
@@ -81,7 +86,7 @@ class RetryManagerConfig:
     strategies like exponential backoff, circuit breaker, etc.
     """
     max_attempts: int = 10
-    strategy: RetryStrategy = RetryStrategy.ADAPTIVE
+    strategy: Union[CoreRetryStrategy, 'RetryStrategy'] = CoreRetryStrategy.ADAPTIVE
     base_delay: float = 1.0
     max_delay: float = 60.0
     exponential_base: float = 2.0
@@ -94,7 +99,7 @@ class RetryManagerConfig:
     on_success_callback: Optional[Callable[[int, Any], None]] = None
     on_failure_callback: Optional[Callable[[int, Exception], None]] = None
     retryable_exceptions: Optional[List[Type[Exception]]] = None
-
+    
     def __post_init__(self):
         if self.retryable_exceptions and not self.exceptions_to_retry:
             self.exceptions_to_retry = tuple(self.retryable_exceptions)

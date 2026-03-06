@@ -75,11 +75,12 @@ from .analysis_tools import (
     DependencyGraphTool,
     get_all_analysis_tools,
 )
-from .tool_cache import (
+from pyutagent.core.cache import (
     ToolResultCache,
     CacheEntry,
     CachedToolExecutor,
     create_result_cache,
+    create_tool_cache,
 )
 
 __all__ = [
@@ -149,4 +150,5 @@ __all__ = [
     "CacheEntry",
     "CachedToolExecutor",
     "create_result_cache",
+    "create_tool_cache",
 ]

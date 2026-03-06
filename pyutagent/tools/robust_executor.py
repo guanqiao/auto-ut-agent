@@ -11,12 +11,16 @@ import logging
 from typing import Any, Callable, Dict, Optional
 
 from ..tools.tool import ToolResult
+from ..core.retry_config import RetryConfig, RetryStrategy
 
 logger = logging.getLogger(__name__)
 
 
-class RetryConfig:
-    """Configuration for retry behavior."""
+class ToolRetryConfig:
+    """Tool-specific retry configuration.
+    
+    This is a simplified config for tool execution, wrapping RetryConfig.
+    """
     
     def __init__(
         self,
@@ -36,12 +40,23 @@ class RetryConfig:
             "network",
             "temporarily"
         ]
+        
+        self._core_config = RetryConfig(
+            max_step_attempts=max_retries + 1,
+            backoff_base=initial_delay,
+            backoff_max=max_delay,
+            backoff_strategy=RetryStrategy.EXPONENTIAL_BACKOFF
+        )
+    
+    def get_delay(self, attempt: int) -> float:
+        """Get delay for given attempt."""
+        return self._core_config.get_delay(attempt)
 
 
 class RetryToolExecutor:
     """Execute tools with automatic retry on failure."""
     
-    def __init__(self, tool_service: Any, config: Optional[RetryConfig] = None):
+    def __init__(self, tool_service: Any, config: Optional[ToolRetryConfig] = None):
         """Initialize retry executor.
         
         Args:
@@ -49,7 +64,7 @@ class RetryToolExecutor:
             config: Retry configuration
         """
         self.tool_service = tool_service
-        self.config = config or RetryConfig()
+        self.config = config or ToolRetryConfig()
     
     async def execute(
         self,
@@ -170,7 +185,7 @@ class RobustToolExecutor:
     def __init__(
         self,
         tool_service: Any,
-        retry_config: Optional[RetryConfig] = None,
+        retry_config: Optional[ToolRetryConfig] = None,
         default_timeout: float = 60.0
     ):
         """Initialize robust executor.
@@ -252,6 +267,6 @@ def create_robust_executor(
     """
     return RobustToolExecutor(
         tool_service=tool_service,
-        retry_config=RetryConfig(max_retries=max_retries),
+        retry_config=ToolRetryConfig(max_retries=max_retries),
         default_timeout=timeout
     )

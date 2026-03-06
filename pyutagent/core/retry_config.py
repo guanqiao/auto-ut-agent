@@ -15,6 +15,8 @@ class RetryStrategy(Enum):
     LINEAR_BACKOFF = auto()
     EXPONENTIAL_BACKOFF = auto()
     FIXED_DELAY = auto()
+    EXPONENTIAL_JITTER = auto()
+    ADAPTIVE = auto()
 
 
 @dataclass
