@@ -105,6 +105,72 @@ class ActionExecutor:
         self._execution_history: List[ActionResult] = []
         self._action_success_rates: Dict[ActionType, Dict[str, int]] = {}
     
+    def _is_valid_test_code(self, code: str) -> bool:
+        """Check if code looks like valid Java test code.
+        
+        Args:
+            code: Code to validate
+            
+        Returns:
+            True if code appears valid
+        """
+        if not code:
+            return False
+        
+        code = code.strip()
+        
+        if len(code) < 50:
+            logger.warning(f"[ActionExecutor] Code validation failed: too short ({len(code)} chars)")
+            return False
+        
+        if 'class ' not in code:
+            logger.warning("[ActionExecutor] Code validation failed: missing class declaration")
+            return False
+        
+        has_test = '@Test' in code or 'void test' in code or '@BeforeEach' in code
+        if not has_test:
+            logger.warning("[ActionExecutor] Code validation failed: no test annotations/methods found")
+            return False
+        
+        open_braces = code.count('{')
+        close_braces = code.count('}')
+        if open_braces != close_braces or open_braces == 0:
+            logger.warning(f"[ActionExecutor] Code validation failed: unbalanced braces ({{={open_braces}, }}={close_braces})")
+            return False
+        
+        return True
+    
+    def _backup_and_validate_write(
+        self,
+        test_path: Path,
+        new_code: str,
+        action_type: ActionType
+    ) -> tuple[bool, str, Optional[str]]:
+        """Backup existing file and validate new code before writing.
+        
+        Args:
+            test_path: Path to test file
+            new_code: New code to write
+            action_type: Type of action being performed
+            
+        Returns:
+            Tuple of (should_write, reason, backup_content)
+        """
+        backup_content = None
+        
+        if test_path.exists():
+            try:
+                backup_content = test_path.read_text(encoding='utf-8')
+                logger.debug(f"[ActionExecutor] Backed up existing file: {test_path} ({len(backup_content)} chars)")
+            except Exception as e:
+                logger.warning(f"[ActionExecutor] Failed to backup existing file: {e}")
+        
+        if not self._is_valid_test_code(new_code):
+            logger.error(f"[ActionExecutor] Refusing to write invalid code for {action_type.name}")
+            return False, "Invalid test code - validation failed", backup_content
+        
+        return True, "Code validated successfully", backup_content
+    
     def get_available_actions(self) -> List[str]:
         return list(self.ACTION_TYPE_MAP.keys())
     
@@ -475,9 +541,22 @@ class ActionExecutor:
         if test_file:
             try:
                 test_path = Path(self.project_path) / test_file if self.project_path else Path(test_file)
+                
+                should_write, reason, backup = self._backup_and_validate_write(
+                    test_path, fixed_code, ActionType.FIX_SYNTAX
+                )
+                
+                if not should_write:
+                    logger.error(f"[ActionExecutor] Refusing to write invalid syntax fix: {reason}")
+                    return ActionResult(
+                        action_type=ActionType.FIX_SYNTAX,
+                        success=False,
+                        message=f"Invalid code - {reason}"
+                    )
+                
                 test_path.write_text(fixed_code, encoding='utf-8')
                 
-                logger.info(f"✅ 语法修复已应用")
+                logger.info(f"✅ 语法修复已应用 - 文件: {test_file}, 长度: {len(fixed_code)}")
                 return ActionResult(
                     action_type=ActionType.FIX_SYNTAX,
                     success=True,
@@ -540,9 +619,22 @@ class ActionExecutor:
         if test_file:
             try:
                 test_path = Path(self.project_path) / test_file if self.project_path else Path(test_file)
+                
+                should_write, reason, backup = self._backup_and_validate_write(
+                    test_path, fixed_code, ActionType.FIX_TEST_LOGIC
+                )
+                
+                if not should_write:
+                    logger.error(f"[ActionExecutor] Refusing to write invalid test logic fix: {reason}")
+                    return ActionResult(
+                        action_type=ActionType.FIX_TEST_LOGIC,
+                        success=False,
+                        message=f"Invalid code - {reason}"
+                    )
+                
                 test_path.write_text(fixed_code, encoding='utf-8')
                 
-                logger.info(f"✅ 测试逻辑修复已应用")
+                logger.info(f"✅ 测试逻辑修复已应用 - 文件: {test_file}, 长度: {len(fixed_code)}")
                 return ActionResult(
                     action_type=ActionType.FIX_TEST_LOGIC,
                     success=True,
@@ -645,8 +737,22 @@ class ActionExecutor:
         if test_file:
             try:
                 test_path = Path(self.project_path) / test_file if self.project_path else Path(test_file)
+                
+                should_write, reason, backup = self._backup_and_validate_write(
+                    test_path, fixed_code, ActionType.FIX_ASSERTION
+                )
+                
+                if not should_write:
+                    logger.error(f"[ActionExecutor] Refusing to write invalid assertion fix: {reason}")
+                    return ActionResult(
+                        action_type=ActionType.FIX_ASSERTION,
+                        success=False,
+                        message=f"Invalid code - {reason}"
+                    )
+                
                 test_path.write_text(fixed_code, encoding='utf-8')
                 
+                logger.info(f"✅ Assertion fix applied - 文件: {test_file}, 长度: {len(fixed_code)}")
                 return ActionResult(
                     action_type=ActionType.FIX_ASSERTION,
                     success=True,
@@ -744,8 +850,22 @@ class ActionExecutor:
         if test_file:
             try:
                 test_path = Path(self.project_path) / test_file if self.project_path else Path(test_file)
+                
+                should_write, reason, backup = self._backup_and_validate_write(
+                    test_path, fixed_code, ActionType.MODIFY_CODE
+                )
+                
+                if not should_write:
+                    logger.error(f"[ActionExecutor] Refusing to write invalid code modification: {reason}")
+                    return ActionResult(
+                        action_type=ActionType.MODIFY_CODE,
+                        success=False,
+                        message=f"Invalid code - {reason}"
+                    )
+                
                 test_path.write_text(fixed_code, encoding='utf-8')
                 
+                logger.info(f"✅ Code modified - 文件: {test_file}, 长度: {len(fixed_code)}")
                 return ActionResult(
                     action_type=ActionType.MODIFY_CODE,
                     success=True,
