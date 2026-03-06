@@ -333,3 +333,107 @@ class TestLLMClient:
 
         assert client._total_calls == 0
         assert client._total_tokens == 0
+
+    @pytest.mark.asyncio
+    @patch('httpx.AsyncClient')
+    async def test_quick_endpoint_check_success(self, mock_async_client, client):
+        """Test quick endpoint check - success."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_context = AsyncMock()
+        mock_context.get.return_value = mock_response
+        mock_context.__aenter__ = AsyncMock(return_value=mock_context)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_async_client.return_value = mock_context
+
+        success, message = await client.quick_endpoint_check()
+
+        assert success is True
+        assert "reachable" in message.lower()
+
+    @pytest.mark.asyncio
+    @patch('httpx.AsyncClient')
+    async def test_quick_endpoint_check_404(self, mock_async_client, client):
+        """Test quick endpoint check - 404 error."""
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_context = AsyncMock()
+        mock_context.get.return_value = mock_response
+        mock_context.__aenter__ = AsyncMock(return_value=mock_context)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_async_client.return_value = mock_context
+
+        success, message = await client.quick_endpoint_check()
+
+        assert success is False
+        assert "404" in message or "不存在" in message
+
+    @pytest.mark.asyncio
+    @patch('httpx.AsyncClient')
+    async def test_quick_endpoint_check_timeout(self, mock_async_client, client):
+        """Test quick endpoint check - timeout."""
+        import httpx
+        mock_context = AsyncMock()
+        mock_context.get.side_effect = httpx.TimeoutException("Timeout")
+        mock_context.__aenter__ = AsyncMock(return_value=mock_context)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_async_client.return_value = mock_context
+
+        success, message = await client.quick_endpoint_check()
+
+        assert success is False
+        assert "超时" in message
+
+    @pytest.mark.asyncio
+    @patch('httpx.AsyncClient')
+    async def test_quick_endpoint_check_unauthorized(self, mock_async_client, client):
+        """Test quick endpoint check - unauthorized."""
+        mock_response = Mock()
+        mock_response.status_code = 401
+        mock_context = AsyncMock()
+        mock_context.get.return_value = mock_response
+        mock_context.__aenter__ = AsyncMock(return_value=mock_context)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_async_client.return_value = mock_context
+
+        success, message = await client.quick_endpoint_check()
+
+        assert success is False
+        assert "无效" in message or "未授权" in message
+
+    def test_diagnose_timeout_error_no_chunk(self, client):
+        """Test timeout error diagnosis - no chunk received."""
+        msg = client._diagnose_timeout_error(25.0, False)
+        assert "连接超时" in msg or "网络" in msg
+
+        msg = client._diagnose_timeout_error(100.0, False)
+        assert "响应超时" in msg or "服务器" in msg
+
+    def test_diagnose_timeout_error_with_chunk(self, client):
+        """Test timeout error diagnosis - chunk received."""
+        msg = client._diagnose_timeout_error(100.0, True)
+        assert "流式生成超时" in msg or "响应不完整" in msg
+
+    def test_diagnose_api_error_404(self, client):
+        """Test API error diagnosis - 404."""
+        error = Exception("404 Not Found")
+        msg = client._diagnose_api_error(error, 10.0)
+        assert "404" in msg or "不存在" in msg
+
+    def test_diagnose_api_error_401(self, client):
+        """Test API error diagnosis - 401."""
+        error = Exception("401 Unauthorized")
+        msg = client._diagnose_api_error(error, 10.0)
+        assert "认证失败" in msg or "API Key" in msg
+
+    def test_diagnose_api_error_rate_limit(self, client):
+        """Test API error diagnosis - rate limit."""
+        error = Exception("429 Rate limit exceeded")
+        msg = client._diagnose_api_error(error, 10.0)
+        assert "频率超限" in msg or "rate limit" in msg.lower()
+
+    def test_diagnose_api_error_connection(self, client):
+        """Test API error diagnosis - connection error."""
+        error = Exception("Connection refused")
+        msg = client._diagnose_api_error(error, 10.0)
+        assert "网络" in msg or "连接" in msg
