@@ -48,6 +48,13 @@ from pyutagent.core.error_types import (
     RecoveryResult,
     classify_error,
 )
+from pyutagent.core.retry_config import (
+    RetryConfig,
+    RetryStrategy,
+    DEFAULT_RETRY_CONFIG,
+    get_default_retry_config,
+    create_retry_config,
+)
 
 __all__ = [
     'EventBus',
@@ -88,4 +95,9 @@ __all__ = [
     'RecoveryAttempt',
     'RecoveryResult',
     'classify_error',
+    'RetryConfig',
+    'RetryStrategy',
+    'DEFAULT_RETRY_CONFIG',
+    'get_default_retry_config',
+    'create_retry_config',
 ]

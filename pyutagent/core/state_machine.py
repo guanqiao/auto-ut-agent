@@ -10,22 +10,9 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Set
 
+from pyutagent.core.protocols import AgentState
+
 logger = logging.getLogger(__name__)
-
-
-class AgentState(Enum):
-    """Agent states for the state machine."""
-    IDLE = auto()
-    PARSING = auto()
-    GENERATING = auto()
-    COMPILING = auto()
-    TESTING = auto()
-    ANALYZING = auto()
-    FIXING = auto()
-    OPTIMIZING = auto()
-    PAUSED = auto()
-    COMPLETED = auto()
-    FAILED = auto()
 
 
 @dataclass
