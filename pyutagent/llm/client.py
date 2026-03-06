@@ -573,8 +573,8 @@ class LLMClient:
         This performs a lightweight HTTP check to verify the endpoint is accessible
         before making a full LLM call. Useful for early detection of configuration issues.
         
-        Note: Many custom OpenAI-compatible endpoints (Azure, proxies) don't support /models API.
-        We handle this gracefully by not failing on 404 for /models.
+        Note: This check uses /models endpoint which may not be available on all
+        OpenAI-compatible endpoints. For custom endpoints, this check may fail.
         
         Args:
             timeout: Timeout for the check in seconds

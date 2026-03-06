@@ -482,20 +482,6 @@ class StepExecutor:
             
             logger.debug(f"[StepExecutor] Initial test prompt - Length: {len(prompt)}, Model: {self.agent_core.model_name}")
             
-            # Quick endpoint check before starting generation
-            if hasattr(self.agent_core.llm_client, 'quick_endpoint_check'):
-                self.agent_core._update_state(AgentState.GENERATING, "🔍 检查 API 端点连接...")
-                endpoint_ok, endpoint_msg = await self.agent_core.llm_client.quick_endpoint_check(timeout=10.0)
-                if not endpoint_ok:
-                    logger.error(f"[StepExecutor] ❌ Endpoint check failed: {endpoint_msg}")
-                    self.agent_core._update_state(AgentState.FAILED, f"❌ {endpoint_msg}")
-                    return StepResult(
-                        success=False,
-                        state=AgentState.FAILED,
-                        message=f"API 端点检查失败: {endpoint_msg}"
-                    )
-                logger.info(f"[StepExecutor] ✅ Endpoint check passed: {endpoint_msg}")
-            
             test_code = None
             last_error = None
             
