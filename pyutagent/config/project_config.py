@@ -1,20 +1,33 @@
 """Project Configuration Management.
 
+.. deprecated::
+    Use pyutagent.core.project_config instead.
+    This module is kept for backward compatibility.
+
 This module provides project-level configuration similar to CLAUDE.md:
-- ProjectContext: Project information and preferences
-- BuildCommands: Build tool commands
-- TestPreferences: Test generation preferences
-- ProjectConfigManager: Load/save/manage project configuration
+- ProjectContext: Project information and preferences (deprecated)
+- BuildCommands: Build tool commands (deprecated)
+- TestPreferences: Test generation preferences (deprecated)
+- ProjectConfigManager: Load/save/manage project configuration (deprecated)
 """
 
 import logging
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import json
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.config.project_config is deprecated. "
+    "Use pyutagent.core.project_config instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 @dataclass

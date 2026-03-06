@@ -1,11 +1,25 @@
-"""Manager for agent state and pause/resume functionality."""
+"""Manager for agent state and pause/resume functionality.
+
+.. deprecated::
+    Use pyutagent.agent.core.agent_state.StateManager instead.
+    This module is kept for backward compatibility.
+"""
 
 import asyncio
 import logging
+import warnings
 from enum import Enum, auto
 from typing import Optional, Callable, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.agent.utils.state_manager is deprecated. "
+    "Use pyutagent.agent.core.agent_state.StateManager instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class TaskStatus(Enum):

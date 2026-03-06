@@ -1,16 +1,29 @@
 """Context window management for handling large code files.
 
+.. deprecated::
+    Use pyutagent.agent.unified_context_manager.UnifiedContextManager instead.
+    This module is kept for backward compatibility.
+
 This module provides intelligent context compression and management
 for LLM interactions with large Java files that exceed token limits.
 """
 
 import logging
 import re
+import warnings
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Tuple, Set
 from enum import Enum, auto
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "pyutagent.agent.context_manager is deprecated. "
+    "Use pyutagent.agent.unified_context_manager.UnifiedContextManager instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class CompressionStrategy(Enum):
