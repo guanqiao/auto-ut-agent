@@ -704,6 +704,23 @@ class StepExecutor:
             class_name = self.agent_core.target_class_info.get("name", "Unknown")
             test_file_name = f"{class_name}Test.java"
             
+            # Validate test code before writing
+            if not test_code or len(test_code.strip()) == 0:
+                logger.error("[StepExecutor] Generated test code is empty")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message="Generated test code is empty"
+                )
+            
+            if not self._is_valid_test_code(test_code):
+                logger.error("[StepExecutor] Generated test code is invalid")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message="Generated test code is invalid - missing class declaration or test methods"
+                )
+            
             settings = get_settings()
             test_dir = Path(self.agent_core.project_path) / settings.project_paths.src_test_java
             package_path = self.agent_core.target_class_info.get("package", "").replace(".", "/")
@@ -715,6 +732,15 @@ class StepExecutor:
             
             with open(test_file_path, 'w', encoding='utf-8') as f:
                 f.write(test_code)
+            
+            # Verify file was written correctly
+            if not test_file_path.exists() or test_file_path.stat().st_size == 0:
+                logger.error(f"[StepExecutor] Failed to write test file: {test_file_path}")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message=f"Failed to write test file: {test_file_path}"
+                )
             
             self.agent_core.current_test_file = str(test_file_path.relative_to(self.agent_core.project_path))
             self.agent_core.working_memory.add_generated_test(
@@ -961,6 +987,15 @@ class StepExecutor:
                 logger.error(f"[StepExecutor] ❌ Failed to generate incremental test code")
                 raise last_error or Exception("Failed to generate incremental test code")
             
+            # Validate test code before writing
+            if not self._is_valid_test_code(test_code):
+                logger.error("[StepExecutor] Generated incremental test code is invalid")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message="Generated incremental test code is invalid - missing class declaration or test methods"
+                )
+            
             settings = get_settings()
             test_file_name = f"{class_name}Test.java"
             test_dir = Path(self.agent_core.project_path) / settings.project_paths.src_test_java
@@ -973,6 +1008,15 @@ class StepExecutor:
             
             with open(test_file_path, 'w', encoding='utf-8') as f:
                 f.write(test_code)
+            
+            # Verify file was written correctly
+            if not test_file_path.exists() or test_file_path.stat().st_size == 0:
+                logger.error(f"[StepExecutor] Failed to write incremental test file: {test_file_path}")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message=f"Failed to write incremental test file: {test_file_path}"
+                )
             
             self.agent_core.current_test_file = str(test_file_path.relative_to(self.agent_core.project_path))
             self.agent_core.working_memory.add_generated_test(
@@ -1760,8 +1804,22 @@ class StepExecutor:
             logger.warning("[StepExecutor] Cannot write test file - current_test_file is empty")
             return
         
+        # Validate code before writing
+        if not code or len(code.strip()) == 0:
+            logger.warning("[StepExecutor] Refusing to write empty test code - keeping existing file")
+            return
+        
+        # Check if code looks like valid Java test code
+        if not self._is_valid_test_code(code):
+            logger.warning("[StepExecutor] Refusing to write invalid test code - keeping existing file")
+            return
+        
         try:
             test_file_path = Path(self.agent_core.project_path) / self.agent_core.current_test_file
+            
+            # Ensure parent directory exists
+            test_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
             test_file_path.write_text(code, encoding='utf-8')
             logger.info(f"[StepExecutor] Wrote test file - Path: {test_file_path}, Length: {len(code)}")
         except PermissionError as e:
@@ -1773,6 +1831,36 @@ class StepExecutor:
         except Exception as e:
             logger.exception(f"[StepExecutor] Failed to write test file: {e}")
             self.agent_core._update_state(AgentState.FAILED, f"Failed to write test file: {e}")
+    
+    def _is_valid_test_code(self, code: str) -> bool:
+        """Check if code looks like valid Java test code.
+        
+        Args:
+            code: Code to validate
+            
+        Returns:
+            True if code appears valid
+        """
+        code = code.strip()
+        
+        # Must have minimum length
+        if len(code) < 50:
+            return False
+        
+        # Must contain class declaration
+        if 'class ' not in code:
+            return False
+        
+        # Must contain at least one test annotation or method
+        has_test = '@Test' in code or 'void test' in code or '@BeforeEach' in code
+        
+        # Must have balanced braces
+        open_braces = code.count('{')
+        close_braces = code.count('}')
+        if open_braces != close_braces or open_braces == 0:
+            return False
+        
+        return has_test
     
     def _parse_test_failures(self) -> List[Dict[str, Any]]:
         """Parse test failures from Maven output.
