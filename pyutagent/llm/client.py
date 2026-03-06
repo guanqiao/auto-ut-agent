@@ -544,12 +544,23 @@ class LLMClient:
             Tuple of (success, message)
         """
         import httpx
+        from pathlib import Path
         
         logger.info(f"[LLM] Quick endpoint check - Endpoint: {self.endpoint}")
         start_time = time.time()
         
+        # Determine SSL verification setting
+        verify_setting = True
+        if self.ca_cert:
+            cert_path = Path(self.ca_cert)
+            if cert_path.exists():
+                verify_setting = str(cert_path)
+                logger.info(f"[LLM] Using custom CA certificate for endpoint check: {cert_path}")
+            else:
+                logger.warning(f"[LLM] CA certificate file not found: {cert_path}")
+        
         try:
-            async with httpx.AsyncClient(timeout=timeout, verify=True) as client:
+            async with httpx.AsyncClient(timeout=timeout, verify=verify_setting) as client:
                 headers = {
                     "Authorization": f"Bearer {self.api_key[:10]}..." if self.api_key else "",
                     "Content-Type": "application/json"

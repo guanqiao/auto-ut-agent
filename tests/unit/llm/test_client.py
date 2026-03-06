@@ -437,3 +437,51 @@ class TestLLMClient:
         error = Exception("Connection refused")
         msg = client._diagnose_api_error(error, 10.0)
         assert "网络" in msg or "连接" in msg
+
+    @pytest.mark.asyncio
+    @patch('httpx.AsyncClient')
+    @patch('pathlib.Path.exists')
+    async def test_quick_endpoint_check_with_ca_cert(self, mock_exists, mock_async_client):
+        """Test quick endpoint check uses CA cert when configured."""
+        mock_exists.return_value = True
+        client = LLMClient(
+            endpoint="https://api.example.com",
+            api_key="key",
+            model="model",
+            ca_cert="/path/to/cert.pem"
+        )
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_context = AsyncMock()
+        mock_context.get.return_value = mock_response
+        mock_context.__aenter__ = AsyncMock(return_value=mock_context)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_async_client.return_value = mock_context
+
+        success, message = await client.quick_endpoint_check()
+
+        assert success is True
+        # Verify that AsyncClient was called with the CA cert path as verify parameter
+        call_args = mock_async_client.call_args
+        # On Windows, path separators may be converted
+        assert "cert.pem" in call_args.kwargs['verify']
+
+    @pytest.mark.asyncio
+    @patch('httpx.AsyncClient')
+    async def test_quick_endpoint_check_without_ca_cert(self, mock_async_client, client):
+        """Test quick endpoint check uses default verify=True when no CA cert configured."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_context = AsyncMock()
+        mock_context.get.return_value = mock_response
+        mock_context.__aenter__ = AsyncMock(return_value=mock_context)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_async_client.return_value = mock_context
+
+        success, message = await client.quick_endpoint_check()
+
+        assert success is True
+        # Verify that AsyncClient was called with verify=True (default)
+        call_args = mock_async_client.call_args
+        assert call_args.kwargs['verify'] is True
