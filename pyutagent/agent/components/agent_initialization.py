@@ -269,7 +269,7 @@ class AgentInitializer:
         """Initialize P2 enhancement components."""
         from pyutagent.core.parallel_recovery import create_parallel_recovery_manager
         from pyutagent.core.sandbox import create_sandbox
-        from pyutagent.core.tool_cache import create_tool_cache
+        from pyutagent.core.cache import create_tool_cache
         from pyutagent.core.checkpoint import create_checkpoint_manager
         
         components = {}
@@ -280,7 +280,7 @@ class AgentInitializer:
         sandbox = create_sandbox(allow_network=True, timeout=60.0)
         components["sandbox"] = sandbox
         
-        tool_cache = create_tool_cache(maxsize=100, ttl=300)
+        tool_cache = create_tool_cache(max_size=100, ttl=300)
         components["tool_cache"] = tool_cache
         
         checkpoint_manager = create_checkpoint_manager()
