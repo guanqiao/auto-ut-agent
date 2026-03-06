@@ -1,6 +1,9 @@
 """Agent module for UT generation with self-feedback loop."""
 
-from .base_agent import BaseAgent, StepResult
+import warnings
+from typing import Any
+
+# Unified interfaces (recommended)
 from .unified_agent_base import (
     UnifiedAgentBase,
     AgentConfig,
@@ -822,5 +825,50 @@ __all__ = [
     "SafetyPolicy",
     "InterruptType",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Dynamic import with deprecation warnings for backward compatibility."""
+    # Handle deprecated BaseAgent
+    if name == "BaseAgent":
+        warnings.warn(
+            "BaseAgent is deprecated. Use UnifiedAgentBase from pyutagent.agent.unified_agent_base instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from .base_agent import BaseAgent as _BaseAgent
+        return _BaseAgent
+    
+    # Handle deprecated StepResult
+    if name == "StepResult":
+        warnings.warn(
+            "StepResult is deprecated. Use AgentResult from pyutagent.agent.unified_agent_base instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from .base_agent import StepResult as _StepResult
+        return _StepResult
+    
+    # Handle deprecated AutonomousLoop
+    if name == "AutonomousLoop":
+        warnings.warn(
+            "AutonomousLoop is deprecated. Use UnifiedAutonomousLoop from pyutagent.agent.unified_autonomous_loop instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from .autonomous_loop import AutonomousLoop as _AutonomousLoop
+        return _AutonomousLoop
+    
+    # Handle deprecated ContextManager
+    if name == "ContextManager":
+        warnings.warn(
+            "ContextManager is deprecated. Use UnifiedContextManager from pyutagent.agent.unified_context_manager instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from .context_manager import ContextManager as _ContextManager
+        return _ContextManager
+    
+    raise AttributeError(f"module 'pyutagent.agent' has no attribute '{name}'")
 
 
