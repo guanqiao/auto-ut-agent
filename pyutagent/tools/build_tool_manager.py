@@ -160,11 +160,20 @@ class MavenRunner(BuildToolRunner):
             wrapper = self.project_path / "mvnw"
             if wrapper.exists():
                 return str(wrapper)
-        
+
         if self.tool_info.executable_path:
             return self.tool_info.executable_path
-        
-        return "mvn"
+
+        # Fallback: try to find mvn in PATH
+        import shutil
+        mvn_path = shutil.which("mvn")
+        if mvn_path:
+            return mvn_path
+
+        raise FileNotFoundError(
+            "Maven executable not found. Please install Maven or configure 'maven_path' in settings. "
+            "See: https://maven.apache.org/install.html"
+        )
     
     async def run_tests(
         self,
@@ -621,14 +630,14 @@ class BuildToolManager:
     def _detect_maven(self) -> Optional[BuildToolInfo]:
         """Detect Maven build tool."""
         pom_xml = self.project_path / "pom.xml"
-        
+
         if not pom_xml.exists():
             return None
-        
+
         # Check for Maven wrapper
         wrapper = self.project_path / "mvnw"
         wrapper_available = wrapper.exists()
-        
+
         # Get configured Maven path
         configured_maven_path = None
         try:
@@ -641,13 +650,32 @@ class BuildToolManager:
                     logger.info(f"[BuildToolManager] Using configured Maven path: {configured_path}")
         except Exception as e:
             logger.debug(f"[BuildToolManager] Failed to get configured Maven path: {e}")
-        
+
+        # Determine executable path
+        if wrapper_available:
+            executable_path = str(wrapper)
+        elif configured_maven_path:
+            executable_path = configured_maven_path
+        else:
+            # Check if mvn is available in PATH
+            mvn_path = self._find_executable_in_path("mvn")
+            if mvn_path:
+                executable_path = mvn_path
+            else:
+                logger.warning("[BuildToolManager] Maven not found in PATH. Please install Maven or configure maven_path in settings.")
+                return BuildToolInfo(
+                    tool_type=BuildToolType.MAVEN,
+                    version=None,
+                    config_file=pom_xml,
+                    wrapper_available=False,
+                    executable_path=None
+                )
+
         # Try to get version
         version = None
-        maven_cmd = configured_maven_path or "mvn"
         try:
             result = subprocess.run(
-                [maven_cmd, "--version"],
+                [executable_path, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -660,15 +688,7 @@ class BuildToolManager:
                     version = match.group(1)
         except Exception:
             pass
-        
-        # Determine executable path
-        if wrapper_available:
-            executable_path = str(wrapper)
-        elif configured_maven_path:
-            executable_path = configured_maven_path
-        else:
-            executable_path = "mvn"
-        
+
         return BuildToolInfo(
             tool_type=BuildToolType.MAVEN,
             version=version,
@@ -676,6 +696,18 @@ class BuildToolManager:
             wrapper_available=wrapper_available,
             executable_path=executable_path
         )
+
+    def _find_executable_in_path(self, executable: str) -> Optional[str]:
+        """Find executable in system PATH.
+
+        Args:
+            executable: Executable name (e.g., 'mvn', 'gradle')
+
+        Returns:
+            Full path to executable if found, None otherwise
+        """
+        import shutil
+        return shutil.which(executable)
     
     def _detect_gradle(self) -> Optional[BuildToolInfo]:
         """Detect Gradle build tool."""

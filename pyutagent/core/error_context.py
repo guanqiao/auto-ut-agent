@@ -393,26 +393,37 @@ class ErrorContextCollector:
     def _parse_compilation_errors(cls, output: str) -> List[CompilationErrorDetail]:
         errors = []
         lines = output.split('\n')
-        
+
         for i, line in enumerate(lines):
             if '.java:' in line and 'error:' in line.lower():
-                error = CompilationErrorDetail()
-                
+                file_path = ""
+                line_number = None
+                error_message = ""
+                error_type = ""
+                source_line = ""
+
                 file_match = re.search(r'([\w/\\.-]+\.java):(\d+)', line)
                 if file_match:
-                    error.file_path = file_match.group(1)
-                    error.line_number = int(file_match.group(2))
-                
+                    file_path = file_match.group(1)
+                    line_number = int(file_match.group(2))
+
                 error_msg_match = re.search(r'error:\s*(.+)', line, re.IGNORECASE)
                 if error_msg_match:
-                    error.error_message = error_msg_match.group(1).strip()
-                    error.error_type = cls._classify_error_type(error.error_message)
-                
+                    error_message = error_msg_match.group(1).strip()
+                    error_type = cls._classify_error_type(error_message)
+
                 if i + 1 < len(lines):
-                    error.source_line = lines[i + 1].strip() if lines[i + 1].strip() else ""
-                
+                    source_line = lines[i + 1].strip() if lines[i + 1].strip() else ""
+
+                error = CompilationErrorDetail(
+                    file_path=file_path,
+                    line_number=line_number,
+                    error_type=error_type,
+                    error_message=error_message,
+                    source_line=source_line
+                )
                 errors.append(error)
-        
+
         return errors
     
     @classmethod
