@@ -286,7 +286,8 @@ class LLMClient:
         except asyncio.TimeoutError:
             elapsed = time.time() - start_time
             self._call_stats["agenerate"].append(elapsed)
-            self._report_progress(f"⏰ LLM 响应超时 (已等待 {elapsed:.0f}秒，超时限制：{operation_timeout:.0f}秒)")
+            error_msg = self._diagnose_timeout_error(elapsed, False)
+            self._report_progress(f"⏰ {error_msg}")
             logger.error(f"[LLM] ⏰ Async generation timed out - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Timeout: {operation_timeout:.0f}s")
             raise
         except asyncio.CancelledError:
@@ -297,7 +298,8 @@ class LLMClient:
         except Exception as e:
             elapsed = time.time() - start_time
             self._call_stats["agenerate"].append(elapsed)
-            self._report_progress(f"❌ LLM 调用失败：{str(e)}")
+            error_msg = self._diagnose_api_error(e, elapsed)
+            self._report_progress(f"❌ {error_msg}")
             logger.exception(f"[LLM] ❌ Async generation failed - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Error: {e}")
             raise
     
@@ -423,11 +425,16 @@ class LLMClient:
         start_time = time.time()
         last_progress_time = start_time
         chunk_count = 0
+        first_chunk_received = False
         
         try:
             async with asyncio.timeout(operation_timeout):
                 async for chunk in client.astream(messages):
                     if chunk.content:
+                        if not first_chunk_received:
+                            first_chunk_received = True
+                            elapsed = time.time() - start_time
+                            logger.info(f"[LLM] 📥 First chunk received after {elapsed:.1f}s")
                         chunk_count += 1
                         yield chunk.content
                     
@@ -446,8 +453,9 @@ class LLMClient:
             logger.info(f"[LLM] Async stream generation complete - Model: {self.model}, Endpoint: {self.endpoint}, TotalChunks: {chunk_count}, Elapsed: {elapsed:.2f}s")
         except asyncio.TimeoutError:
             elapsed = time.time() - start_time
+            error_msg = self._diagnose_timeout_error(elapsed, first_chunk_received)
             logger.error(f"[LLM] Async stream generation timed out after {elapsed:.1f}s - Model: {self.model}, Endpoint: {self.endpoint}")
-            self._report_progress(f"❌ LLM 流式生成超时 (已等待 {elapsed:.0f}秒)")
+            self._report_progress(f"❌ {error_msg}")
             raise
         except asyncio.CancelledError:
             elapsed = time.time() - start_time
@@ -456,8 +464,37 @@ class LLMClient:
         except Exception as e:
             elapsed = time.time() - start_time
             self._call_stats["astream"].append(elapsed)
+            error_msg = self._diagnose_api_error(e, elapsed)
             logger.exception(f"[LLM] Async stream generation failed - Model: {self.model}, Endpoint: {self.endpoint}, Elapsed: {elapsed:.2f}s, Error: {e}")
+            self._report_progress(f"❌ {error_msg}")
             raise
+    
+    def _diagnose_timeout_error(self, elapsed: float, first_chunk_received: bool) -> str:
+        """Diagnose timeout error and provide helpful message."""
+        if not first_chunk_received:
+            if elapsed < 30:
+                return f"LLM 连接超时 ({elapsed:.0f}秒) - 请检查网络连接和 API 端点是否正确"
+            else:
+                return f"LLM 响应超时 ({elapsed:.0f}秒) - 服务器可能过载或端点不可用，请稍后重试"
+        else:
+            return f"LLM 流式生成超时 ({elapsed:.0f}秒) - 响应不完整，可能需要减少提示长度或增加超时时间"
+    
+    def _diagnose_api_error(self, error: Exception, elapsed: float) -> str:
+        """Diagnose API error and provide helpful message."""
+        error_str = str(error).lower()
+        
+        if "404" in error_str or "not found" in error_str:
+            return f"API 端点不存在 (404) - 请检查端点 URL 是否正确: {self.endpoint}"
+        elif "401" in error_str or "unauthorized" in error_str:
+            return "API 认证失败 - 请检查 API Key 是否正确"
+        elif "403" in error_str or "forbidden" in error_str:
+            return "API 访问被拒绝 - 请检查 API Key 权限"
+        elif "429" in error_str or "rate limit" in error_str:
+            return "API 请求频率超限 - 请稍后重试"
+        elif "connection" in error_str or "network" in error_str:
+            return f"网络连接失败 - 请检查网络连接和 API 端点: {self.endpoint}"
+        else:
+            return f"LLM 调用失败: {str(error)[:100]}"
     
     def count_tokens(self, text: str) -> int:
         """Count tokens in text (approximate).
@@ -493,6 +530,66 @@ class LLMClient:
             elapsed = time.time() - start_time
             logger.exception(f"[LLM] Connection test failed - Elapsed: {elapsed:.2f}s, Error: {e}")
             return False, f"Connection failed: {str(e)}"
+    
+    async def quick_endpoint_check(self, timeout: float = 10.0) -> tuple[bool, str]:
+        """Quick check if the API endpoint is reachable.
+        
+        This performs a lightweight HTTP check to verify the endpoint is accessible
+        before making a full LLM call. Useful for early detection of configuration issues.
+        
+        Args:
+            timeout: Timeout for the check in seconds
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        import httpx
+        
+        logger.info(f"[LLM] Quick endpoint check - Endpoint: {self.endpoint}")
+        start_time = time.time()
+        
+        try:
+            async with httpx.AsyncClient(timeout=timeout, verify=True) as client:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key[:10]}..." if self.api_key else "",
+                    "Content-Type": "application/json"
+                }
+                
+                response = await client.get(
+                    f"{self.endpoint.rstrip('/')}/models",
+                    headers=headers
+                )
+                
+                elapsed = time.time() - start_time
+                
+                if response.status_code == 200:
+                    logger.info(f"[LLM] Endpoint check successful - Status: 200, Elapsed: {elapsed:.2f}s")
+                    return True, f"Endpoint reachable: {self.endpoint}"
+                elif response.status_code == 401:
+                    logger.warning(f"[LLM] Endpoint check failed - Status: 401 Unauthorized")
+                    return False, "API Key 无效或未授权"
+                elif response.status_code == 403:
+                    logger.warning(f"[LLM] Endpoint check failed - Status: 403 Forbidden")
+                    return False, "API 访问被拒绝，请检查权限"
+                elif response.status_code == 404:
+                    logger.warning(f"[LLM] Endpoint check failed - Status: 404 Not Found")
+                    return False, f"API 端点不存在 (404)，请检查 URL: {self.endpoint}"
+                else:
+                    logger.warning(f"[LLM] Endpoint check returned status {response.status_code}")
+                    return True, f"Endpoint returned status {response.status_code}"
+                    
+        except httpx.TimeoutException:
+            elapsed = time.time() - start_time
+            logger.error(f"[LLM] Endpoint check timed out after {elapsed:.2f}s")
+            return False, f"连接超时 ({elapsed:.0f}秒) - 请检查网络或端点是否正确: {self.endpoint}"
+        except httpx.ConnectError as e:
+            elapsed = time.time() - start_time
+            logger.error(f"[LLM] Endpoint connection failed: {e}")
+            return False, f"无法连接到端点 - 请检查 URL 是否正确: {self.endpoint}"
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(f"[LLM] Endpoint check failed: {e}")
+            return False, f"端点检查失败: {str(e)}"
     
     def get_usage_stats(self) -> dict:
         """Get usage statistics.

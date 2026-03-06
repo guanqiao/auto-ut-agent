@@ -120,15 +120,23 @@ class ActionExecutor:
         action_type_str = action.get('action', action.get('type', 'unknown'))
         action_type = self.parse_action_type(action_type_str)
         
-        logger.info(f"[ActionExecutor] Executing action: {action_type.name}")
+        logger.info(f"🛠️ 执行 Action: {action_type.name}")
+        logger.debug(f"Action 参数: {action}")
         
         if self.progress_callback:
             self.progress_callback("EXECUTING_ACTION", f"Executing: {action_type.name}")
         
+        start_time = datetime.now()
         result = await self._execute_action_internal(action_type, action, context or {})
+        duration = (datetime.now() - start_time).total_seconds()
         
         self._execution_history.append(result)
         self._update_success_rate(result)
+        
+        if result.success:
+            logger.info(f"✅ Action 完成: {action_type.name} - {result.message} (耗时: {duration:.2f}s)")
+        else:
+            logger.warning(f"❌ Action 失败: {action_type.name} - {result.message}")
         
         return result
     
@@ -140,29 +148,33 @@ class ActionExecutor:
         results = []
         
         logger.info(
-            f"[ActionExecutor] Executing action plan with {len(plan.actions)} actions "
-            f"(confidence: {plan.confidence:.2f})"
+            f"📋 执行 Action 计划 - 共 {len(plan.actions)} 个动作, "
+            f"置信度: {plan.confidence:.2f}, 来源: {plan.source}"
         )
         
+        if plan.reasoning:
+            logger.info(f"💭 推理: {plan.reasoning[:100]}...")
+        
         for i, action in enumerate(plan.actions):
-            logger.info(f"[ActionExecutor] Action {i+1}/{len(plan.actions)}: {action.get('action', 'unknown')}")
+            action_name = action.get('action', 'unknown')
+            logger.info(f"🔹 Action {i+1}/{len(plan.actions)}: {action_name}")
             
             result = await self.execute_action(action, context)
             results.append(result)
             
             if not result.success and action.get('critical', False):
-                logger.warning(f"[ActionExecutor] Critical action failed, stopping plan execution")
+                logger.error(f"🛑 关键 Action 失败，停止执行计划")
                 break
             
             if not result.success:
-                logger.warning(f"[ActionExecutor] Action {i+1} failed: {result.message}")
+                logger.warning(f"⚠️ Action {i+1} 失败: {result.message}")
             
             await asyncio.sleep(0.1)
         
         success_count = sum(1 for r in results if r.success)
         logger.info(
-            f"[ActionExecutor] Action plan complete - "
-            f"Success: {success_count}/{len(results)}"
+            f"📊 Action 计划完成 - 成功: {success_count}/{len(results)}, "
+            f"成功率: {success_count/len(results)*100:.1f}%"
         )
         
         return results
@@ -220,6 +232,8 @@ class ActionExecutor:
         imports_to_add = action.get('imports', action.get('import_list', []))
         test_file = action.get('file') or context.get('test_file', '')
         
+        logger.info(f"🔧 修复导入 - 文件: {test_file}, 导入数: {len(imports_to_add)}")
+        
         if not imports_to_add:
             return ActionResult(
                 action_type=ActionType.FIX_IMPORTS,
@@ -259,6 +273,7 @@ class ActionExecutor:
                     new_imports.append(imp_str)
             
             if not new_imports:
+                logger.info(f"✓ 所有导入已存在")
                 return ActionResult(
                     action_type=ActionType.FIX_IMPORTS,
                     success=True,
@@ -266,6 +281,7 @@ class ActionExecutor:
                     modified_file=str(test_file)
                 )
             
+            logger.info(f"➕ 添加 {len(new_imports)} 个新导入")
             package_match = re.search(r'package\s+[\w.]+;', content)
             package_line = package_match.group(0) if package_match else ""
             
@@ -279,7 +295,7 @@ class ActionExecutor:
             
             test_path.write_text(modified_content, encoding='utf-8')
             
-            logger.info(f"[ActionExecutor] Added {len(new_imports)} imports to {test_file}")
+            logger.info(f"✅ 成功添加导入: {', '.join(new_imports[:3])}{'...' if len(new_imports) > 3 else ''}")
             
             return ActionResult(
                 action_type=ActionType.FIX_IMPORTS,
@@ -290,6 +306,7 @@ class ActionExecutor:
                 details={"added_imports": new_imports}
             )
         except Exception as e:
+            logger.error(f"❌ 添加导入失败: {str(e)}")
             return ActionResult(
                 action_type=ActionType.FIX_IMPORTS,
                 success=False,
@@ -305,6 +322,8 @@ class ActionExecutor:
         artifact_id = action.get('artifact_id', '')
         version = action.get('version', '')
         scope = action.get('scope', 'test')
+        
+        logger.info(f"📦 添加依赖 - {group_id}:{artifact_id}:{version} (scope: {scope})")
         
         if not group_id or not artifact_id:
             return ActionResult(
@@ -326,6 +345,7 @@ class ActionExecutor:
             
             dep_pattern = rf'<groupId>{re.escape(group_id)}</groupId>\s*<artifactId>{re.escape(artifact_id)}</artifactId>'
             if re.search(dep_pattern, pom_content):
+                logger.info(f"✓ 依赖已存在")
                 return ActionResult(
                     action_type=ActionType.ADD_DEPENDENCY,
                     success=True,
@@ -363,7 +383,7 @@ class ActionExecutor:
             
             pom_path.write_text(modified_content, encoding='utf-8')
             
-            logger.info(f"[ActionExecutor] Added dependency: {group_id}:{artifact_id}")
+            logger.info(f"✅ 成功添加依赖: {group_id}:{artifact_id}")
             
             return ActionResult(
                 action_type=ActionType.ADD_DEPENDENCY,
@@ -377,6 +397,7 @@ class ActionExecutor:
                 }
             )
         except Exception as e:
+            logger.error(f"❌ 添加依赖失败: {str(e)}")
             return ActionResult(
                 action_type=ActionType.ADD_DEPENDENCY,
                 success=False,
@@ -391,6 +412,8 @@ class ActionExecutor:
         fixed_code = action.get('fixed_code', action.get('code', ''))
         test_file = action.get('file') or context.get('test_file', '')
         
+        logger.info(f"🔧 修复语法错误 - 文件: {test_file}")
+        
         if not fixed_code:
             return ActionResult(
                 action_type=ActionType.FIX_SYNTAX,
@@ -403,6 +426,7 @@ class ActionExecutor:
                 test_path = Path(self.project_path) / test_file if self.project_path else Path(test_file)
                 test_path.write_text(fixed_code, encoding='utf-8')
                 
+                logger.info(f"✅ 语法修复已应用")
                 return ActionResult(
                     action_type=ActionType.FIX_SYNTAX,
                     success=True,
@@ -411,6 +435,7 @@ class ActionExecutor:
                     modified_file=str(test_file)
                 )
             except Exception as e:
+                logger.error(f"❌ 应用语法修复失败: {str(e)}")
                 return ActionResult(
                     action_type=ActionType.FIX_SYNTAX,
                     success=False,
@@ -436,6 +461,7 @@ class ActionExecutor:
         action: Dict[str, Any],
         context: Dict[str, Any]
     ) -> ActionResult:
+        logger.info(f"🔄 请求重新生成测试")
         return ActionResult(
             action_type=ActionType.REGENERATE_TEST,
             success=True,
@@ -451,6 +477,8 @@ class ActionExecutor:
         fixed_code = action.get('fixed_code', action.get('code', ''))
         test_file = action.get('file') or context.get('test_file', '')
         
+        logger.info(f"🔧 修复测试逻辑 - 文件: {test_file}")
+        
         if not fixed_code:
             return ActionResult(
                 action_type=ActionType.FIX_TEST_LOGIC,
@@ -463,6 +491,7 @@ class ActionExecutor:
                 test_path = Path(self.project_path) / test_file if self.project_path else Path(test_file)
                 test_path.write_text(fixed_code, encoding='utf-8')
                 
+                logger.info(f"✅ 测试逻辑修复已应用")
                 return ActionResult(
                     action_type=ActionType.FIX_TEST_LOGIC,
                     success=True,
@@ -471,6 +500,7 @@ class ActionExecutor:
                     modified_file=str(test_file)
                 )
             except Exception as e:
+                logger.error(f"❌ 应用测试逻辑修复失败: {str(e)}")
                 return ActionResult(
                     action_type=ActionType.FIX_TEST_LOGIC,
                     success=False,
@@ -492,6 +522,8 @@ class ActionExecutor:
         mock_code = action.get('mock_code', '')
         mock_setup = action.get('mock_setup', action.get('setup', ''))
         test_file = action.get('file') or context.get('test_file', '')
+        
+        logger.info(f"🎭 添加 Mock - 文件: {test_file}")
         
         if not test_file:
             return ActionResult(
@@ -528,6 +560,7 @@ class ActionExecutor:
             
             test_path.write_text(modified_content, encoding='utf-8')
             
+            logger.info(f"✅ Mock 配置已添加")
             return ActionResult(
                 action_type=ActionType.ADD_MOCK,
                 success=True,
@@ -536,6 +569,7 @@ class ActionExecutor:
                 modified_file=str(test_file)
             )
         except Exception as e:
+            logger.error(f"❌ 添加 Mock 失败: {str(e)}")
             return ActionResult(
                 action_type=ActionType.ADD_MOCK,
                 success=False,
@@ -592,6 +626,8 @@ class ActionExecutor:
         test_file = action.get('file') or context.get('test_file', '')
         reason = action.get('reason', 'Skipped due to persistent failure')
         
+        logger.info(f"⏭️ 跳过测试 - 方法: {test_method or 'all'}, 文件: {test_file}")
+        
         if not test_file:
             return ActionResult(
                 action_type=ActionType.SKIP_TEST,
@@ -622,6 +658,7 @@ class ActionExecutor:
             
             test_path.write_text(modified_content, encoding='utf-8')
             
+            logger.info(f"✅ 测试已跳过: {test_method or 'all'}")
             return ActionResult(
                 action_type=ActionType.SKIP_TEST,
                 success=True,
@@ -631,6 +668,7 @@ class ActionExecutor:
                 details={"test_method": test_method, "reason": reason}
             )
         except Exception as e:
+            logger.error(f"❌ 跳过测试失败: {str(e)}")
             return ActionResult(
                 action_type=ActionType.SKIP_TEST,
                 success=False,

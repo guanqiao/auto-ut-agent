@@ -1028,7 +1028,7 @@ Provide your reflection:"""
         Returns:
             Prompt string
         """
-        from ..utils.code_extractor import CodeExtractor
+        from ...utils.code_extractor import CodeExtractor
         
         compiler_output = error_context.get_truncated_output(10000) if hasattr(error_context, 'get_truncated_output') else str(error_context.compiler_output)[:10000]
         

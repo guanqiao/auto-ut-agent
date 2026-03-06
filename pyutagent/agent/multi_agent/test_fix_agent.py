@@ -938,21 +938,17 @@ Please provide the fixed test code only, without explanations.
 """
         
         try:
-            response = await self.llm_client.generate(
-                prompt=prompt,
-                temperature=0.2,
-                max_tokens=1500
-            )
+            # Use agenerate method (async version) with correct signature
+            response = await self.llm_client.agenerate(prompt=prompt)
             
-            fixed_code = response.get("content", test_code)
-            fixed_code = self._extract_code_from_markdown(fixed_code)
+            fixed_code = self._extract_code_from_markdown(response)
             
             return fixed_code
             
         except Exception as e:
             logger.error(f"LLM fix generation failed: {e}")
             return test_code
-    
+
     async def _generate_failure_fix_with_llm(
         self,
         test_code: str,
@@ -996,21 +992,17 @@ Please provide the fixed test code only, without explanations.
 """
         
         try:
-            response = await self.llm_client.generate(
-                prompt=prompt,
-                temperature=0.2,
-                max_tokens=1500
-            )
-            
-            fixed_code = response.get("content", test_code)
-            fixed_code = self._extract_code_from_markdown(fixed_code)
-            
+            # Use agenerate method (async version) with correct signature
+            response = await self.llm_client.agenerate(prompt=prompt)
+
+            fixed_code = self._extract_code_from_markdown(response)
+
             return fixed_code
-            
+
         except Exception as e:
             logger.error(f"LLM failure fix generation failed: {e}")
             return test_code
-    
+
     def _calculate_diff(self, original: str, fixed: str) -> List[Dict]:
         """Calculate differences between original and fixed code.
         

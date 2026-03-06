@@ -66,7 +66,7 @@ class BatchGenerateWorker(QThread):
         """Run batch generation."""
         self._log_emitter = LogEmitter()
         self._log_emitter.log_message.connect(self._on_log)
-        self._log_emitter.install_handler('pyutagent')
+        self._log_emitter.install_handler('pyutagent', level=logging.INFO)
         
         try:
             from pyutagent.services.batch_generator import BatchGenerator, BatchConfig
@@ -592,9 +592,13 @@ class BatchGenerateDialog(QDialog):
         color = colors.get(level.upper(), "#d4d4d4")
         
         timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] [{level.upper()}] {message}"
         
-        self.log_area.append(f'<span style="color: {color};">{formatted_message}</span>')
+        if any(emoji in message for emoji in ["📁", "📊", "🔍", "✨", "⚙️", "🧪", "✅", "❌", "⚠️", "🔄", "🤖", "🛠️", "📦", "🔧", "🎭", "⏭️", "💾", "🚀", "📋", "💭", "🔹", "🛑", "➕", "⏱️"]):
+            formatted_message = f'<span style="color: {color};">[{timestamp}] {message}</span>'
+        else:
+            formatted_message = f'<span style="color: {color};">[{timestamp}] [{level.upper()}] {message}</span>'
+        
+        self.log_area.append(formatted_message)
         
         scrollbar = self.log_area.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())

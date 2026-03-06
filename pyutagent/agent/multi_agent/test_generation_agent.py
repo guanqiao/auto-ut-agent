@@ -409,17 +409,14 @@ Generate a complete test method with:
             raise ValueError("LLM client not available")
         
         try:
-            response = await self.llm_client.generate(
+            # Use agenerate method (async version) with correct signature
+            response = await self.llm_client.agenerate(
                 prompt=prompt,
-                temperature=options.get("temperature", 0.2),
-                max_tokens=options.get("max_tokens", 2000)
+                system_prompt=options.get("system_prompt")
             )
             
-            # Extract code from response
-            code = response.get("content", "")
-            
             # Clean up code (remove markdown code blocks if present)
-            code = self._extract_code_from_markdown(code)
+            code = self._extract_code_from_markdown(response)
             
             return code
             

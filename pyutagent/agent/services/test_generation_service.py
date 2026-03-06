@@ -180,9 +180,10 @@ class TestGenerationService:
             if hasattr(self.llm_client, 'set_progress_callback'):
                 self.llm_client.set_progress_callback(self._llm_progress_callback)
                 self.llm_client.reset_cancel()
-            
+
             try:
-                response = await self.llm_client.generate(prompt)
+                # Use agenerate method (async version) with correct signature
+                response = await self.llm_client.agenerate(prompt)
             finally:
                 # Clear progress callback
                 if hasattr(self.llm_client, 'set_progress_callback'):

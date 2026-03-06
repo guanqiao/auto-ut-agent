@@ -1,0 +1,83 @@
+{
+  "id": "79e93074",
+  "created_at": "2026-03-06T15:03:54.885525",
+  "step": "initial_generation",
+  "iteration": 0,
+  "state": {
+    "target_file": "D:\\opensource\\github\\magic-api\\magic-api\\src\\main\\java\\org\\ssssssss\\magicapi\\utils\\ROT13Utils.java",
+    "test_file": "src\\test\\java\\org\\ssssssss\\magicapi\\utils\\ROT13UtilsTest.java",
+    "class_info": {
+      "name": "ROT13Utils",
+      "package": "org.ssssssss.magicapi.utils",
+      "methods": [
+        {
+          "name": "rot13",
+          "return_type": "String",
+          "parameters": [
+            [
+              "String",
+              "str"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "encrypt",
+          "return_type": "String",
+          "parameters": [
+            [
+              "String",
+              "str"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "decrypt",
+          "return_type": "String",
+          "parameters": [
+            [
+              "String",
+              "encrypted"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "encode",
+          "return_type": "String",
+          "parameters": [
+            [
+              "String",
+              "input"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "decode",
+          "return_type": "String",
+          "parameters": [
+            [
+              "String",
+              "encodedString"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        }
+      ],
+      "fields": [],
+      "imports": [
+        "java.util.Base64"
+      ],
+      "annotations": [],
+      "source": "package org.ssssssss.magicapi.utils;\nimport java.util.Base64;\n\npublic class ROT13Utils {\n\n    /**\n     * ROT13 函数：对给定字符串执行 ROT13 编码。\n     * @param str - 要编码的字符串。\n     * @return 编码后的字符串。\n     */\n    public static String rot13(String str) {\n        StringBuilder result = new StringBuilder();\n\n        for (char c : str.toCharArray()) {\n            if (c >= 'a' && c <= 'z') {\n                // 小写字母处理\n                c = (char) (((c - 'a' + 13) % 26) + 'a');\n            } else if (c >= 'A' && c <= 'Z') {\n                // 大写字母处理\n                c = (char) (((c - 'A' + 13) % 26) + 'A');\n            }\n            // 非字母字符保持不变\n            result.append(c);\n        }\n\n        return result.toString();\n    }\n\n    /**\n     * 加密流程：\n     * 数据 -> Base64 编码 -> ROT13 替换\n     * @param str 要加密的字符串。\n     * @return 加密后的字符串。\n     */\n    public static String encrypt(String str) {\n        try {\n            String encode = encode(str);\n            return rot13(encode);\n        } catch (Exception e) {\n            return str;\n        }\n    }\n\n    /**\n     * 解密流程：\n     * ROT13 -> Base64 -> 数据对象\n     * @param encrypted 要解密的字符串\n     * @return 解密后的字符串\n     */\n    public static String decrypt(String encrypted) {\n        try {\n            String encrypt = rot13(encrypted.replaceFirst(\"^\\\"\", \"\").replaceAll(\"\\\"$\", \"\"));\n            return decode(encrypt);\n        } catch (Exception e) {\n            return encrypted;\n        }\n    }\n\n    /**\n     * 对输入字符串进行 Base64 编码\n     *\n     * @param input 输入字符串\n     * @return 编码后的字符串\n     */\n    public static String encode(String input) {\n        // 将字符串转换为字节数组\n        byte[] encodedBytes = Base64.getEncoder().encode(input.getBytes());\n        // 转换回字符串并返回\n        return new String(encodedBytes);\n    }\n\n    /**\n     * 对 Base64 编码的字符串进行解码\n     *\n     * @param encodedString 已编码的字符串\n     * @return 解码后的原始字符串\n     */\n    public static String decode(String encodedString) {\n        // 将字符串转换为字节数组\n        byte[] decodedBytes = Base64.getDecoder().decode(encodedString.getBytes());\n        // 转换回字符串并返回\n        return new String(decodedBytes);\n    }\n}"
+    }
+  },
+  "metadata": {}
+}

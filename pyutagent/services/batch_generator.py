@@ -478,35 +478,44 @@ class BatchGenerator:
         start_time = time.time()
         file_name = Path(file_path).name
         
-        logger.info(f"[BatchGenerator] Starting multi-agent generation for: {file_name}")
+        logger.info(f"📁 开始处理文件: {file_name}")
+        
+        try:
+            file_size = Path(file_path).stat().st_size
+            logger.info(f"📊 文件信息 - 大小: {file_size / 1024:.1f}KB, 路径: {file_path}")
+        except Exception:
+            pass
+        
+        logger.info(f"🤖 使用 Multi-Agent 模式生成测试")
         self._update_progress(file_name, "Multi-agent: Analyzing code...")
         
         try:
-            # Step 1: Code Analysis
+            logger.info(f"🔍 [Agent: CodeAnalyzer] 提交代码分析任务...")
             analysis_task_id = await self.agent_coordinator.submit_task(
                 task_type="analyze_code",
                 payload={"file_path": file_path},
                 priority=1
             )
             
-            # Wait for analysis
+            logger.info(f"⏳ [Agent: CodeAnalyzer] 等待分析完成...")
             analysis_success = await self.agent_coordinator.wait_for_task(
                 analysis_task_id, 
                 timeout=30
             )
             
             if not analysis_success:
-                logger.warning(f"[BatchGenerator] Code analysis failed for {file_name}, falling back to standard")
+                logger.warning(f"⚠️ [Agent: CodeAnalyzer] 分析失败，回退到标准模式")
                 return await self._generate_single_standard(file_path)
             
-            # Get analysis result
             analysis_task = self.agent_coordinator.tasks.get(analysis_task_id)
             analysis_result = analysis_task.result.output if analysis_task and analysis_task.result else {}
             
+            methods = analysis_result.get("methods", [])
+            logger.info(f"✅ [Agent: CodeAnalyzer] 分析完成 - 发现 {len(methods)} 个方法")
+            
             self._update_progress(file_name, "Multi-agent: Generating tests...")
             
-            # Step 2: Test Generation
-            methods = analysis_result.get("methods", [])
+            logger.info(f"✨ [Agent: TestGenerator] 提交测试生成任务...")
             generation_task_id = await self.agent_coordinator.submit_task(
                 task_type="generate_tests",
                 payload={
@@ -523,7 +532,7 @@ class BatchGenerator:
                 dependencies=[analysis_task_id]
             )
             
-            # Wait for generation
+            logger.info(f"⏳ [Agent: TestGenerator] 等待生成完成...")
             generation_success = await self.agent_coordinator.wait_for_task(
                 generation_task_id,
                 timeout=self.config.timeout_per_file - 30
@@ -535,22 +544,23 @@ class BatchGenerator:
                 generation_task = self.agent_coordinator.tasks.get(generation_task_id)
                 generation_result = generation_task.result.output if generation_task and generation_task.result else {}
                 
-                # Write generated test to file
                 test_code = generation_result.get("test_code", "")
                 test_class_name = generation_result.get("test_class_name", "")
                 
                 if test_code and test_class_name:
+                    logger.info(f"✅ [Agent: TestGenerator] 生成完成 - 测试类: {test_class_name}, 代码长度: {len(test_code)} 字符")
+                    logger.info(f"💾 写入测试文件...")
                     test_file_path = await self._write_test_file(file_path, test_class_name, test_code)
 
-                    # Analyze coverage for the generated test
+                    logger.info(f"📊 分析覆盖率...")
                     coverage, coverage_source, coverage_confidence = await self._analyze_coverage_for_file(
                         file_path, test_file_path
                     )
 
                     logger.info(
-                        f"[BatchGenerator] Multi-agent success for {file_name} - "
-                        f"Coverage: {coverage:.1%}, Source: {coverage_source}, "
-                        f"Duration: {duration:.1f}s"
+                        f"✅ Multi-Agent 生成成功 - 文件: {file_name}, "
+                        f"覆盖率: {coverage:.1%}, 来源: {coverage_source}, "
+                        f"耗时: {duration:.1f}s"
                     )
 
                     file_result = FileResult(
@@ -574,14 +584,13 @@ class BatchGenerator:
                     
                     return file_result
             
-            # If multi-agent failed, fall back to standard
-            logger.warning(f"[BatchGenerator] Multi-agent generation failed for {file_name}, falling back")
+            logger.warning(f"⚠️ Multi-Agent 生成失败，回退到标准模式")
             return await self._generate_single_standard(file_path)
             
         except Exception as e:
             duration = time.time() - start_time
-            logger.exception(f"[BatchGenerator] Multi-agent exception for {file_name}: {e}")
-            # Fall back to standard generation
+            logger.error(f"❌ Multi-Agent 异常 - 文件: {file_name}, 错误: {type(e).__name__}: {str(e)[:100]}")
+            logger.debug(f"异常详情", exc_info=True)
             return await self._generate_single_standard(file_path)
     
     async def _write_test_file(self, source_file_path: str, test_class_name: str, test_code: str) -> str:
@@ -627,35 +636,30 @@ class BatchGenerator:
             Tuple of (coverage, source, confidence)
         """
         try:
-            # Try to use JaCoCo for precise coverage
             if self.build_runner:
-                # Generate coverage report
+                logger.debug(f"📊 使用 JaCoCo 分析覆盖率...")
                 coverage_success = await self.build_runner.generate_coverage()
                 if coverage_success:
-                    # Parse coverage report
                     from ..tools.maven_tools import CoverageAnalyzer
                     coverage_analyzer = CoverageAnalyzer(self.project_path)
                     report = coverage_analyzer.parse_report()
 
                     if report:
-                        # Find coverage for our specific file
                         source_file_name = Path(source_file_path).name.replace('.java', '')
                         for file_coverage in report.files:
                             if source_file_name in file_coverage.name:
                                 logger.info(
-                                    f"[BatchGenerator] JaCoCo coverage for {source_file_name}: "
-                                    f"{file_coverage.line_coverage:.1%}"
+                                    f"📊 JaCoCo 覆盖率 - 文件: {source_file_name}, "
+                                    f"行覆盖率: {file_coverage.line_coverage:.1%}"
                                 )
                                 return file_coverage.line_coverage, "jacoco", 1.0
 
-                        # Return overall coverage if specific file not found
                         logger.info(
-                            f"[BatchGenerator] JaCoCo overall coverage: {report.line_coverage:.1%}"
+                            f"📊 JaCoCo 整体覆盖率: {report.line_coverage:.1%}"
                         )
                         return report.line_coverage, "jacoco", 1.0
 
-            # Fall back to LLM estimation
-            logger.debug("[BatchGenerator] Falling back to LLM coverage estimation")
+            logger.debug(f"📊 使用 LLM 估算覆盖率...")
             source_code = Path(source_file_path).read_text(encoding='utf-8') if Path(source_file_path).exists() else ""
             test_code = Path(test_file_path).read_text(encoding='utf-8') if Path(test_file_path).exists() else ""
 
@@ -665,15 +669,14 @@ class BatchGenerator:
                 llm_report = await evaluator.evaluate_coverage(source_code, test_code)
 
                 logger.info(
-                    f"[BatchGenerator] LLM estimated coverage: {llm_report.line_coverage:.1%} "
-                    f"(confidence: {llm_report.confidence:.1%})"
+                    f"📊 LLM 估算覆盖率: {llm_report.line_coverage:.1%} "
+                    f"(置信度: {llm_report.confidence:.1%})"
                 )
                 return llm_report.line_coverage, "llm_estimated", llm_report.confidence
 
         except Exception as e:
-            logger.warning(f"[BatchGenerator] Coverage analysis failed: {e}")
+            logger.warning(f"⚠️ 覆盖率分析失败: {type(e).__name__}: {str(e)[:50]}")
 
-        # Default fallback
         return 0.0, "unknown", 0.0
 
     async def _generate_single_standard(self, file_path: str) -> FileResult:
@@ -688,10 +691,17 @@ class BatchGenerator:
         start_time = time.time()
         file_name = Path(file_path).name
 
-        # Check shared failure knowledge for similar files
+        logger.info(f"📁 开始处理文件: {file_name}")
+        
+        try:
+            file_size = Path(file_path).stat().st_size
+            logger.info(f"📊 文件信息 - 大小: {file_size / 1024:.1f}KB, 路径: {file_path}")
+        except Exception:
+            pass
+
         should_skip, skip_reason = self.shared_failure_knowledge.should_skip_file(file_path)
         if should_skip:
-            logger.info(f"[BatchGenerator] Skipping {file_name} based on shared failure knowledge: {skip_reason}")
+            logger.info(f"⏭️ 跳过文件 {file_name} - 原因: {skip_reason}")
             return FileResult(
                 file_path=file_path,
                 success=False,
@@ -699,7 +709,7 @@ class BatchGenerator:
                 duration=0.0
             )
 
-        logger.info(f"[BatchGenerator] Starting standard generation for: {file_name}")
+        logger.info(f"🚀 开始生成测试 - 模式: Standard, 超时: {self.config.timeout_per_file}s")
         self._update_progress(file_name, "Starting...")
 
         try:
@@ -724,34 +734,37 @@ class BatchGenerator:
             
             if self.config.incremental_mode:
                 self._update_progress(file_name, "Incremental mode: analyzing existing tests...")
-                logger.info(f"[BatchGenerator] Incremental mode enabled for {file_name}")
+                logger.info(f"🔄 增量模式 - 分析现有测试...")
             else:
                 self._update_progress(file_name, "Generating tests...")
+                logger.info(f"✨ 生成测试代码...")
             
             if self.config.defer_compilation:
-                logger.info(f"[BatchGenerator] Defer compilation mode - generating code only for {file_name}")
+                logger.info(f"⚡ 延迟编译模式 - 仅生成代码")
                 working_memory.skip_verification = True
             
+            logger.info(f"🔍 创建 ReActAgent 并开始生成...")
             try:
                 result = await asyncio.wait_for(
                     agent.generate_tests(file_path),
                     timeout=self.config.timeout_per_file
                 )
             except asyncio.TimeoutError:
-                logger.warning(f"[BatchGenerator] Timeout for {file_name}")
+                duration = time.time() - start_time
+                logger.warning(f"⏱️ 超时 - 文件: {file_name}, 耗时: {duration:.1f}s, 限制: {self.config.timeout_per_file}s")
                 return FileResult(
                     file_path=file_path,
                     success=False,
                     error=f"Timeout after {self.config.timeout_per_file}s",
-                    duration=time.time() - start_time
+                    duration=duration
                 )
             
             duration = time.time() - start_time
             
             if result.success:
                 logger.info(
-                    f"[BatchGenerator] Success for {file_name} - "
-                    f"Coverage: {result.coverage:.1%}, Duration: {duration:.1f}s"
+                    f"✅ 测试生成成功 - 文件: {file_name}, "
+                    f"覆盖率: {result.coverage:.1%}, 迭代次数: {result.iterations}, 耗时: {duration:.1f}s"
                 )
                 
                 preserved_tests = 0
@@ -761,9 +774,19 @@ class BatchGenerator:
                     preserved_tests = result.metadata.get("preserved_tests", 0)
                     new_tests = result.metadata.get("new_tests", 0)
                     fixed_tests = result.metadata.get("fixed_tests", 0)
+                    
+                    if self.config.incremental_mode and (preserved_tests > 0 or new_tests > 0 or fixed_tests > 0):
+                        logger.info(
+                            f"📊 增量统计 - 保留: {preserved_tests}个, 新增: {new_tests}个, 修复: {fixed_tests}个"
+                        )
                 
                 coverage_source = getattr(result, 'coverage_source', 'jacoco')
                 coverage_confidence = getattr(result, 'coverage_confidence', 1.0)
+                
+                if coverage_source == "llm_estimated":
+                    logger.info(f"📊 覆盖率来源: LLM估算 (置信度: {coverage_confidence:.1%})")
+                else:
+                    logger.info(f"📊 覆盖率来源: JaCoCo")
                 
                 file_result = FileResult(
                     file_path=file_path,
@@ -791,8 +814,7 @@ class BatchGenerator:
                 return file_result
             else:
                 logger.warning(
-                    f"[BatchGenerator] Failed for {file_name} - "
-                    f"Error: {result.message}"
+                    f"❌ 测试生成失败 - 文件: {file_name}, 错误: {result.message}"
                 )
                 return FileResult(
                     file_path=file_path,
@@ -804,16 +826,21 @@ class BatchGenerator:
                 
         except Exception as e:
             duration = time.time() - start_time
-            logger.exception(f"[BatchGenerator] Exception for {file_name}: {e}")
+            logger.error(f"❌ 生成异常 - 文件: {file_name}, 错误: {type(e).__name__}: {str(e)[:100]}")
+            logger.debug(f"异常详情", exc_info=True)
 
-            # Record failure in shared knowledge
             self.failure_tracker.record_failure(e, "generation", {"file": file_name})
             should_skip_future = self.failure_tracker.should_stop_retrying(e, "generation")
+            
+            if should_skip_future:
+                logger.warning(f"🔄 检测到重复失败模式 - 建议跳过类似文件")
+            
             self.shared_failure_knowledge.record_failure(
                 file_name, e, "generation", skip_recommended=should_skip_future
             )
 
             if not self.config.continue_on_error:
+                logger.error(f"🛑 停止批量生成 - continue_on_error=False")
                 self._stop_requested = True
 
             return FileResult(
@@ -830,17 +857,18 @@ class BatchGenerator:
             BatchCompilationResult with compilation results
         """
         start_time = time.time()
-        logger.info(f"[BatchGenerator] Compiling all generated tests...")
+        logger.info(f"⚙️ 开始批量编译所有测试文件...")
+        logger.info(f"📊 待编译文件数: {self._progress.completed_files}")
         
         try:
-            # Use Maven to compile all test classes at once
             if self.build_runner:
+                logger.info(f"🔧 执行编译命令...")
                 compile_success, _ = await self.build_runner.compile_tests_async()
                 
                 elapsed = time.time() - start_time
                 
                 if compile_success:
-                    logger.info(f"[BatchGenerator] ✅ Batch compilation successful - Duration: {elapsed:.1f}s")
+                    logger.info(f"✅ 批量编译成功 - 编译文件: {self._progress.completed_files}, 耗时: {elapsed:.1f}s")
                     return BatchCompilationResult(
                         success=True,
                         compiled_files=self._progress.completed_files,
@@ -849,7 +877,7 @@ class BatchGenerator:
                         duration=elapsed
                     )
                 else:
-                    logger.error(f"[BatchGenerator] ❌ Batch compilation failed - Duration: {elapsed:.1f}s")
+                    logger.error(f"❌ 批量编译失败 - 失败文件: {self._progress.completed_files}, 耗时: {elapsed:.1f}s")
                     return BatchCompilationResult(
                         success=False,
                         compiled_files=0,
@@ -858,7 +886,7 @@ class BatchGenerator:
                         duration=elapsed
                     )
             else:
-                logger.error("[BatchGenerator] No build runner available")
+                logger.error(f"❌ 无可用的构建工具")
                 return BatchCompilationResult(
                     success=False,
                     compiled_files=0,
@@ -868,13 +896,15 @@ class BatchGenerator:
                 )
                 
         except Exception as e:
-            logger.exception(f"[BatchGenerator] Batch compilation exception: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"❌ 批量编译异常 - 错误: {type(e).__name__}: {str(e)[:100]}")
+            logger.debug(f"异常详情", exc_info=True)
             return BatchCompilationResult(
                 success=False,
                 compiled_files=0,
                 failed_files=0,
                 errors=[str(e)],
-                duration=time.time() - start_time
+                duration=elapsed
             )
     
     def _on_agent_progress(self, file_name: str, progress_info: Dict[str, Any]):
@@ -887,19 +917,23 @@ class BatchGenerator:
         state = progress_info.get("state", "")
         message = progress_info.get("message", "")
         
-        # Skip compilation/verification steps if defer_compilation is enabled
         if self.config.defer_compilation and state in ["COMPILING", "TESTING", "ANALYZING"]:
             return
         
         status_map = {
-            "PARSING": "Parsing...",
-            "GENERATING": "Generating tests...",
-            "COMPILING": "Compiling...",
-            "TESTING": "Running tests...",
-            "ANALYZING": "Analyzing coverage...",
-            "FIXING": "Fixing issues...",
-            "OPTIMIZING": "Optimizing...",
+            "PARSING": "🔍 解析代码...",
+            "GENERATING": "✨ 生成测试...",
+            "COMPILING": "⚙️ 编译测试...",
+            "TESTING": "🧪 运行测试...",
+            "ANALYZING": "📊 分析覆盖率...",
+            "FIXING": "🔧 修复问题...",
+            "OPTIMIZING": "⚡ 优化测试...",
         }
         
         status = status_map.get(state, message)
+        
+        if state in ["PARSING", "GENERATING", "COMPILING", "TESTING", "ANALYZING", "FIXING", "OPTIMIZING"]:
+            log_msg = f"{status} {message}" if message else status
+            logger.info(f"[{file_name}] {log_msg}")
+        
         self._update_progress(file_name, f"{status} {message}")

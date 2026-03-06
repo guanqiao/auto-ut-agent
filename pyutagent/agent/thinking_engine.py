@@ -633,7 +633,8 @@ class ThinkingEngine(SimpleComponent):
         if self.llm_client and self.prompt_builder:
             try:
                 prompt = self._build_reasoning_prompt(situation, context, analysis_step)
-                response = await self.llm_client.generate(prompt)
+                # Use agenerate method (async version) with correct signature
+                response = await self.llm_client.agenerate(prompt)
                 reasoning_result = self._parse_reasoning_response(response)
 
                 step = ReasoningStep(
@@ -796,7 +797,8 @@ Error Message: {error_message[:500]}
 Category: {category}
 
 Provide a brief root cause analysis (1-2 sentences)."""
-                response = await self.llm_client.generate(prompt)
+                # Use agenerate method (async version) with correct signature
+                response = await self.llm_client.agenerate(prompt)
                 if response and len(response) < 500:
                     return response.strip()
             except Exception as e:

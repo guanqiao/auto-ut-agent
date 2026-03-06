@@ -736,7 +736,8 @@ class ErrorRecoveryManager:
                 target_class_info=context.target_class_info
             )
 
-            response = await self.llm_client.generate(prompt)
+            # Use agenerate method (async version) with correct signature
+            response = await self.llm_client.agenerate(prompt)
             llm_result = self._parse_llm_analysis_response(response)
 
             return {
