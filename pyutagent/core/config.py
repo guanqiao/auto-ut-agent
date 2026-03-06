@@ -82,7 +82,7 @@ class LLMConfig(BaseModel):
         description="CA certificate path"
     )
     timeout: int = Field(
-        default=300,
+        default=120,
         ge=10,
         le=600,
         description="Request timeout (seconds)"

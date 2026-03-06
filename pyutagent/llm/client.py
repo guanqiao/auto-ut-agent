@@ -28,7 +28,7 @@ class LLMClient:
         api_key: str,
         model: str,
         ca_cert: Optional[str] = None,
-        timeout: int = 300,
+        timeout: int = 120,
         max_retries: int = 2,
         temperature: float = 0.7,
         max_tokens: int = 4096,
@@ -207,7 +207,7 @@ class LLMClient:
         Args:
             prompt: User prompt
             system_prompt: Optional system prompt
-            timeout: Optional timeout in seconds (default: 180 seconds)
+            timeout: Optional timeout in seconds (default: 120 seconds)
             
         Returns:
             Generated text
@@ -405,7 +405,7 @@ class LLMClient:
         Args:
             prompt: User prompt
             system_prompt: Optional system prompt
-            timeout: Optional timeout in seconds (default: 10 minutes)
+            timeout: Optional timeout in seconds (default: 120 seconds)
             
         Yields:
             Text chunks

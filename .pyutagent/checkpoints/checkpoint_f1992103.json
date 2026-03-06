@@ -1,0 +1,41 @@
+{
+  "id": "f1992103",
+  "created_at": "2026-03-06T15:20:36.223583",
+  "step": "initial_generation",
+  "iteration": 0,
+  "state": {
+    "target_file": "D:\\opensource\\github\\magic-api\\magic-api\\src\\main\\java\\org\\ssssssss\\magicapi\\utils\\WebUtils.java",
+    "test_file": "src\\test\\java\\org\\ssssssss\\magicapi\\utils\\WebUtilsTest.java",
+    "class_info": {
+      "name": "WebUtils",
+      "package": "org.ssssssss.magicapi.utils",
+      "methods": [
+        {
+          "name": "currentUserName",
+          "return_type": "String",
+          "parameters": [],
+          "modifiers": [],
+          "annotations": []
+        }
+      ],
+      "fields": [
+        [
+          "MagicRequestContextHolder",
+          "magicRequestContextHolder",
+          "public static"
+        ]
+      ],
+      "imports": [
+        "org.ssssssss.magicapi.core.config.Constants",
+        "org.ssssssss.magicapi.core.context.MagicUser",
+        "org.ssssssss.magicapi.core.servlet.MagicHttpServletRequest",
+        "org.ssssssss.magicapi.core.servlet.MagicRequestContextHolder",
+        "java.security.Principal",
+        "java.util.Optional"
+      ],
+      "annotations": [],
+      "source": "package org.ssssssss.magicapi.utils;\n\nimport org.ssssssss.magicapi.core.config.Constants;\nimport org.ssssssss.magicapi.core.context.MagicUser;\nimport org.ssssssss.magicapi.core.servlet.MagicHttpServletRequest;\nimport org.ssssssss.magicapi.core.servlet.MagicRequestContextHolder;\n\nimport java.security.Principal;\nimport java.util.Optional;\n\n/**\n * Web相关工具类\n *\n * @author mxd\n */\npublic class WebUtils {\n\n\tpublic static MagicRequestContextHolder magicRequestContextHolder;\n\n\tpublic static String currentUserName() {\n\t\tOptional<MagicHttpServletRequest> request = Optional.ofNullable(magicRequestContextHolder.getRequest());\n\t\treturn request.map(r -> (MagicUser) r.getAttribute(Constants.ATTRIBUTE_MAGIC_USER))\n\t\t\t\t.map(MagicUser::getUsername)\n\t\t\t\t.orElseGet(() -> request.map(MagicHttpServletRequest::getUserPrincipal)\n\t\t\t\t\t\t.map(Principal::getName)\n\t\t\t\t\t\t.orElse(null)\n\t\t\t\t);\n\t}\n}\n"
+    }
+  },
+  "metadata": {}
+}

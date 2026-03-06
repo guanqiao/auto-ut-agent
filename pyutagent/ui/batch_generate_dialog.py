@@ -61,6 +61,7 @@ class BatchGenerateWorker(QThread):
         self.skip_test_analysis = skip_test_analysis
         self._stop_requested = False
         self._log_emitter: Optional[LogEmitter] = None
+        self._generator: Optional[Any] = None  # Reference to BatchGenerator
     
     def run(self):
         """Run batch generation."""
@@ -105,6 +106,8 @@ class BatchGenerateWorker(QThread):
                 progress_callback=progress_callback
             )
             
+            # Store reference for termination
+            self._generator = generator
             self._stop_requested = False
             
             result = generator.generate_all_sync(self.files)
@@ -145,7 +148,22 @@ class BatchGenerateWorker(QThread):
     
     def stop(self):
         """Stop the generation."""
+        logger.info("[BatchGenerateWorker] Stop requested")
         self._stop_requested = True
+        
+        # Terminate the batch generator if running
+        if self._generator:
+            logger.info("[BatchGenerateWorker] Terminating batch generator")
+            self._generator.terminate()
+        
+        # Cancel LLM client operations
+        if hasattr(self.llm_client, 'cancel'):
+            logger.info("[BatchGenerateWorker] Cancelling LLM client")
+            self.llm_client.cancel()
+        
+        if hasattr(self.llm_client, 'cancel_current_task'):
+            logger.info("[BatchGenerateWorker] Force cancelling current LLM task")
+            self.llm_client.cancel_current_task()
 
 
 class BatchGenerateDialog(QDialog):
@@ -565,14 +583,30 @@ class BatchGenerateDialog(QDialog):
     
     def stop_generation(self):
         """Stop generation."""
+        logger.info("[BatchGenerateDialog] Stop generation requested")
+        
         if self.worker and self.worker.isRunning():
+            logger.info("[BatchGenerateDialog] Stopping worker thread...")
+            
+            # Stop the worker
             self.worker.stop()
-            self.worker.wait(2000)
+            
+            # Wait for thread to finish with longer timeout
+            if not self.worker.wait(5000):  # Wait up to 5 seconds
+                logger.warning("[BatchGenerateDialog] Worker did not stop gracefully, terminating...")
+                self.worker.terminate()
+                self.worker.wait(1000)  # Wait additional 1 second after terminate
+            
+            logger.info("[BatchGenerateDialog] Worker stopped")
         
         self._is_running = False
         self.on_generation_finished()
         self.status_label.setText("Stopped")
         self.status_label.setStyleSheet("font-weight: bold; color: #f44336;")
+        
+        # Reset LLM client cancel state
+        if self.llm_client and hasattr(self.llm_client, 'reset_cancel'):
+            self.llm_client.reset_cancel()
     
     def timerEvent(self, event):
         """Handle timer event."""

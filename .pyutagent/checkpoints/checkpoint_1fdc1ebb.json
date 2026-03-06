@@ -1,0 +1,63 @@
+{
+  "id": "1fdc1ebb",
+  "created_at": "2026-03-06T15:12:27.415806",
+  "step": "initial_generation",
+  "iteration": 0,
+  "state": {
+    "target_file": "src\\main\\java\\org\\ssssssss\\magicapi\\jsr223\\JSR223LanguageProvider.java",
+    "test_file": "src\\test\\java\\org\\ssssssss\\magicapi\\jsr223\\JSR223LanguageProviderTest.java",
+    "class_info": {
+      "name": "JSR223LanguageProvider",
+      "package": "org.ssssssss.magicapi.jsr223",
+      "methods": [
+        {
+          "name": "support",
+          "return_type": null,
+          "parameters": [
+            [
+              "String",
+              "languageName"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        },
+        {
+          "name": "execute",
+          "return_type": "Object",
+          "parameters": [
+            [
+              "String",
+              "languageName"
+            ],
+            [
+              "String",
+              "script"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        }
+      ],
+      "fields": [
+        [
+          "ScriptEngineManager",
+          "scriptEngineManager",
+          ""
+        ]
+      ],
+      "imports": [
+        "org.ssssssss.magicapi.core.exception.MagicAPIException",
+        "org.ssssssss.magicapi.jsr223.LanguageProvider",
+        "javax.script.Compilable",
+        "javax.script.ScriptEngine",
+        "javax.script.ScriptEngineManager",
+        "javax.script.SimpleBindings",
+        "java.util.Map"
+      ],
+      "annotations": [],
+      "source": "package org.ssssssss.magicapi.jsr223;\n\nimport org.ssssssss.magicapi.core.exception.MagicAPIException;\nimport org.ssssssss.magicapi.jsr223.LanguageProvider;\n\nimport javax.script.Compilable;\nimport javax.script.ScriptEngine;\nimport javax.script.ScriptEngineManager;\nimport javax.script.SimpleBindings;\nimport java.util.Map;\n\n/**\n * JSR223规范支持\n *\n * @author mxd\n */\npublic class JSR223LanguageProvider implements LanguageProvider {\n\n\tScriptEngineManager scriptEngineManager = new ScriptEngineManager();\n\n\t@Override\n\tpublic boolean support(String languageName) {\n\t\treturn scriptEngineManager.getEngineByName(languageName) != null;\n\t}\n\n\t@Override\n\tpublic Object execute(String languageName, String script, Map<String, Object> context) throws Exception {\n\t\tScriptEngine scriptEngine = scriptEngineManager.getEngineByName(languageName);\n\t\tif (scriptEngine instanceof Compilable) {\n\t\t\tCompilable compilable = (Compilable) scriptEngine;\n\t\t\ttry {\n\t\t\t\treturn compilable.compile(script).eval(new SimpleBindings(context));\n\t\t\t} catch (Exception e) {\n\t\t\t\tthrow new MagicAPIException(String.format(\"编译%s出错\", languageName), e);\n\t\t\t}\n\t\t} else {\n\t\t\treturn scriptEngine.eval(script, new SimpleBindings(context));\n\t\t}\n\t}\n\n}\n"
+    }
+  },
+  "metadata": {}
+}

@@ -189,6 +189,8 @@ class BatchGenerator:
         self._progress = BatchProgress()
         self._stop_requested = False
         self._results: List[FileResult] = []
+        self._current_agent = None  # Current agent being executed
+        self._current_tasks = []  # Current asyncio tasks
 
         # Initialize shared failure knowledge for batch processing
         self.failure_tracker = FailurePatternTracker(max_repeated_failures=3)
@@ -293,6 +295,35 @@ class BatchGenerator:
         logger.info("[BatchGenerator] Stop requested")
         self._stop_requested = True
     
+    def terminate(self):
+        """Terminate batch generation immediately.
+        
+        This will:
+        - Set stop flag
+        - Cancel all running LLM operations
+        - Stop all agents
+        """
+        logger.info("[BatchGenerator] Terminate requested - stopping all operations")
+        self._stop_requested = True
+        
+        # Cancel LLM client operations
+        if hasattr(self.llm_client, 'cancel'):
+            logger.info("[BatchGenerator] Cancelling LLM client")
+            self.llm_client.cancel()
+        
+        if hasattr(self.llm_client, 'cancel_current_task'):
+            logger.info("[BatchGenerator] Force cancelling current LLM task")
+            self.llm_client.cancel_current_task()
+        
+        # Cancel any running asyncio tasks
+        if hasattr(self, '_current_tasks'):
+            for task in self._current_tasks:
+                if not task.done():
+                    logger.info(f"[BatchGenerator] Cancelling task: {task.get_name()}")
+                    task.cancel()
+        
+        logger.info("[BatchGenerator] Terminate complete")
+    
     def _update_progress(
         self, 
         current_file: str = "", 
@@ -326,10 +357,12 @@ class BatchGenerator:
             BatchResult with all results
         """
         start_time = time.time()
-        self._stop_requested = False
+        # Don't reset _stop_requested if it's already set
+        # self._stop_requested = False
         self._results = []
         
         self._progress = BatchProgress(total_files=len(files))
+        self._current_tasks = []  # Track running tasks
         
         logger.info(
             f"[BatchGenerator] Starting batch generation - "
@@ -352,12 +385,20 @@ class BatchGenerator:
                 return await self._generate_single(file_path)
         
         tasks = [generate_with_semaphore(f) for f in files]
+        self._current_tasks = tasks  # Store for cancellation
         
         try:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
             for i, result in enumerate(results):
-                if isinstance(result, Exception):
+                if isinstance(result, asyncio.CancelledError):
+                    logger.warning(f"[BatchGenerator] Task cancelled for {files[i]}")
+                    self._results.append(FileResult(
+                        file_path=files[i],
+                        success=False,
+                        error="Generation cancelled by user"
+                    ))
+                elif isinstance(result, Exception):
                     logger.error(f"[BatchGenerator] Task exception for {files[i]}: {result}")
                     self._results.append(FileResult(
                         file_path=files[i],
@@ -371,6 +412,16 @@ class BatchGenerator:
                         file_path=files[i],
                         success=False,
                         error=f"Unexpected result type: {type(result)}"
+                    ))
+        except asyncio.CancelledError:
+            logger.warning("[BatchGenerator] Batch generation cancelled by user")
+            # Mark remaining files as cancelled
+            for file_path in files:
+                if not any(r.file_path == file_path for r in self._results):
+                    self._results.append(FileResult(
+                        file_path=file_path,
+                        success=False,
+                        error="Generation cancelled by user"
                     ))
         except Exception as e:
             logger.exception(f"[BatchGenerator] Batch generation error: {e}")
@@ -732,6 +783,9 @@ class BatchGenerator:
                 skip_test_analysis=self.config.skip_test_analysis,
             )
             
+            # Store agent reference for termination
+            self._current_agent = agent
+            
             if self.config.incremental_mode:
                 self._update_progress(file_name, "Incremental mode: analyzing existing tests...")
                 logger.info(f"🔄 增量模式 - 分析现有测试...")
@@ -749,6 +803,18 @@ class BatchGenerator:
                     agent.generate_tests(file_path),
                     timeout=self.config.timeout_per_file
                 )
+            except asyncio.CancelledError:
+                duration = time.time() - start_time
+                logger.warning(f"🛑 任务被取消 - 文件: {file_name}, 耗时: {duration:.1f}s")
+                # Terminate the agent
+                if hasattr(agent, 'terminate'):
+                    agent.terminate()
+                return FileResult(
+                    file_path=file_path,
+                    success=False,
+                    error="Generation cancelled by user",
+                    duration=duration
+                )
             except asyncio.TimeoutError:
                 duration = time.time() - start_time
                 logger.warning(f"⏱️ 超时 - 文件: {file_name}, 耗时: {duration:.1f}s, 限制: {self.config.timeout_per_file}s")
@@ -758,6 +824,8 @@ class BatchGenerator:
                     error=f"Timeout after {self.config.timeout_per_file}s",
                     duration=duration
                 )
+            finally:
+                self._current_agent = None
             
             duration = time.time() - start_time
             
