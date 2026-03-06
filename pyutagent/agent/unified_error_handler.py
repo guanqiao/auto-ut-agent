@@ -14,6 +14,8 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Type
 
+from pyutagent.core.error_recovery import ErrorCategory, RecoveryStrategy
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,19 +25,6 @@ class ErrorSeverity(Enum):
     MEDIUM = auto()
     HIGH = auto()
     CRITICAL = auto()
-
-
-class ErrorCategory(Enum):
-    """Error categories."""
-    PARSING = auto()
-    GENERATION = auto()
-    COMPILATION = auto()
-    EXECUTION = auto()
-    NETWORK = auto()
-    AUTHENTICATION = auto()
-    VALIDATION = auto()
-    TIMEOUT = auto()
-    UNKNOWN = auto()
 
 
 @dataclass
@@ -84,14 +73,14 @@ class ErrorHandler:
     """
 
     ERROR_CATEGORIES = {
-        SyntaxError: ErrorCategory.PARSING,
+        SyntaxError: ErrorCategory.SYNTAX,
         ValueError: ErrorCategory.VALIDATION,
         TypeError: ErrorCategory.VALIDATION,
-        ImportError: ErrorCategory.PARSING,
-        FileNotFoundError: ErrorCategory.VALIDATION,
+        ImportError: ErrorCategory.PARSING_ERROR,
+        FileNotFoundError: ErrorCategory.FILE_IO_ERROR,
         TimeoutError: ErrorCategory.TIMEOUT,
         ConnectionError: ErrorCategory.NETWORK,
-        PermissionError: ErrorCategory.AUTHENTICATION,
+        PermissionError: ErrorCategory.VALIDATION,
     }
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -121,15 +110,15 @@ class ErrorHandler:
 
         error_name = error_type.__name__.lower()
         if "parse" in error_name or "syntax" in error_name:
-            return ErrorCategory.PARSING
+            return ErrorCategory.SYNTAX
         if "compile" in error_name or "build" in error_name:
-            return ErrorCategory.COMPILATION
+            return ErrorCategory.COMPILATION_ERROR
         if "test" in error_name:
-            return ErrorCategory.EXECUTION
+            return ErrorCategory.TEST_FAILURE
         if "network" in error_name or "connection" in error_name:
             return ErrorCategory.NETWORK
         if "auth" in error_name or "permission" in error_name:
-            return ErrorCategory.AUTHENTICATION
+            return ErrorCategory.VALIDATION
         if "validate" in error_name or "invalid" in error_name:
             return ErrorCategory.VALIDATION
         if "timeout" in error_name:
@@ -163,7 +152,7 @@ class ErrorHandler:
         if "timeout" in error_type:
             return ErrorSeverity.MEDIUM
 
-        if category in (ErrorCategory.COMPILATION, ErrorCategory.EXECUTION):
+        if category in (ErrorCategory.COMPILATION_ERROR, ErrorCategory.TEST_FAILURE):
             return ErrorSeverity.HIGH
 
         return ErrorSeverity.MEDIUM
@@ -216,7 +205,7 @@ class ErrorHandler:
         category = context.category
 
         suggestions = {
-            ErrorCategory.PARSING: RecoverySuggestion(
+            ErrorCategory.SYNTAX: RecoverySuggestion(
                 action="fix_syntax",
                 description="Fix syntax error in code",
                 confidence=0.9,
@@ -226,7 +215,17 @@ class ErrorHandler:
                     "Validate code structure"
                 ]
             ),
-            ErrorCategory.COMPILATION: RecoverySuggestion(
+            ErrorCategory.PARSING_ERROR: RecoverySuggestion(
+                action="fix_parsing",
+                description="Fix parsing error",
+                confidence=0.9,
+                steps=[
+                    "Review error message for location",
+                    "Check for syntax issues",
+                    "Validate code structure"
+                ]
+            ),
+            ErrorCategory.COMPILATION_ERROR: RecoverySuggestion(
                 action="fix_compilation",
                 description="Fix compilation error",
                 confidence=0.85,
@@ -236,7 +235,7 @@ class ErrorHandler:
                     "Ensure dependencies are available"
                 ]
             ),
-            ErrorCategory.EXECUTION: RecoverySuggestion(
+            ErrorCategory.TEST_FAILURE: RecoverySuggestion(
                 action="fix_test",
                 description="Fix test execution error",
                 confidence=0.8,

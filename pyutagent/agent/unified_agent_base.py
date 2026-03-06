@@ -17,6 +17,8 @@ from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Generic
 from uuid import uuid4
 
+from pyutagent.core.retry_manager import RetryManager, RetryManagerConfig, RetryStrategy
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
@@ -413,7 +415,22 @@ class AgentMixin:
     - 超时处理
     - 日志记录
     """
-    
+
+    def __init__(self):
+        self._retry_manager: Optional[RetryManager] = None
+
+    def _get_retry_manager(self, max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0) -> RetryManager:
+        """获取或创建RetryManager实例"""
+        if self._retry_manager is None:
+            config = RetryManagerConfig(
+                max_attempts=max_retries,
+                strategy=RetryStrategy.EXPONENTIAL_BACKOFF,
+                base_delay=delay,
+                exponential_base=backoff
+            )
+            self._retry_manager = RetryManager(config)
+        return self._retry_manager
+
     async def with_retry(
         self,
         func: Callable,
@@ -421,21 +438,17 @@ class AgentMixin:
         delay: float = 1.0,
         backoff: float = 2.0
     ) -> Any:
-        """带重试的执行"""
-        last_error = None
-        current_delay = delay
-        
-        for attempt in range(max_retries):
-            try:
-                return await func()
-            except Exception as e:
-                last_error = e
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(current_delay)
-                    current_delay *= backoff
-        
-        raise last_error
-    
+        """带重试的执行
+
+        使用统一的RetryManager实现重试逻辑。
+        """
+        manager = self._get_retry_manager(max_retries, delay, backoff)
+        result = await manager.execute(func)
+
+        if result.success:
+            return result.result
+        raise result.final_exception or Exception("Max retries exceeded")
+
     async def with_timeout(
         self,
         func: Callable,

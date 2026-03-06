@@ -1,7 +1,7 @@
 """集成测试：事件总线与状态存储的协同工作"""
 import pytest
 import asyncio
-from pyutagent.core.event_bus import EventBus, AsyncEventBus
+from pyutagent.core.event_bus import EventBus
 from pyutagent.core.state_store import (
     StateStore,
     AgentState,

@@ -26,6 +26,10 @@ console = Console()
 @click.option('--enable-self-reflection', is_flag=True, default=True, show_default=True, help='Enable self-reflection for code quality')
 @click.option('--enable-pattern-library', is_flag=True, default=True, show_default=True, help='Enable pattern library for test generation')
 @click.option('--enable-chain-of-thought', is_flag=True, default=True, show_default=True, help='Enable chain-of-thought reasoning')
+@click.option('--enable-smart-clustering', is_flag=True, default=False, show_default=True, help='Enable smart clustering to reduce LLM calls')
+@click.option('--enable-intelligence-enhancer', is_flag=True, default=False, show_default=True, help='Enable intelligence enhancer for better code analysis')
+@click.option('--enable-tool-validation', is_flag=True, default=False, show_default=True, help='Enable tool validation for safer execution')
+@click.option('--tool-validation-level', type=click.Choice(['NONE', 'BASIC', 'STANDARD', 'STRICT']), default='STANDARD', show_default=True, help='Tool validation level')
 def generate_command(
     file_path: str,
     llm: str,
@@ -40,7 +44,11 @@ def generate_command(
     enable_error_prediction: bool,
     enable_self_reflection: bool,
     enable_pattern_library: bool,
-    enable_chain_of_thought: bool
+    enable_chain_of_thought: bool,
+    enable_smart_clustering: bool,
+    enable_intelligence_enhancer: bool,
+    enable_tool_validation: bool,
+    tool_validation_level: str
 ):
     """Generate unit tests for a Java file."""
     file_path = Path(file_path)
@@ -69,6 +77,12 @@ def generate_command(
             features.append("Pattern-Library")
         if enable_chain_of_thought:
             features.append("Chain-of-Thought")
+        if enable_smart_clustering:
+            features.append("Smart-Clustering")
+        if enable_intelligence_enhancer:
+            features.append("Intelligence-Enhancer")
+        if enable_tool_validation:
+            features.append(f"Tool-Validation({tool_validation_level})")
         if features:
             console.print(f"  [green]Enabled features: {', '.join(features)}[/green]")
     
@@ -127,6 +141,10 @@ def generate_command(
                 enable_knowledge_graph=False,
                 enable_pattern_library=enable_pattern_library,
                 enable_chain_of_thought=enable_chain_of_thought,
+                enable_smart_clustering=enable_smart_clustering,
+                enable_intelligence_enhancer=enable_intelligence_enhancer,
+                enable_tool_validation=enable_tool_validation,
+                tool_validation_level=tool_validation_level,
                 enable_metrics=True,
             )
             agent = EnhancedAgent(

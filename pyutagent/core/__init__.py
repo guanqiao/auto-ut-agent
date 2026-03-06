@@ -172,3 +172,83 @@ __all__ = [
     'CheckpointMetadata',
     'CheckpointManager',
 ]
+
+# Unified interfaces (recommended for new code)
+from pyutagent.core.interfaces import (
+    # Enums
+    AgentState,
+    ExecutionStatus,
+    CapabilityType,
+    # Data Classes
+    ExecutionResult,
+    Capability,
+    Task,
+    # Core Protocols
+    IExecutable,
+    IInitializable,
+    IStateful,
+    ICapable,
+    # Agent Protocols
+    IAgent,
+    ISubAgent,
+    # Tool Protocols
+    ITool,
+    IToolRegistry,
+    # Context Protocols
+    IContext,
+    IProjectContext,
+    # Memory Protocols
+    IMemory,
+    IWorkingMemory,
+    ILongTermMemory,
+    # LLM Protocols
+    ILLMClient,
+    # Event Protocols
+    IEvent,
+    IEventBus,
+    # Skill Protocols
+    ISkill,
+    # Abstract Base Classes
+    AbstractAgent,
+    AbstractTool,
+)
+
+# Add unified interfaces to __all__
+__all__.extend([
+    # Enums
+    'AgentState',
+    'ExecutionStatus',
+    'CapabilityType',
+    # Data Classes
+    'ExecutionResult',
+    'Capability',
+    'Task',
+    # Core Protocols
+    'IExecutable',
+    'IInitializable',
+    'IStateful',
+    'ICapable',
+    # Agent Protocols
+    'IAgent',
+    'ISubAgent',
+    # Tool Protocols
+    'ITool',
+    'IToolRegistry',
+    # Context Protocols
+    'IContext',
+    'IProjectContext',
+    # Memory Protocols
+    'IMemory',
+    'IWorkingMemory',
+    'ILongTermMemory',
+    # LLM Protocols
+    'ILLMClient',
+    # Event Protocols
+    'IEvent',
+    'IEventBus',
+    # Skill Protocols
+    'ISkill',
+    # Abstract Base Classes
+    'AbstractAgent',
+    'AbstractTool',
+])

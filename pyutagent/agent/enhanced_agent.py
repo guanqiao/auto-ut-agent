@@ -84,6 +84,16 @@ class EnhancedAgentConfig:
     enable_chain_of_thought: bool = True
     enable_domain_knowledge: bool = True
     enable_smart_mock_generator: bool = True
+    enable_smart_clustering: bool = False
+    enable_intelligence_enhancer: bool = False
+    
+    # Clustering Configuration
+    clustering_threshold: float = 0.7
+    max_cluster_size: int = 10
+    
+    # Tool Validation Configuration
+    enable_tool_validation: bool = False
+    tool_validation_level: str = "STANDARD"  # NONE, BASIC, STANDARD, STRICT
     
     # P4 Parameters
     self_reflection_threshold: float = 0.7
@@ -357,6 +367,32 @@ class EnhancedAgent(ReActAgent):
         if self.config.enable_smart_mock_generator:
             self.mock_generator = SmartMockGenerator()
             logger.info("[EnhancedAgent] Smart mock generator initialized")
+        
+        # Tool Validator
+        self.tool_validator: Optional[Any] = None
+        if self.config.enable_tool_validation:
+            from .tool_validator import create_tool_validator, ValidationLevel
+            validation_level = ValidationLevel[self.config.tool_validation_level.upper()]
+            self.tool_validator = create_tool_validator(validation_level=validation_level)
+            logger.info(f"[EnhancedAgent] Tool validator initialized (level: {self.config.tool_validation_level})")
+        
+        # Smart Clusterer
+        self.smart_clusterer: Optional[Any] = None
+        if self.config.enable_smart_clustering:
+            from .smart_clusterer import SmartClusterer, ClusteringConfig
+            cluster_config = ClusteringConfig(
+                similarity_threshold=self.config.clustering_threshold,
+                max_cluster_size=self.config.max_cluster_size
+            )
+            self.smart_clusterer = SmartClusterer(config=cluster_config)
+            logger.info("[EnhancedAgent] Smart clusterer initialized")
+        
+        # Intelligence Enhancer
+        self.intelligence_enhancer: Optional[Any] = None
+        if self.config.enable_intelligence_enhancer:
+            from .intelligence_enhancer import IntelligenceEnhancer
+            self.intelligence_enhancer = IntelligenceEnhancer()
+            logger.info("[EnhancedAgent] Intelligence enhancer initialized")
         
         logger.info("[EnhancedAgent] P4 intelligent enhancement components initialized")
     

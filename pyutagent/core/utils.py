@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import uuid
+import warnings
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -271,6 +272,9 @@ def retry_async(
 ):
     """Decorator for async retry.
 
+    .. deprecated::
+        Use :func:`pyutagent.core.retry_manager.with_retry` instead.
+
     Args:
         max_attempts: Maximum attempts
         delay: Initial delay
@@ -280,6 +284,12 @@ def retry_async(
     Returns:
         Decorated function
     """
+    warnings.warn(
+        "retry_async is deprecated. Use pyutagent.core.retry_manager.with_retry instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -304,6 +314,9 @@ def retry_sync(
 ):
     """Decorator for sync retry.
 
+    .. deprecated::
+        Use :func:`pyutagent.core.retry_manager.with_retry` instead.
+
     Args:
         max_attempts: Maximum attempts
         delay: Initial delay
@@ -313,6 +326,12 @@ def retry_sync(
     Returns:
         Decorated function
     """
+    warnings.warn(
+        "retry_sync is deprecated. Use pyutagent.core.retry_manager.with_retry instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+
     def decorator(func: Callable):
         @wraps(func)
         def wrapper(*args, **kwargs):

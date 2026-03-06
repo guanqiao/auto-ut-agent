@@ -52,6 +52,7 @@ from .commands.config import config_group
 from .commands.history import history_group
 from .commands.hooks import hooks_group
 from .commands.skills import skills_group
+from .commands.voice import voice_group
 from .commands.project import project_group
 from .commands.task import task_command, task_types_command
 
@@ -776,6 +777,7 @@ cli.add_command(config_group, name='config')
 cli.add_command(history_group, name='history')
 cli.add_command(hooks_group, name='hooks')
 cli.add_command(skills_group, name='skills')
+cli.add_command(voice_group, name='voice')
 cli.add_command(project_group, name='project')
 cli.add_command(task_command, name='task')
 cli.add_command(task_types_command, name='task-types')
