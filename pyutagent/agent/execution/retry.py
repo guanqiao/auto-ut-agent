@@ -127,6 +127,11 @@ class RetryConfig:
         """Get max reset count from core config."""
         return self.core_config.max_reset_count
     
+    @property
+    def enable_smart_retry(self) -> bool:
+        """Get enable_smart_retry from core config."""
+        return self.core_config.enable_smart_retry
+    
     def get_delay(self, attempt: int) -> float:
         """Calculate delay for a given attempt.
         
@@ -150,6 +155,51 @@ class RetryConfig:
             delay = self.base_delay
         
         return min(delay, self.max_delay)
+    
+    def get_max_attempts(self, step_name: Optional[str] = None) -> int:
+        """Get maximum attempts for a step.
+        
+        Args:
+            step_name: Name of the step
+            
+        Returns:
+            Maximum attempts allowed
+        """
+        return self.core_config.get_max_attempts(step_name)
+    
+    def should_stop(self, attempt: int, step_name: Optional[str] = None) -> bool:
+        """Check if should stop based on attempt count.
+        
+        Args:
+            attempt: Current attempt number
+            step_name: Name of the current step (for step-specific limits)
+            
+        Returns:
+            True if should stop
+        """
+        return self.core_config.should_stop(attempt, step_name)
+    
+    def can_reset(self, reset_count: int) -> bool:
+        """Check if reset operation is allowed.
+        
+        Args:
+            reset_count: Current reset count
+            
+        Returns:
+            True if reset is allowed
+        """
+        return self.core_config.can_reset(reset_count)
+    
+    def should_stop_reset(self, reset_count: int) -> bool:
+        """Check if should stop due to too many resets.
+
+        Args:
+            reset_count: Current reset count
+
+        Returns:
+            True if should stop
+        """
+        return self.core_config.should_stop_reset(reset_count)
     
     def should_retry(self, exception: Exception, attempt: int) -> bool:
         """Determine if should retry based on exception and attempt.

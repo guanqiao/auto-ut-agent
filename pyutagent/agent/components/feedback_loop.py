@@ -649,9 +649,47 @@ class FeedbackLoopExecutor:
                 state=AgentState.PAUSED
             )
         
-        logger.info(f"[FeedbackLoopExecutor] ✨ Feedback loop completed - Iterations: {self.agent_core.current_iteration}, Coverage: {final_coverage:.1%}, Source: {coverage_source}, Time: {elapsed:.1f}s")
+        # Check if test file actually exists and is valid
+        test_file_valid = self._verify_test_file_exists()
+        
+        # Only consider it successful if:
+        # 1. Coverage is from actual test execution (not LLM estimation after failure)
+        # 2. Test file exists and is valid
+        # 3. Coverage meets target
+        is_estimated_coverage = coverage_source in ("llm_estimated", "estimated") and coverage_confidence < 0.8
+        has_actual_coverage = coverage_source in ("jacoco", "test_execution") or (coverage_source == "llm_estimated" and coverage_confidence >= 0.8)
+        
+        if not test_file_valid:
+            logger.error(f"[FeedbackLoopExecutor] ❌ Test file does not exist or is empty")
+            return AgentResult(
+                success=False,
+                message="Test generation failed - test file was not created or is empty",
+                test_file=self.agent_core.current_test_file,
+                coverage=final_coverage,
+                coverage_source=coverage_source,
+                coverage_confidence=coverage_confidence,
+                iterations=self.agent_core.current_iteration,
+                state=AgentState.FAILED
+            )
+        
+        if is_estimated_coverage and final_coverage >= self.agent_core.target_coverage:
+            logger.warning(f"[FeedbackLoopExecutor] ⚠️ Target coverage reached but based on estimation after failure")
+            return AgentResult(
+                success=False,
+                message=f"Test generation failed - compilation/tests could not be fixed. Estimated coverage: {final_coverage:.1%}",
+                test_file=self.agent_core.current_test_file,
+                coverage=final_coverage,
+                coverage_source=coverage_source,
+                coverage_confidence=coverage_confidence,
+                iterations=self.agent_core.current_iteration,
+                state=AgentState.FAILED
+            )
+        
+        success = has_actual_coverage and final_coverage >= self.agent_core.target_coverage and test_file_valid
+        
+        logger.info(f"[FeedbackLoopExecutor] ✨ Feedback loop completed - Iterations: {self.agent_core.current_iteration}, Coverage: {final_coverage:.1%}, Source: {coverage_source}, Time: {elapsed:.1f}s, Success: {success}")
         return AgentResult(
-            success=final_coverage > 0,
+            success=success,
             message=f"Completed after {self.agent_core.current_iteration} iterations with {final_coverage:.1%} coverage",
             test_file=self.agent_core.current_test_file,
             coverage=final_coverage,
@@ -659,3 +697,32 @@ class FeedbackLoopExecutor:
             coverage_confidence=coverage_confidence,
             iterations=self.agent_core.current_iteration
         )
+    
+    def _verify_test_file_exists(self) -> bool:
+        """Verify that the test file exists and has valid content.
+        
+        Returns:
+            True if test file exists and is valid
+        """
+        if not self.agent_core.current_test_file:
+            return False
+        
+        try:
+            test_path = Path(self.agent_core.project_path) / self.agent_core.current_test_file
+            if not test_path.exists():
+                return False
+            
+            content = test_path.read_text(encoding='utf-8')
+            
+            # Check minimum content requirements
+            if len(content.strip()) < 50:
+                return False
+            
+            # Must contain class declaration
+            if 'class ' not in content:
+                return False
+            
+            return True
+        except Exception as e:
+            logger.warning(f"[FeedbackLoopExecutor] Failed to verify test file: {e}")
+            return False

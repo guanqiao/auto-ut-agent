@@ -43,7 +43,7 @@ class AgentCore:
         """
         self.llm_client = llm_client
         self.working_memory = working_memory
-        self.project_path = project_path
+        self.project_path = Path(project_path) if isinstance(project_path, str) else project_path
         self.progress_callback = progress_callback
         
         self.state = AgentState.IDLE

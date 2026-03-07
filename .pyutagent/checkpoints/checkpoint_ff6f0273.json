@@ -1,0 +1,41 @@
+{
+  "id": "ff6f0273",
+  "created_at": "2026-03-07T08:59:09.247777",
+  "step": "initial_generation",
+  "iteration": 0,
+  "state": {
+    "target_file": "D:\\opensource\\github\\magic-api\\magic-api\\src\\main\\java\\org\\ssssssss\\magicapi\\utils\\SignUtils.java",
+    "test_file": "src\\test\\java\\org\\ssssssss\\magicapi\\utils\\SignUtilsTest.java",
+    "class_info": {
+      "name": "SignUtils",
+      "package": "org.ssssssss.magicapi.utils",
+      "methods": [
+        {
+          "name": "sign",
+          "return_type": "String",
+          "parameters": [
+            [
+              "Long",
+              "timestamp"
+            ],
+            [
+              "String",
+              "secretKey"
+            ],
+            [
+              "String",
+              "mode"
+            ]
+          ],
+          "modifiers": [],
+          "annotations": []
+        }
+      ],
+      "fields": [],
+      "imports": [],
+      "annotations": [],
+      "source": "package org.ssssssss.magicapi.utils;\n\n/**\n * 签名工具类\n *\n * @author mxd\n */\npublic class SignUtils {\n\n\tpublic static String sign(Long timestamp, String secretKey, String mode, byte[] bytes) {\n\t\treturn MD5Utils.encrypt(String.format(\"%s|%s|%s|%s\", timestamp, mode, MD5Utils.encrypt(bytes), secretKey));\n\t}\n}\n"
+    }
+  },
+  "metadata": {}
+}

@@ -1451,15 +1451,25 @@ class MainWindow(QMainWindow):
     def on_terminate_generation(self):
         """Handle terminate generation."""
         try:
-            if self.agent_worker and self.agent_worker.isRunning():
-                self.agent_worker.terminate_agent()
-                self.chat_widget.set_running_state(False, is_paused=False)
-                self.progress_widget.update_state("TERMINATED", "Generation terminated")
-                self.chat_widget.add_agent_message("⏹ Generation terminated by user.")
-                self.status_bar.showMessage("Generation terminated")
-                logger.info("Test generation terminated")
+            # Always terminate the agent worker if it exists, regardless of isRunning() state
+            if self.agent_worker:
+                if self.agent_worker.isRunning():
+                    self.agent_worker.terminate_agent()
+                else:
+                    # Even if worker is not running, emit terminated signal to ensure cleanup
+                    self.agent_worker.terminated.emit()
+
+            # Always reset UI state to ensure buttons are properly enabled/disabled
+            self.chat_widget.set_running_state(False, is_paused=False)
+            self.progress_widget.update_state("TERMINATED", "Generation terminated")
+            self.chat_widget.add_agent_message("⏹ Generation terminated by user.")
+            self.status_bar.showMessage("Generation terminated")
+            logger.info("Test generation terminated")
         except Exception as e:
             logger.exception("Failed to terminate generation")
+            # Even if termination fails, ensure UI is reset
+            self.chat_widget.set_running_state(False, is_paused=False)
+            self.progress_widget.update_state("TERMINATED", "Generation terminated")
 
     def start_generation(self, target_file: str, incremental: bool = False, skip_analysis: bool = False):
         """Start test generation.
@@ -1609,8 +1619,10 @@ class MainWindow(QMainWindow):
                 duration_seconds = (datetime.now() - self._current_generation['start_time']).total_seconds()
 
             if success:
+                # Convert test_file to absolute path
+                test_file_absolute = str(Path(self.current_project) / test_file) if test_file else test_file
                 self.progress_widget.add_log(f"🎉 Test generation completed successfully!", "INFO")
-                self.progress_widget.add_log(f"📁 Test file: {test_file}", "INFO")
+                self.progress_widget.add_log(f"📁 Test file: {test_file_absolute}", "INFO")
                 self.progress_widget.add_log(f"📊 Coverage: {coverage:.1%}", "INFO")
                 self.progress_widget.add_log(f"🔄 Iterations: {iterations}", "INFO")
                 
@@ -1628,7 +1640,7 @@ class MainWindow(QMainWindow):
                 completion_msg = (
                     f"🎉 Test generation completed!\n\n"
                     f"{message}\n"
-                    f"Test file: {test_file}\n"
+                    f"Test file: {test_file_absolute}\n"
                     f"Iterations: {iterations}"
                 )
                 if incremental_mode and (preserved_tests > 0 or new_tests > 0 or fixed_tests > 0):
