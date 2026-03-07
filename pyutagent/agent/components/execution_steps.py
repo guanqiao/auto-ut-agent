@@ -66,6 +66,7 @@ class StepExecutor:
         self._thinking_engine: Optional[ThinkingEngine] = None
         self._thinking_session: Optional[ThinkingSession] = None
         self._enable_thinking = False
+        self._thinking_mode = "auto"  # "auto" | "always" | "never"
 
         self._global_attempt_count: int = 0
         self._step_attempt_counts: Dict[str, int] = {}
@@ -99,25 +100,56 @@ class StepExecutor:
         self._step_attempt_counts.clear()
         logger.info("[StepExecutor] Attempt counters reset")
     
-    def enable_thinking(self, llm_client: Any = None):
+    def enable_thinking(self, llm_client: Any = None, mode: str = "auto"):
         """Enable thinking engine for enhanced error analysis.
         
         Args:
             llm_client: Optional LLM client for thinking engine
+            mode: Thinking mode - "auto" (default), "always", "never"
+                  - "auto": Only use thinking for complex errors
+                  - "always": Always use thinking
+                  - "never": Disable thinking
         """
+        if mode == "never":
+            self._enable_thinking = False
+            self._thinking_mode = "never"
+            logger.info("[StepExecutor] Thinking engine disabled (mode=never)")
+            return
+        
+        self._thinking_mode = mode
         if self._thinking_engine is None:
             self._thinking_engine = ThinkingEngine(
                 llm_client=llm_client,
-                enable_deep_thinking=True,
+                enable_deep_thinking=(mode == "always"),
                 max_reasoning_steps=5,
                 thinking_timeout=15.0,
-                enable_prediction=True
+                enable_prediction=(mode == "always")
             )
             self._thinking_session = self._thinking_engine.create_session()
             self._enable_thinking = True
-            logger.info("[StepExecutor] Thinking engine enabled")
+            logger.info(f"[StepExecutor] Thinking engine enabled (mode={mode})")
         else:
-            logger.debug("[StepExecutor] Thinking engine already enabled")
+            logger.debug(f"[StepExecutor] Thinking engine already enabled, mode={mode}")
+    
+    def set_thinking_mode(self, mode: str):
+        """Set thinking engine mode.
+        
+        Args:
+            mode: "auto" | "always" | "never"
+        """
+        valid_modes = ["auto", "always", "never"]
+        if mode not in valid_modes:
+            logger.warning(f"[StepExecutor] Invalid thinking mode: {mode}, must be one of {valid_modes}")
+            return
+        
+        if mode == "never":
+            self._enable_thinking = False
+        elif mode == "always":
+            self._enable_thinking = True
+        # "auto" keeps current _enable_thinking state
+        
+        self._thinking_mode = mode
+        logger.info(f"[StepExecutor] Thinking mode set to: {mode}")
     
     def get_attempt_stats(self) -> Dict[str, Any]:
         """Get current attempt statistics."""
@@ -2171,7 +2203,16 @@ class StepExecutor:
         
         thinking_result = None
         
-        if self._enable_thinking and self._thinking_engine and self._thinking_session:
+        should_use_thinking = False
+        if self._thinking_mode == "always":
+            should_use_thinking = True
+        elif self._thinking_mode == "auto":
+            attempt = context.get("attempt", 1)
+            step = context.get("step", "")
+            if attempt >= 2 and step in ("compilation", "test_execution"):
+                should_use_thinking = True
+        
+        if should_use_thinking and self._thinking_engine and self._thinking_session:
             try:
                 thinking_context = {
                     "error": str(error),
@@ -2180,6 +2221,7 @@ class StepExecutor:
                     "attempt": context.get("attempt", 1),
                     "detailed_error": detailed_error_info
                 }
+                logger.info(f"[StepExecutor] 🤖 Using thinking engine (mode={self._thinking_mode}, attempt={context.get('attempt', 1)})")
                 thinking_result = await self._thinking_engine.think_about_error(
                     error=error,
                     context=thinking_context,
