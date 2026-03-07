@@ -12,6 +12,7 @@ import json
 from ..memory.working_memory import WorkingMemory
 from ..llm.client import LLMClient
 from ..core.protocols import AgentState, AgentResult
+from ..core.config import DEFAULT_MAX_ITERATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -283,7 +284,7 @@ class BaseAgent(ABC):
             self.state = AgentState[state_data.get("state", "IDLE")]
             self.state_history = state_data.get("state_history", [])
             self.current_iteration = state_data.get("current_iteration", 0)
-            self.max_iterations = state_data.get("max_iterations", 10)
+            self.max_iterations = state_data.get("max_iterations", DEFAULT_MAX_ITERATIONS)
             self.target_coverage = state_data.get("target_coverage", 0.8)
             self.working_memory = WorkingMemory.from_dict(
                 state_data.get("working_memory", {})

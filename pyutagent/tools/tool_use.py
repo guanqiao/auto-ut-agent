@@ -15,6 +15,7 @@ from enum import Enum, auto
 from datetime import datetime
 
 from ..llm.client import LLMClient
+from ..core.config import DEFAULT_MAX_ITERATIONS
 from .tool import Tool, ToolResult, ToolExecutor
 from .tool_registry import ToolRegistry, get_registry
 
@@ -86,7 +87,7 @@ class ToolUseAgent:
         self,
         llm_client: LLMClient,
         tool_registry: Optional[ToolRegistry] = None,
-        max_iterations: int = 10,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
         max_tool_calls_per_turn: int = 5,
         timeout: int = 60
     ):
@@ -415,7 +416,7 @@ If you don't need to use any tools, respond directly with your answer.
 def create_tool_use_agent(
     llm_client: LLMClient,
     project_path: Optional[str] = None,
-    max_iterations: int = 10
+    max_iterations: int = DEFAULT_MAX_ITERATIONS
 ) -> ToolUseAgent:
     """Create a configured ToolUse agent.
 

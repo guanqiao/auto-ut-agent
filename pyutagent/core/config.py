@@ -24,6 +24,9 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
+# Default configuration constants
+DEFAULT_MAX_ITERATIONS = 2
+
 
 class LLMProvider(str, Enum):
     """LLM provider enumeration."""
@@ -420,7 +423,7 @@ class CoverageSettings:
     """
     target_coverage: float = 0.8
     min_coverage: float = 0.5
-    max_iterations: int = 2
+    max_iterations: int = DEFAULT_MAX_ITERATIONS
     max_step_attempts: int = 2
     max_compilation_attempts: int = 2
     max_test_attempts: int = 2

@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from .react_agent import ReActAgent
 from .tool_integration import ToolIntegrationMixin
 from .intelligent_selector import IntelligentToolSelector
+from ..core.config import DEFAULT_MAX_ITERATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class ToolEnabledReActAgent(ReActAgent, ToolIntegrationMixin):
         project_path: str,
         llm_client: Any,
         tool_service: Any,
-        max_iterations: int = 10,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
         tool_selector: Optional[IntelligentToolSelector] = None,
         **kwargs
     ):

@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from .conversation import ConversationManager, MessageRole
 from ..memory.working_memory import WorkingMemory
-from ..core.config import LLMConfig
+from ..core.config import LLMConfig, DEFAULT_MAX_ITERATIONS
 from ..core.i18n import t
 from ..tools.java_parser import JavaCodeParser
 from ..tools.maven_tools import MavenRunner, CoverageAnalyzer, ProjectScanner
@@ -208,7 +208,7 @@ class TestGeneratorAgent:
         self,
         target_file: str,
         target_coverage: float = 0.8,
-        max_iterations: int = 10,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
     ) -> Dict[str, Any]:
         """Generate tests for a Java file.
         
@@ -439,7 +439,7 @@ class TestGeneratorAgent:
         self,
         target_file: str,
         target_coverage: float = 0.8,
-        max_iterations: int = 10,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
     ) -> Dict[str, Any]:
         """Generate tests using Aider-style iterative improvement.
         

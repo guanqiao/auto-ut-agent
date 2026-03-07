@@ -5,6 +5,8 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 
+from ..core.config import DEFAULT_MAX_ITERATIONS
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,7 +24,7 @@ class WorkingMemory:
     
     # Iteration tracking
     iteration_count: int = 0
-    max_iterations: int = 3
+    max_iterations: int = DEFAULT_MAX_ITERATIONS
     target_coverage: float = 0.8
     
     # Coverage tracking

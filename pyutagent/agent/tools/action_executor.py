@@ -307,18 +307,25 @@ class ActionExecutor:
         context: Dict[str, Any]
     ) -> ActionResult:
         imports_to_add = action.get('imports', action.get('import_list', []))
-        test_file = action.get('file') or context.get('test_file', '')
+        test_file = action.get('file') or action.get('test_file', '') or context.get('test_file', '')
         compiler_output = context.get('compiler_output', '')
         
         if isinstance(imports_to_add, str):
-            imports_to_add = [i.strip() for i in imports_to_add.split(',')]
+            if imports_to_add.startswith('['):
+                try:
+                    import ast
+                    imports_to_add = ast.literal_eval(imports_to_add)
+                except (ValueError, SyntaxError):
+                    imports_to_add = [i.strip().strip('"\'') for i in imports_to_add.split(',')]
+            else:
+                imports_to_add = [i.strip() for i in imports_to_add.split(',')]
         
         if not imports_to_add and compiler_output:
             from pyutagent.core.error_classification import detect_missing_imports
             imports_to_add = detect_missing_imports(compiler_output)
             logger.info(f"🔧 从编译错误中提取到的导入: {imports_to_add}")
         
-        logger.info(f"🔧 修复导入 - 文件: {test_file}, 导入数: {len(imports_to_add)}")
+        logger.info(f"🔧 修复导入 - 文件: {test_file}, 导入数: {len(imports_to_add) if imports_to_add else 0}")
         
         if not imports_to_add:
             return ActionResult(
@@ -532,6 +539,70 @@ class ActionExecutor:
                 logger.info(f"🔍 从类映射表获取依赖信息: {group_id}:{artifact_id}:{version}")
             else:
                 logger.warning(f"⚠️ 未找到类 {class_name} 对应的依赖信息")
+        
+        if not group_id or not artifact_id:
+            compiler_output = context.get('compiler_output', '')
+            test_file_path = context.get('test_file', '')
+            if compiler_output:
+                from pyutagent.core.error_classification import detect_missing_dependencies, get_dependency_info
+                dep_result = detect_missing_dependencies(compiler_output)
+                missing_packages = dep_result.get('missing_packages', [])
+                logger.info(f"🔍 从编译错误中检测到缺失的包: {missing_packages}")
+                
+                for pkg in missing_packages:
+                    dep_info = get_dependency_info(pkg)
+                    if dep_info:
+                        group_id = dep_info.get('group_id', '')
+                        artifact_id = dep_info.get('artifact_id', '')
+                        version = dep_info.get('version', version)
+                        is_test = dep_result.get('is_test_dependency', True)
+                        if is_test:
+                            scope = 'test'
+                        logger.info(f"🔍 从缺失包 {pkg} 自动推断依赖: {group_id}:{artifact_id}:{version}")
+                        break
+        
+        if not group_id or not artifact_id:
+            logger.info(f"🔍 本地映射未找到依赖，尝试使用 LLM 智能推断...")
+            compiler_output = context.get('compiler_output', '')
+            
+            test_code = ""
+            test_file = context.get('test_file', '')
+            if test_file:
+                try:
+                    from pathlib import Path
+                    test_path = Path(self.project_path) / test_file if self.project_path else Path(test_file)
+                    if test_path.exists():
+                        test_code = test_path.read_text(encoding='utf-8')
+                except Exception as e:
+                    logger.warning(f"⚠️ 读取测试文件失败: {e}")
+            
+            pom_content = ""
+            try:
+                pom_path = Path(self.project_path) / "pom.xml" if self.project_path else Path("pom.xml")
+                if pom_path.exists():
+                    pom_content = pom_path.read_text(encoding='utf-8')
+            except Exception as e:
+                logger.warning(f"⚠️ 读取 pom.xml 失败: {e}")
+            
+            if self.llm_client and compiler_output:
+                from pyutagent.core.error_classification import llm_resolve_missing_dependencies
+                llm_result = await llm_resolve_missing_dependencies(
+                    compiler_output=compiler_output,
+                    test_code=test_code,
+                    pom_content=pom_content,
+                    llm_client=self.llm_client
+                )
+                
+                dependencies = llm_result.get('missing_dependencies', [])
+                if dependencies:
+                    first_dep = dependencies[0]
+                    group_id = first_dep.get('group_id', '')
+                    artifact_id = first_dep.get('artifact_id', '')
+                    version = first_dep.get('version', version)
+                    scope = first_dep.get('scope', scope)
+                    logger.info(f"🧠 LLM 推断出依赖: {group_id}:{artifact_id}:{version}, 置信度: {llm_result.get('confidence', 0):.2f}")
+                else:
+                    logger.warning(f"🧠 LLM 也未能推断出有效的依赖")
         
         logger.info(f"📦 添加依赖 - {group_id}:{artifact_id}:{version} (scope: {scope})")
         

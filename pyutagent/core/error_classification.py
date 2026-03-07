@@ -623,6 +623,125 @@ def detect_maven_error_type(maven_output: str) -> ErrorSubCategory:
     return ErrorSubCategory.UNKNOWN
 
 
+async def llm_resolve_missing_dependencies(
+    compiler_output: str,
+    test_code: str,
+    pom_content: str,
+    llm_client: Any = None
+) -> Dict[str, Any]:
+    """使用 LLM 智能推断缺失的依赖
+    
+    当本地映射无法找到依赖时，调用 LLM 进行智能推断
+    
+    Args:
+        compiler_output: 编译错误输出
+        test_code: 测试代码（用于分析使用了哪些类）
+        pom_content: 当前 pom.xml 内容
+        llm_client: LLM 客户端实例
+        
+    Returns:
+        包含推断结果的字典：
+        - missing_dependencies: 推断出的依赖列表
+        - missing_imports: 需要添加的导入
+        - confidence: 置信度
+        - analysis: LLM 分析结果
+    """
+    if not llm_client:
+        logger.warning("[LLM Dependency] No LLM client provided, skipping LLM analysis")
+        return {
+            "missing_dependencies": [],
+            "missing_imports": [],
+            "confidence": 0.0,
+            "analysis": "No LLM client available"
+        }
+    
+    try:
+        missing_imports_local = detect_missing_imports(compiler_output)
+        missing_deps_local = detect_missing_dependencies(compiler_output)
+        
+        logger.info(f"[LLM Dependency] Local detection - imports: {len(missing_imports_local)}, deps: {len(missing_deps_local.get('missing_packages', []))}")
+        
+        from pyutagent.agent.prompts.prompts import PromptBuilder
+        prompt_builder = PromptBuilder()
+        
+        prompt = prompt_builder.build_dependency_analysis_prompt(
+            compiler_output=compiler_output,
+            current_pom_content=pom_content
+        )
+        
+        if test_code:
+            prompt += f"""
+
+Test Code Context:
+```
+{test_code[:2000]}
+```
+
+Use this to better understand which classes are actually needed."""
+        
+        response = await llm_client.agenerate(prompt)
+        
+        result = _parse_llm_dependency_response(response)
+        
+        logger.info(f"[LLM Dependency] LLM detected {len(result.get('missing_dependencies', []))} dependencies with confidence {result.get('confidence', 0):.2f}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[LLM Dependency] LLM analysis failed: {e}")
+        return {
+            "missing_dependencies": [],
+            "missing_imports": [],
+            "confidence": 0.0,
+            "analysis": f"LLM analysis failed: {str(e)}"
+        }
+
+
+def _parse_llm_dependency_response(response: str) -> Dict[str, Any]:
+    """解析 LLM 返回的依赖分析响应
+    
+    Args:
+        response: LLM 返回的文本
+        
+    Returns:
+        解析后的依赖信息字典
+    """
+    result = {
+        "missing_dependencies": [],
+        "missing_imports": [],
+        "confidence": 0.5,
+        "analysis": ""
+    }
+    
+    try:
+        import json
+        
+        json_match = re.search(r'\{[\s\S]*\}', response)
+        if json_match:
+            json_str = json_match.group(0)
+            data = json.loads(json_str)
+            
+            if "missing_dependencies" in data:
+                result["missing_dependencies"] = data["missing_dependencies"]
+            
+            if "confidence" in data:
+                result["confidence"] = float(data["confidence"])
+            
+            if "analysis" in data:
+                result["analysis"] = data["analysis"]
+        
+        import_matches = re.findall(r'["\']([\w.]+)["\']', response)
+        for imp in import_matches:
+            if '.' in imp and imp not in result["missing_imports"]:
+                result["missing_imports"].append(imp)
+                
+    except Exception as e:
+        logger.warning(f"[LLM Dependency] Failed to parse LLM response: {e}")
+        result["analysis"] = response[:500]
+    
+    return result
+
+
 class ErrorClassificationService:
     """Unified service for error classification.
     

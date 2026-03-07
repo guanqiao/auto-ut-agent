@@ -16,6 +16,7 @@ from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional
 
 from .tool_service import AgentToolService
+from ..core.config import DEFAULT_MAX_ITERATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ class AutonomousLoop:
     def __init__(
         self,
         tool_service: AgentToolService,
-        max_iterations: int = 10,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
         confidence_threshold: float = 0.8,
         user_interruptible: bool = True
     ):
@@ -433,7 +434,7 @@ class AutonomousLoop:
 
 def create_autonomous_loop(
     tool_service: AgentToolService,
-    max_iterations: int = 10,
+    max_iterations: int = DEFAULT_MAX_ITERATIONS,
     confidence_threshold: float = 0.8
 ) -> AutonomousLoop:
     """Create an AutonomousLoop instance.

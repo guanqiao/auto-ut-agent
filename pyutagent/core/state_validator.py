@@ -8,6 +8,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
+from .config import DEFAULT_MAX_ITERATIONS
+
 logger = logging.getLogger(__name__)
 
 
@@ -229,7 +231,7 @@ class StateValidator:
                 if iteration < 0:
                     result.add_error("current_iteration", ">=0", iteration, "Iteration cannot be negative")
                 
-                max_iterations = state.get("max_iterations", 10)
+                max_iterations = state.get("max_iterations", DEFAULT_MAX_ITERATIONS)
                 if isinstance(max_iterations, int) and iteration > max_iterations:
                     result.add_warning(f"Iteration ({iteration}) exceeds max ({max_iterations})")
     
