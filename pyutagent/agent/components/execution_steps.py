@@ -2,7 +2,9 @@
 
 import logging
 import asyncio
+import hashlib
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -67,6 +69,12 @@ class StepExecutor:
         self._thinking_session: Optional[ThinkingSession] = None
         self._enable_thinking = False
         self._thinking_mode = "auto"  # "auto" | "always" | "never"
+
+        # 测试生成缓存（基于target_class + prompt hash）
+        self._test_generation_cache: OrderedDict[str, str] = OrderedDict()
+        self._test_generation_cache_capacity = 100
+        self._test_generation_cache_hits = 0
+        self._test_generation_cache_misses = 0
 
         self._global_attempt_count: int = 0
         self._step_attempt_counts: Dict[str, int] = {}
@@ -150,6 +158,50 @@ class StepExecutor:
         
         self._thinking_mode = mode
         logger.info(f"[StepExecutor] Thinking mode set to: {mode}")
+
+    def _make_test_generation_cache_key(
+        self,
+        target_class_info: Dict[str, Any],
+        prompt_type: str = "initial"
+    ) -> str:
+        """生成测试生成缓存key"""
+        class_name = target_class_info.get("name", "")
+        package = target_class_info.get("package", "")
+        methods = target_class_info.get("methods", [])
+        method_sig = ";".join(sorted([
+            f"{m.get('name', '')}({','.join(m.get('parameters', []))})"
+            for m in methods
+        ]))
+        cache_data = f"{prompt_type}:{package}.{class_name}|{method_sig}"
+        return hashlib.sha256(cache_data.encode()).hexdigest()
+
+    def _get_from_test_generation_cache(self, cache_key: str) -> Optional[str]:
+        """从测试生成缓存获取结果"""
+        if cache_key in self._test_generation_cache:
+            self._test_generation_cache_hits += 1
+            self._test_generation_cache.move_to_end(cache_key)
+            logger.info(f"[StepExecutor] 📋 测试生成缓存命中! (命中: {self._test_generation_cache_hits})")
+            return self._test_generation_cache[cache_key]
+        self._test_generation_cache_misses += 1
+        return None
+
+    def _put_to_test_generation_cache(self, cache_key: str, test_code: str):
+        """放入测试生成缓存"""
+        if len(self._test_generation_cache) >= self._test_generation_cache_capacity:
+            self._test_generation_cache.popitem(last=False)
+        self._test_generation_cache[cache_key] = test_code
+
+    def get_test_generation_cache_stats(self) -> Dict[str, Any]:
+        """获取测试生成缓存统计"""
+        total = self._test_generation_cache_hits + self._test_generation_cache_misses
+        hit_rate = self._test_generation_cache_hits / total if total > 0 else 0.0
+        return {
+            "capacity": self._test_generation_cache_capacity,
+            "current_size": len(self._test_generation_cache),
+            "hits": self._test_generation_cache_hits,
+            "misses": self._test_generation_cache_misses,
+            "hit_rate": f"{hit_rate:.1%}"
+        }
     
     def get_attempt_stats(self) -> Dict[str, Any]:
         """Get current attempt statistics."""
@@ -700,6 +752,12 @@ class StepExecutor:
                     # If we got test code, break out of retry loop
                     if test_code and len(test_code) > 0:
                         logger.info(f"[StepExecutor] ✅ Test code generated successfully on attempt {attempt + 1}")
+                        # 缓存生成的测试代码
+                        cache_key = self._make_test_generation_cache_key(
+                            self.agent_core.target_class_info,
+                            "initial"
+                        )
+                        self._put_to_test_generation_cache(cache_key, test_code)
                         break
                     else:
                         logger.warning(f"[StepExecutor] ⚠️ Generated test code is empty on attempt {attempt + 1}")
