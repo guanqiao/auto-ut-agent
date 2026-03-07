@@ -1,10 +1,12 @@
 """Test generator agent with pause/resume functionality and Aider integration."""
 
 import asyncio
+import hashlib
 import logging
-from typing import Optional, Callable, AsyncIterator, Dict, Any
-from pathlib import Path
+from collections import OrderedDict
 from enum import Enum, auto
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 from .conversation import ConversationManager, MessageRole
 from ..memory.working_memory import WorkingMemory
@@ -89,6 +91,12 @@ class TestGeneratorAgent:
         
         # LLM client (lazy initialization)
         self._llm_client = None
+
+        # Prompt缓存 (基于Java类结构)
+        self._prompt_cache: OrderedDict[str, str] = OrderedDict()
+        self._prompt_cache_capacity = 200
+        self._prompt_cache_hits = 0
+        self._prompt_cache_misses = 0
     
     def _get_llm_client(self):
         """Get or create LLM client."""
@@ -624,6 +632,44 @@ class TestGeneratorAgent:
     def _llm_progress_callback(self, message: str):
         """Callback for LLM progress updates."""
         self._log(message)
+
+    def _make_cache_key(self, java_class) -> str:
+        """基于Java类结构生成缓存key"""
+        class_signature = f"{java_class.package}.{java_class.name}"
+        method_sig = ";".join(sorted([
+            f"{m.name}({','.join(p[0] for p in m.parameters)})->{m.return_type or 'void'}"
+            for m in java_class.methods
+        ]))
+        cache_data = f"{class_signature}|{method_sig}"
+        return hashlib.sha256(cache_data.encode()).hexdigest()
+
+    def _get_from_cache(self, cache_key: str) -> Optional[str]:
+        """从缓存获取结果"""
+        if cache_key in self._prompt_cache:
+            self._prompt_cache_hits += 1
+            self._prompt_cache.move_to_end(cache_key)
+            self._log(f"📋 Prompt缓存命中! (命中数: {self._prompt_cache_hits})")
+            return self._prompt_cache[cache_key]
+        self._prompt_cache_misses += 1
+        return None
+
+    def _put_to_cache(self, cache_key: str, test_code: str):
+        """放入缓存"""
+        if len(self._prompt_cache) >= self._prompt_cache_capacity:
+            self._prompt_cache.popitem(last=False)
+        self._prompt_cache[cache_key] = test_code
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """获取缓存统计"""
+        total = self._prompt_cache_hits + self._prompt_cache_misses
+        hit_rate = self._prompt_cache_hits / total if total > 0 else 0.0
+        return {
+            "capacity": self._prompt_cache_capacity,
+            "current_size": len(self._prompt_cache),
+            "hits": self._prompt_cache_hits,
+            "misses": self._prompt_cache_misses,
+            "hit_rate": f"{hit_rate:.1%}"
+        }
     
     async def _generate_test_code(self, java_class) -> str:
         """Generate test code for a Java class.
@@ -634,13 +680,15 @@ class TestGeneratorAgent:
         Returns:
             Generated test code
         """
-        # Build prompt
+        cache_key = self._make_cache_key(java_class)
+        cached_result = self._get_from_cache(cache_key)
+        if cached_result:
+            return cached_result
+        
         prompt = self._build_test_generation_prompt(java_class)
         
-        # Generate using LLM
         client = self._get_llm_client()
         
-        # Set up progress callback
         if hasattr(client, 'set_progress_callback'):
             client.set_progress_callback(self._llm_progress_callback)
             client.reset_cancel()
@@ -656,16 +704,15 @@ Return only the test code without explanations."""
         
         try:
             response = await client.agenerate(prompt, system_prompt)
+            self._put_to_cache(cache_key, response)
             return response
         except asyncio.CancelledError:
             self._log("⏹️ 测试生成已被取消")
             raise
         except Exception as e:
             self._log(f"LLM generation failed: {e}")
-            # Return basic test template as fallback
             return self._generate_basic_test_template(java_class)
         finally:
-            # Clear progress callback
             if hasattr(client, 'set_progress_callback'):
                 client.set_progress_callback(None)
     

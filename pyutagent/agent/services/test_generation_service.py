@@ -1,8 +1,9 @@
 """Test generation service for UT generation."""
 
 import asyncio
-import re
+import hashlib
 import logging
+from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 
@@ -47,6 +48,12 @@ class TestGenerationService:
         self.llm_client = llm_client
         self.progress_callback = progress_callback
         self._stop_requested = False
+
+        # Prompt缓存 (基于class_info)
+        self._prompt_cache: OrderedDict[str, str] = OrderedDict()
+        self._prompt_cache_capacity = 200
+        self._prompt_cache_hits = 0
+        self._prompt_cache_misses = 0
     
     def stop(self):
         """Stop generation."""
@@ -67,6 +74,46 @@ class TestGenerationService:
         """Update state via callback."""
         if self.progress_callback:
             self.progress_callback(state, message)
+
+    def _make_cache_key(self, class_info: Dict[str, Any]) -> str:
+        """基于class_info生成缓存key"""
+        class_name = class_info.get("name", "")
+        package = class_info.get("package", "")
+        methods = class_info.get("methods", [])
+        method_sig = ";".join(sorted([
+            f"{m.get('name', '')}({','.join(m.get('parameters', []))})"
+            for m in methods
+        ]))
+        cache_data = f"{package}.{class_name}|{method_sig}"
+        return hashlib.sha256(cache_data.encode()).hexdigest()
+
+    def _get_from_cache(self, cache_key: str) -> Optional[str]:
+        """从缓存获取结果"""
+        if cache_key in self._prompt_cache:
+            self._prompt_cache_hits += 1
+            self._prompt_cache.move_to_end(cache_key)
+            logger.debug(f"[TestGenerationService] 📋 Prompt缓存命中! (命中数: {self._prompt_cache_hits})")
+            return self._prompt_cache[cache_key]
+        self._prompt_cache_misses += 1
+        return None
+
+    def _put_to_cache(self, cache_key: str, test_code: str):
+        """放入缓存"""
+        if len(self._prompt_cache) >= self._prompt_cache_capacity:
+            self._prompt_cache.popitem(last=False)
+        self._prompt_cache[cache_key] = test_code
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """获取缓存统计"""
+        total = self._prompt_cache_hits + self._prompt_cache_misses
+        hit_rate = self._prompt_cache_hits / total if total > 0 else 0.0
+        return {
+            "capacity": self._prompt_cache_capacity,
+            "current_size": len(self._prompt_cache),
+            "hits": self._prompt_cache_hits,
+            "misses": self._prompt_cache_misses,
+            "hit_rate": f"{hit_rate:.1%}"
+        }
     
     async def parse_target_file(self, target_file: str) -> StepResult:
         """Parse the target Java file.
@@ -167,6 +214,18 @@ class TestGenerationService:
         method_count = len(class_info.get('methods', []))
         logger.info(f"[TestGenerationService] ✨ Generating initial tests for {class_name} ({method_count} methods)")
         self._update_state(AgentState.GENERATING, f"✨ 正在为 {class_name} 生成初始测试代码...")
+
+        # 检查缓存
+        cache_key = self._make_cache_key(class_info)
+        cached_result = self._get_from_cache(cache_key)
+        if cached_result:
+            logger.info(f"[TestGenerationService] 📋 使用缓存的测试代码 for {class_name}")
+            return StepResult(
+                success=True,
+                state=AgentState.GENERATED,
+                message=f"使用缓存的测试代码",
+                data={"test_code": cached_result, "class_info": class_info}
+            )
         
         try:
             prompt = self.prompt_builder.build_initial_test_prompt(
@@ -208,8 +267,20 @@ class TestGenerationService:
             with open(test_file_path, 'w', encoding='utf-8') as f:
                 f.write(test_code)
             
+            if not test_file_path.exists() or test_file_path.stat().st_size == 0:
+                logger.error(f"[TestGenerationService] ❌ Failed to write test file: {test_file_path}")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message=f"Failed to write test file: {test_file_path}"
+                )
+            
             relative_path = str(test_file_path.relative_to(self.project_path))
             logger.info(f"[TestGenerationService] ✅ Initial test generation complete - TestFile: {relative_path}, CodeLength: {len(test_code)} chars")
+
+            # 缓存结果
+            self._put_to_cache(cache_key, test_code)
+            logger.info(f"[TestGenerationService] 📋 已缓存测试代码 for {class_name} (缓存大小: {len(self._prompt_cache)})")
             
             return StepResult(
                 success=True,
