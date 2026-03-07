@@ -4,8 +4,10 @@ Specialized agent for fixing compilation and test execution errors.
 """
 
 import asyncio
+import hashlib
 import logging
 import re
+from collections import OrderedDict
 from typing import Dict, List, Optional, Any, Set
 from pathlib import Path
 
@@ -55,7 +57,10 @@ class TestFixAgent(SpecializedAgent):
         )
         
         self.llm_client = llm_client
-        self._fix_cache: Dict[str, Any] = {}
+        self._fix_cache: OrderedDict[str, str] = OrderedDict()
+        self._fix_cache_capacity = 50
+        self._fix_cache_hits = 0
+        self._fix_cache_misses = 0
         
         logger.info(f"[TestFixAgent:{agent_id}] Initialized")
     
@@ -919,6 +924,12 @@ class TestFixAgent(SpecializedAgent):
         if not self.llm_client:
             return test_code
         
+        # 检查缓存
+        cache_key = self._make_fix_cache_key(error_type, error_message, class_info)
+        cached = self._get_from_fix_cache(cache_key)
+        if cached:
+            return cached
+        
         prompt = f"""Fix the following compilation error in the test code:
 
 Error Type: {error_type}
@@ -938,16 +949,54 @@ Please provide the fixed test code only, without explanations.
 """
         
         try:
-            # Use agenerate method (async version) with correct signature
             response = await self.llm_client.agenerate(prompt=prompt)
             
             fixed_code = self._extract_code_from_markdown(response)
+            
+            # 缓存修复结果
+            if fixed_code:
+                self._put_to_fix_cache(cache_key, fixed_code)
             
             return fixed_code
             
         except Exception as e:
             logger.error(f"LLM fix generation failed: {e}")
             return test_code
+
+    def _make_fix_cache_key(self, error_type: str, error_message: str, class_info: Dict) -> str:
+        """生成修复缓存key"""
+        class_name = class_info.get("name", "") if class_info else ""
+        error_sig = f"{error_type}:{error_message[:100]}"
+        cache_data = f"{class_name}|{error_sig}"
+        return hashlib.sha256(cache_data.encode()).hexdigest()
+
+    def _get_from_fix_cache(self, cache_key: str) -> Optional[str]:
+        """从缓存获取修复结果"""
+        if cache_key in self._fix_cache:
+            self._fix_cache_hits += 1
+            self._fix_cache.move_to_end(cache_key)
+            logger.info(f"[TestFixAgent] 📋 修复缓存命中! (命中: {self._fix_cache_hits})")
+            return self._fix_cache[cache_key]
+        self._fix_cache_misses += 1
+        return None
+
+    def _put_to_fix_cache(self, cache_key: str, fixed_code: str):
+        """放入修复缓存"""
+        if len(self._fix_cache) >= self._fix_cache_capacity:
+            self._fix_cache.popitem(last=False)
+        self._fix_cache[cache_key] = fixed_code
+
+    def get_fix_cache_stats(self) -> Dict[str, Any]:
+        """获取修复缓存统计"""
+        total = self._fix_cache_hits + self._fix_cache_misses
+        hit_rate = self._fix_cache_hits / total if total > 0 else 0.0
+        return {
+            "capacity": self._fix_cache_capacity,
+            "current_size": len(self._fix_cache),
+            "hits": self._fix_cache_hits,
+            "misses": self._fix_cache_misses,
+            "hit_rate": f"{hit_rate:.1%}"
+        }
 
     async def _generate_failure_fix_with_llm(
         self,
@@ -972,6 +1021,12 @@ Please provide the fixed test code only, without explanations.
         if not self.llm_client:
             return test_code
         
+        # 检查缓存
+        cache_key = self._make_failure_fix_cache_key(failure_type, failure_message, test_method)
+        cached = self._get_from_fix_cache(cache_key)
+        if cached:
+            return cached
+        
         prompt = f"""Fix the following test failure:
 
 Failure Type: {failure_type}
@@ -992,16 +1047,24 @@ Please provide the fixed test code only, without explanations.
 """
         
         try:
-            # Use agenerate method (async version) with correct signature
             response = await self.llm_client.agenerate(prompt=prompt)
 
             fixed_code = self._extract_code_from_markdown(response)
+
+            # 缓存修复结果
+            if fixed_code:
+                self._put_to_fix_cache(cache_key, fixed_code)
 
             return fixed_code
 
         except Exception as e:
             logger.error(f"LLM failure fix generation failed: {e}")
             return test_code
+
+    def _make_failure_fix_cache_key(self, failure_type: str, failure_message: str, test_method: str) -> str:
+        """生成失败修复缓存key"""
+        error_sig = f"{failure_type}:{failure_message[:100]}:{test_method}"
+        return hashlib.sha256(error_sig.encode()).hexdigest()
 
     def _calculate_diff(self, original: str, fixed: str) -> List[Dict]:
         """Calculate differences between original and fixed code.
