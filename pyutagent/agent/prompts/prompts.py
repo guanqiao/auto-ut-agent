@@ -2,6 +2,12 @@
 
 from typing import Dict, List, Any, Optional
 
+from ..tools.action_definitions import (
+    ActionCategory,
+    generate_prompt_action_list,
+    generate_prompt_examples,
+)
+
 
 class PromptBuilder:
     """Builds prompts for LLM interactions."""
@@ -1083,14 +1089,9 @@ Analyze the compilation errors and provide a specific action plan to fix them.
 {history_str}
 {test_code_section}
 {source_code_section}
-## Available Actions
-You can recommend the following actions:
-1. **fix_imports**: Add missing import statements
-2. **add_dependency**: Add Maven dependency to pom.xml
-3. **fix_syntax**: Fix syntax errors in the code
-4. **fix_type_error**: Fix type mismatch errors
-5. **modify_code**: Apply a complete code fix
-6. **regenerate_test**: Request complete test regeneration
+## {generate_prompt_action_list([ActionCategory.COMPILATION, ActionCategory.DEPENDENCY, ActionCategory.GENERAL])}
+
+{generate_prompt_examples([ActionCategory.COMPILATION, ActionCategory.DEPENDENCY, ActionCategory.GENERAL])}
 
 ## Output Format
 Provide your analysis in this EXACT format:
@@ -1100,24 +1101,8 @@ ANALYSIS: [Brief analysis of what went wrong]
 CONFIDENCE: [0.0-1.0]
 
 ACTION_PLAN:
-- action: [action_type]
-  description: [what this action does]
-  [action-specific parameters]
-
-Example actions:
-- action: fix_imports
-  imports: ["import org.example.SomeClass;", "import java.util.List;"]
-  
-- action: add_dependency
-  group_id: org.example
-  artifact_id: example-lib
-  version: 1.0.0
-  scope: test
-
-- action: modify_code
-  fixed_code: ```java
-  // complete fixed test code here
-  ```
+- action: [action_type - MUST be one of the actions listed above]
+  [action-specific parameters as shown in examples]
 
 REASONING: [Why these actions will fix the problem]
 
@@ -1208,14 +1193,9 @@ Analyze the test failures and provide a specific action plan to fix them.
 {history_str}
 {test_code_section}
 {source_code_section}
-## Available Actions
-You can recommend the following actions:
-1. **fix_test_logic**: Fix the test logic to match expected behavior
-2. **fix_assertion**: Fix incorrect assertions
-3. **add_mock**: Add missing mock configuration
-4. **skip_test**: Skip a test that cannot be fixed (use sparingly)
-5. **modify_code**: Apply a complete code fix
-6. **regenerate_test**: Request complete test regeneration
+## {generate_prompt_action_list([ActionCategory.TEST_FAILURE, ActionCategory.GENERAL])}
+
+{generate_prompt_examples([ActionCategory.TEST_FAILURE, ActionCategory.GENERAL])}
 
 ## Output Format
 Provide your analysis in this EXACT format:
@@ -1225,24 +1205,8 @@ ANALYSIS: [Brief analysis of what went wrong]
 CONFIDENCE: [0.0-1.0]
 
 ACTION_PLAN:
-- action: [action_type]
-  description: [what this action does]
-  [action-specific parameters]
-
-Example actions:
-- action: fix_assertion
-  test_method: testSomething
-  fixed_code: ```java
-  // fixed test method code
-  ```
-
-- action: add_mock
-  mock_setup: when(mockService.getData()).thenReturn("test");
-
-- action: modify_code
-  fixed_code: ```java
-  // complete fixed test code here
-  ```
+- action: [action_type - MUST be one of the actions listed above]
+  [action-specific parameters as shown in examples]
 
 REASONING: [Why these actions will fix the problem]
 

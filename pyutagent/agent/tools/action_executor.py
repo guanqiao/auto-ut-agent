@@ -13,6 +13,18 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
+from .action_definitions import (
+    ACTION_DEFINITIONS,
+    ACTION_TYPE_MAP,
+    ActionCategory,
+    ActionDefinition,
+    get_action_definition,
+    get_all_action_names,
+    is_valid_action_name,
+    generate_prompt_action_list,
+    generate_prompt_examples,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +43,22 @@ class ActionType(Enum):
     INSTALL_DEPENDENCY = auto()
     RESOLVE_DEPENDENCY = auto()
     UNKNOWN = auto()
+
+
+_ACTION_TYPE_ENUM_MAP = {
+    "fix_imports": ActionType.FIX_IMPORTS,
+    "add_dependency": ActionType.ADD_DEPENDENCY,
+    "fix_syntax": ActionType.FIX_SYNTAX,
+    "fix_type_error": ActionType.FIX_TYPE_ERROR,
+    "regenerate_test": ActionType.REGENERATE_TEST,
+    "fix_test_logic": ActionType.FIX_TEST_LOGIC,
+    "add_mock": ActionType.ADD_MOCK,
+    "fix_assertion": ActionType.FIX_ASSERTION,
+    "skip_test": ActionType.SKIP_TEST,
+    "modify_code": ActionType.MODIFY_CODE,
+    "install_dependency": ActionType.INSTALL_DEPENDENCY,
+    "resolve_dependency": ActionType.RESOLVE_DEPENDENCY,
+}
 
 
 @dataclass
@@ -63,35 +91,6 @@ class ActionExecutor:
     - Test adjustments (skip, regenerate, fix)
     """
     
-    ACTION_TYPE_MAP = {
-        'fix_imports': ActionType.FIX_IMPORTS,
-        'add_import': ActionType.FIX_IMPORTS,
-        'add_imports': ActionType.FIX_IMPORTS,
-        'add_dependency': ActionType.ADD_DEPENDENCY,
-        'add_dependencies': ActionType.ADD_DEPENDENCY,
-        'fix_syntax': ActionType.FIX_SYNTAX,
-        'fix_syntax_error': ActionType.FIX_SYNTAX,
-        'fix_type_error': ActionType.FIX_TYPE_ERROR,
-        'fix_type': ActionType.FIX_TYPE_ERROR,
-        'regenerate_test': ActionType.REGENERATE_TEST,
-        'regenerate': ActionType.REGENERATE_TEST,
-        'fix_test_logic': ActionType.FIX_TEST_LOGIC,
-        'fix_logic': ActionType.FIX_TEST_LOGIC,
-        'add_mock': ActionType.ADD_MOCK,
-        'add_mocks': ActionType.ADD_MOCK,
-        'fix_mock': ActionType.ADD_MOCK,
-        'fix_assertion': ActionType.FIX_ASSERTION,
-        'fix_assertions': ActionType.FIX_ASSERTION,
-        'skip_test': ActionType.SKIP_TEST,
-        'skip_tests': ActionType.SKIP_TEST,
-        'modify_code': ActionType.MODIFY_CODE,
-        'apply_fix': ActionType.MODIFY_CODE,
-        'install_dependency': ActionType.INSTALL_DEPENDENCY,
-        'install_dependencies': ActionType.INSTALL_DEPENDENCY,
-        'resolve_dependency': ActionType.RESOLVE_DEPENDENCY,
-        'resolve_dependencies': ActionType.RESOLVE_DEPENDENCY,
-    }
-    
     def __init__(
         self,
         project_path: str = "",
@@ -104,6 +103,14 @@ class ActionExecutor:
         
         self._execution_history: List[ActionResult] = []
         self._action_success_rates: Dict[ActionType, Dict[str, int]] = {}
+    
+    def get_available_actions(self) -> List[str]:
+        """Get all valid action names (including aliases)."""
+        return get_all_action_names()
+    
+    def get_action_definition(self, action_name: str) -> Optional[ActionDefinition]:
+        """Get action definition by name or alias."""
+        return get_action_definition(action_name)
     
     def _is_valid_test_code(self, code: str) -> bool:
         """Check if code looks like valid Java test code.
@@ -171,12 +178,16 @@ class ActionExecutor:
         
         return True, "Code validated successfully", backup_content
     
-    def get_available_actions(self) -> List[str]:
-        return list(self.ACTION_TYPE_MAP.keys())
-    
     def parse_action_type(self, action_str: str) -> ActionType:
+        """Parse action string to ActionType enum.
+        
+        Uses the centralized ACTION_TYPE_MAP from action_definitions.
+        """
         action_lower = action_str.lower().replace(' ', '_').replace('-', '_')
-        return self.ACTION_TYPE_MAP.get(action_lower, ActionType.UNKNOWN)
+        canonical_type = ACTION_TYPE_MAP.get(action_lower)
+        if canonical_type:
+            return _ACTION_TYPE_ENUM_MAP.get(canonical_type, ActionType.UNKNOWN)
+        return ActionType.UNKNOWN
     
     async def execute_action(
         self,
@@ -966,6 +977,12 @@ class ActionExecutor:
 def parse_llm_action_plan(llm_response: str) -> ActionPlan:
     """Parse LLM response into an ActionPlan.
     
+    Supports both single-line and multi-line YAML formats:
+    - Single-line: "- action: fix_imports imports: [...]"
+    - Multi-line: 
+      - action: fix_imports
+        imports: [...]
+    
     Args:
         llm_response: Raw LLM response text
         
@@ -978,6 +995,7 @@ def parse_llm_action_plan(llm_response: str) -> ActionPlan:
     
     lines = llm_response.split('\n')
     current_section = None
+    current_action: Optional[Dict[str, Any]] = None
     
     for line in lines:
         line_stripped = line.strip()
@@ -985,21 +1003,43 @@ def parse_llm_action_plan(llm_response: str) -> ActionPlan:
         
         if ('action' in line_lower and 'plan' in line_lower) or 'actions:' in line_lower:
             current_section = 'actions'
+            continue
         elif 'reasoning:' in line_lower:
+            if current_action:
+                if _is_valid_action(current_action):
+                    actions.append(current_action)
+                current_action = None
             current_section = 'reasoning'
             reasoning = line.split(':', 1)[1].strip() if ':' in line else ""
+            continue
         elif 'confidence:' in line_lower:
             try:
                 conf_str = line.split(':', 1)[1].strip()
                 confidence = float(conf_str.replace('%', '')) / 100 if '%' in conf_str else float(conf_str)
             except ValueError:
                 confidence = 0.5
-        elif current_section == 'actions' and line.strip():
-            action = _parse_single_action(line)
-            if action and _is_valid_action(action):
-                actions.append(action)
-        elif current_section == 'reasoning' and line.strip():
-            reasoning += " " + line.strip()
+            continue
+        
+        if current_section == 'actions':
+            if line_stripped.startswith('- action:') or line_stripped.startswith('-action:'):
+                if current_action:
+                    if _is_valid_action(current_action):
+                        actions.append(current_action)
+                
+                action_type = line_stripped.split(':', 1)[1].strip() if ':' in line_stripped else ""
+                current_action = {'action': action_type}
+            elif current_action and line_stripped and ':' in line_stripped:
+                key_value = line_stripped.split(':', 1)
+                if len(key_value) == 2:
+                    key = key_value[0].strip()
+                    value = key_value[1].strip()
+                    current_action[key] = value
+        elif current_section == 'reasoning' and line_stripped:
+            reasoning += " " + line_stripped
+    
+    if current_action:
+        if _is_valid_action(current_action):
+            actions.append(current_action)
     
     filtered_actions = _filter_and_merge_actions(actions)
     
@@ -1015,10 +1055,8 @@ def parse_llm_action_plan(llm_response: str) -> ActionPlan:
 def _is_valid_action(action: Dict[str, Any]) -> bool:
     """Validate if an action is meaningful and should be executed.
     
-    Filters out:
-    - Field names (action, imports, group_id, etc.)
-    - Code snippets without action type
-    - Too short or meaningless values
+    Validates against the centralized action definitions to ensure
+    LLM only returns predefined action types.
     
     Args:
         action: Parsed action dictionary
@@ -1058,6 +1096,10 @@ def _is_valid_action(action: Dict[str, Any]) -> bool:
         return False
     
     if _is_import_statement(action_type):
+        return False
+    
+    if not is_valid_action_name(action_type):
+        logger.warning(f"[ActionExecutor] Invalid action type not in predefined list: '{action_type}'")
         return False
     
     return True
