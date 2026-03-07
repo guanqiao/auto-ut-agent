@@ -152,14 +152,15 @@ ACTION_DEFINITIONS: Dict[str, ActionDefinition] = {
                 name="fixed_code",
                 param_type="string",
                 required=True,
-                description="Complete fixed code block",
-                example="```java\\n// fixed code\\n```"
+                description="Complete fixed code block (without markdown)",
+                example="public class Test { ... }"
             )
         ],
         example_yaml="""- action: fix_syntax
-  fixed_code: ```java
-  // fixed code here
-  ```"""
+  fixed_code: |
+    public class Test {
+        // fixed code here
+    }"""
     ),
     
     "fix_type_error": ActionDefinition(
@@ -172,14 +173,14 @@ ACTION_DEFINITIONS: Dict[str, ActionDefinition] = {
                 name="fixed_code",
                 param_type="string",
                 required=True,
-                description="Code with corrected types",
-                example="```java\\n// code with fixed types\\n```"
+                description="Code with corrected types (without markdown)",
+                example="String value = String.valueOf(obj);"
             )
         ],
         example_yaml="""- action: fix_type_error
-  fixed_code: ```java
-  // code with corrected types
-  ```"""
+  fixed_code: |
+    // code with corrected types
+    String value = String.valueOf(obj);"""
     ),
     
     "modify_code": ActionDefinition(
@@ -192,14 +193,18 @@ ACTION_DEFINITIONS: Dict[str, ActionDefinition] = {
                 name="fixed_code",
                 param_type="string",
                 required=True,
-                description="Complete fixed test code",
-                example="```java\\n// complete fixed test class\\n```"
+                description="Complete fixed test code (without markdown)",
+                example="public class TestClassTest { ... }"
             )
         ],
         example_yaml="""- action: modify_code
-  fixed_code: ```java
-  // complete fixed test code here
-  ```"""
+  fixed_code: |
+    public class TestClassTest {
+        @Test
+        void testSomething() {
+            // test code
+        }
+    }"""
     ),
     
     "regenerate_test": ActionDefinition(
@@ -228,15 +233,17 @@ ACTION_DEFINITIONS: Dict[str, ActionDefinition] = {
                 name="fixed_code",
                 param_type="string",
                 required=True,
-                description="Fixed test method code",
-                example="```java\\n@Test\\nvoid testSomething() { ... }\\n```"
+                description="Fixed test method code (without markdown)",
+                example="@Test void testSomething() { ... }"
             )
         ],
         example_yaml="""- action: fix_test_logic
   test_method: testSomething
-  fixed_code: ```java
-  // fixed test method
-  ```"""
+  fixed_code: |
+    @Test
+    void testSomething() {
+        // fixed test method
+    }"""
     ),
     
     "fix_assertion": ActionDefinition(
@@ -256,15 +263,14 @@ ACTION_DEFINITIONS: Dict[str, ActionDefinition] = {
                 name="fixed_code",
                 param_type="string",
                 required=True,
-                description="Fixed assertion code",
-                example="```java\\nassertEquals(expected, actual);\\n```"
+                description="Fixed assertion code (without markdown)",
+                example="assertEquals(expected, actual);"
             )
         ],
         example_yaml="""- action: fix_assertion
   test_method: testSomething
-  fixed_code: ```java
-  // fixed assertion
-  ```"""
+  fixed_code: |
+    assertEquals(expected, actual);"""
     ),
     
     "add_mock": ActionDefinition(

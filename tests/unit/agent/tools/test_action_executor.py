@@ -103,6 +103,74 @@ class TestImportCleaning:
         assert result == "import java.sql.Connection;"
 
 
+class TestCodeBlockCleaning:
+    """Tests for _clean_code_block method."""
+    
+    @pytest.fixture
+    def executor(self):
+        """Create an ActionExecutor instance."""
+        return ActionExecutor()
+    
+    def test_clean_code_with_java_markdown(self, executor):
+        """Test cleaning code with ```java markdown."""
+        code = """```java
+public class Test {
+    // test code
+}
+```"""
+        result = executor._clean_code_block(code)
+        assert "```java" not in result
+        assert "```" not in result
+        assert "public class Test" in result
+    
+    def test_clean_code_with_plain_markdown(self, executor):
+        """Test cleaning code with ``` markdown."""
+        code = """```
+public class Test {
+    // test code
+}
+```"""
+        result = executor._clean_code_block(code)
+        assert "```" not in result
+        assert "public class Test" in result
+    
+    def test_clean_code_without_markdown(self, executor):
+        """Test cleaning code without markdown."""
+        code = """public class Test {
+    // test code
+}"""
+        result = executor._clean_code_block(code)
+        assert result == code
+    
+    def test_clean_code_with_inline_markdown(self, executor):
+        """Test cleaning code with inline markdown."""
+        code = "```java public class Test {} ```"
+        result = executor._clean_code_block(code)
+        assert "```" not in result
+        assert "public class Test" in result
+    
+    def test_clean_empty_code(self, executor):
+        """Test cleaning empty code."""
+        result = executor._clean_code_block("")
+        assert result == ""
+    
+    def test_clean_none_code(self, executor):
+        """Test cleaning None code."""
+        result = executor._clean_code_block(None)
+        assert result == ""
+    
+    def test_clean_code_with_extra_whitespace(self, executor):
+        """Test cleaning code with extra whitespace."""
+        code = """
+```java
+public class Test {}
+```
+"""
+        result = executor._clean_code_block(code)
+        assert "```" not in result
+        assert result.startswith("public class Test")
+
+
 class TestImportIntegration:
     """Integration tests for import fixing functionality."""
     
@@ -153,3 +221,97 @@ public class Test {
         
         assert '["import' not in modified_content
         assert 'import "import' not in modified_content
+
+
+class TestCodeFixIntegration:
+    """Integration tests for code fixing functionality."""
+    
+    @pytest.fixture
+    def executor(self, tmp_path):
+        """Create an ActionExecutor instance with a temporary project path."""
+        return ActionExecutor(project_path=str(tmp_path))
+    
+    @pytest.mark.asyncio
+    async def test_fix_syntax_with_markdown(self, executor, tmp_path):
+        """Test fixing syntax with markdown in code."""
+        test_file = tmp_path / "src" / "test" / "java" / "Test.java"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        initial_code = """package org.example;
+
+public class Test {
+"""
+        test_file.write_text(initial_code, encoding='utf-8')
+        
+        action = {
+            'action': 'fix_syntax',
+            'fixed_code': """```java
+package org.example;
+
+import org.junit.jupiter.api.Test;
+
+public class Test {
+    @Test
+    void testSomething() {
+        // fixed code
+    }
+}
+```"""
+        }
+        
+        context = {
+            'test_file': str(test_file.relative_to(tmp_path))
+        }
+        
+        result = await executor._fix_syntax(action, context)
+        
+        assert result.success is True
+        
+        modified_content = test_file.read_text(encoding='utf-8')
+        
+        assert "```java" not in modified_content
+        assert "```" not in modified_content
+        assert "package org.example;" in modified_content
+        assert "@Test" in modified_content
+        assert "void testSomething()" in modified_content
+    
+    @pytest.mark.asyncio
+    async def test_modify_code_with_markdown(self, executor, tmp_path):
+        """Test modifying code with markdown in code."""
+        test_file = tmp_path / "src" / "test" / "java" / "Test.java"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        initial_code = """package org.example;
+
+public class Test {
+}"""
+        test_file.write_text(initial_code, encoding='utf-8')
+        
+        action = {
+            'action': 'modify_code',
+            'fixed_code': """```java
+package org.example;
+
+public class Test {
+    @Test
+    void testSomething() {
+        // test
+    }
+}
+```"""
+        }
+        
+        context = {
+            'test_file': str(test_file.relative_to(tmp_path))
+        }
+        
+        result = await executor._modify_code(action, context)
+        
+        assert result.success is True
+        
+        modified_content = test_file.read_text(encoding='utf-8')
+        
+        assert "```java" not in modified_content
+        assert "```" not in modified_content
+        assert "@Test" in modified_content
+        assert "void testSomething()" in modified_content

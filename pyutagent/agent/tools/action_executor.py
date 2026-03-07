@@ -482,6 +482,35 @@ class ActionExecutor:
         
         return imp
     
+    def _clean_code_block(self, code: str) -> str:
+        """Clean code block from various LLM output formats.
+        
+        Handles formats like:
+        - ```java\\ncode\\n```
+        - ```\\ncode\\n```
+        - code with extra whitespace
+        
+        Args:
+            code: Raw code from LLM
+            
+        Returns:
+            Cleaned code
+        """
+        if not code:
+            return ""
+        
+        code = str(code).strip()
+        
+        code = re.sub(r'^```(?:java)?\s*\n', '', code)
+        code = re.sub(r'\n```\s*$', '', code)
+        
+        code = re.sub(r'^```(?:java)?\s*', '', code)
+        code = re.sub(r'```\s*$', '', code)
+        
+        code = code.strip()
+        
+        return code
+    
     async def _add_dependency(
         self,
         action: Dict[str, Any],
@@ -602,6 +631,8 @@ class ActionExecutor:
                 message="No fixed code provided"
             )
         
+        fixed_code = self._clean_code_block(fixed_code)
+        
         if test_file:
             try:
                 test_path = Path(self.project_path) / test_file if self.project_path else Path(test_file)
@@ -680,6 +711,8 @@ class ActionExecutor:
                 message="No fixed code provided"
             )
         
+        fixed_code = self._clean_code_block(fixed_code)
+        
         if test_file:
             try:
                 test_path = Path(self.project_path) / test_file if self.project_path else Path(test_file)
@@ -739,6 +772,9 @@ class ActionExecutor:
                 message="No test file specified"
             )
         
+        if mock_setup:
+            mock_setup = self._clean_code_block(mock_setup)
+        
         try:
             test_path = Path(self.project_path) / test_file if self.project_path else Path(test_file)
             
@@ -797,6 +833,8 @@ class ActionExecutor:
                 success=False,
                 message="No fixed code provided"
             )
+        
+        fixed_code = self._clean_code_block(fixed_code)
         
         if test_file:
             try:
@@ -910,6 +948,8 @@ class ActionExecutor:
                 success=False,
                 message="No code provided"
             )
+        
+        fixed_code = self._clean_code_block(fixed_code)
         
         if test_file:
             try:
