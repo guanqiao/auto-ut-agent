@@ -10,7 +10,7 @@ from pyutagent.agent.base_agent import StepResult
 from pyutagent.core.protocols import AgentState
 from pyutagent.core.config import get_settings
 from pyutagent.core.retry_config import RetryConfig as CoreRetryConfig, DEFAULT_RETRY_CONFIG
-from pyutagent.core.error_classification import get_error_classification_service
+from pyutagent.core.error_classification import get_error_classification_service, is_unrecoverable_error
 from pyutagent.core.failure_pattern_tracker import FailurePatternTracker
 from pyutagent.agent.thinking_engine import ThinkingEngine, ThinkingType, ThinkingSession
 from pyutagent.agent.execution.retry import RetryConfig
@@ -206,10 +206,31 @@ class StepExecutor:
                     logger.warning(f"[StepExecutor] Step returned failure - Step: {step_name}, Attempt: {attempt}, Message: {result.message}")
                     
                     error = Exception(result.message)
-                    recovery_result = await self._try_recover(
-                        error,
-                        {"step": step_name, "attempt": attempt, "result": result, "reset_count": reset_count}
-                    )
+                    
+                    if is_unrecoverable_error(error):
+                        logger.error(f"[StepExecutor] ❌ Unrecoverable error detected: {error}, skipping retry")
+                        return StepResult(
+                            success=False,
+                            state=AgentState.FAILED,
+                            message=f"Unrecoverable error: {result.message}"
+                        )
+                    
+                    recovery_timeout = 60.0
+                    try:
+                        recovery_result = await asyncio.wait_for(
+                            self._try_recover(
+                                error,
+                                {"step": step_name, "attempt": attempt, "result": result, "reset_count": reset_count}
+                            ),
+                            timeout=recovery_timeout
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error(f"[StepExecutor] ❌ Recovery operation timed out after {recovery_timeout}s, terminating step")
+                        recovery_result = {
+                            "should_continue": False,
+                            "action": "escalate",
+                            "reason": f"Recovery timed out after {recovery_timeout}s"
+                        }
                     
                     if not recovery_result.get("should_continue", True):
                         logger.error(f"[StepExecutor] Recovery failed, step terminated - Step: {step_name}")
@@ -248,6 +269,14 @@ class StepExecutor:
                         await asyncio.sleep(delay)
                     
                     continue
+                    
+            except asyncio.CancelledError:
+                logger.info(f"[StepExecutor] Operation cancelled - Step: {step_name}")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message="Operation cancelled by user"
+                )
                     
             except Exception as e:
                 logger.exception(f"[StepExecutor] Step execution exception - Step: {step_name}, Attempt: {attempt}, Error: {e}")
@@ -736,16 +765,43 @@ class StepExecutor:
                 f.write(test_code)
             
             # Verify file was written correctly
-            if not test_file_path.exists() or test_file_path.stat().st_size == 0:
-                logger.error(f"[StepExecutor] ❌ Failed to write test file: {test_file_path}")
+            if not test_file_path.exists():
+                logger.error(f"[StepExecutor] ❌ Failed to write test file: file does not exist: {test_file_path}")
                 return StepResult(
                     success=False,
                     state=AgentState.FAILED,
-                    message=f"Failed to write test file: {test_file_path}"
+                    message=f"Failed to write test file: file does not exist: {test_file_path}"
                 )
             
             file_size = test_file_path.stat().st_size
-            logger.info(f"[StepExecutor] ✅ Initial test file written - Path: {test_file_path}, Size: {file_size} bytes")
+            if file_size == 0:
+                logger.error(f"[StepExecutor] ❌ Failed to write test file: file is empty: {test_file_path}")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message=f"Failed to write test file: file is empty: {test_file_path}"
+                )
+            
+            # Verify content was written correctly by reading it back
+            try:
+                with open(test_file_path, 'r', encoding='utf-8') as f:
+                    written_content = f.read()
+                if written_content != test_code:
+                    logger.error(f"[StepExecutor] ❌ File content mismatch - Expected: {len(test_code)} chars, Got: {len(written_content)} chars")
+                    return StepResult(
+                        success=False,
+                        state=AgentState.FAILED,
+                        message=f"File content mismatch: {test_file_path}"
+                    )
+            except Exception as e:
+                logger.error(f"[StepExecutor] ❌ Failed to verify file content: {e}")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message=f"Failed to verify file content: {test_file_path} - {e}"
+                )
+            
+            logger.info(f"[StepExecutor] ✅ Initial test file written and verified - Path: {test_file_path}, Size: {file_size} bytes")
             
             self.agent_core.current_test_file = str(test_file_path.relative_to(self.agent_core.project_path))
             self.agent_core.working_memory.add_generated_test(
@@ -754,7 +810,8 @@ class StepExecutor:
                 code=test_code
             )
             
-            logger.info(f"[StepExecutor] Initial test generation complete - TestFile: {self.agent_core.current_test_file}")
+            test_file_absolute_path = str(Path(self.agent_core.project_path) / self.agent_core.current_test_file)
+            logger.info(f"[StepExecutor] Initial test generation complete - TestFile: {test_file_absolute_path}")
             
             # P4: Self-Reflection - Critique generated test code
             critique_result = None
@@ -1015,13 +1072,43 @@ class StepExecutor:
                 f.write(test_code)
             
             # Verify file was written correctly
-            if not test_file_path.exists() or test_file_path.stat().st_size == 0:
-                logger.error(f"[StepExecutor] Failed to write incremental test file: {test_file_path}")
+            if not test_file_path.exists():
+                logger.error(f"[StepExecutor] ❌ Failed to write incremental test file: file does not exist: {test_file_path}")
                 return StepResult(
                     success=False,
                     state=AgentState.FAILED,
-                    message=f"Failed to write incremental test file: {test_file_path}"
+                    message=f"Failed to write incremental test file: file does not exist: {test_file_path}"
                 )
+            
+            file_size = test_file_path.stat().st_size
+            if file_size == 0:
+                logger.error(f"[StepExecutor] ❌ Failed to write incremental test file: file is empty: {test_file_path}")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message=f"Failed to write incremental test file: file is empty: {test_file_path}"
+                )
+            
+            # Verify content was written correctly by reading it back
+            try:
+                with open(test_file_path, 'r', encoding='utf-8') as f:
+                    written_content = f.read()
+                if written_content != test_code:
+                    logger.error(f"[StepExecutor] ❌ Incremental file content mismatch - Expected: {len(test_code)} chars, Got: {len(written_content)} chars")
+                    return StepResult(
+                        success=False,
+                        state=AgentState.FAILED,
+                        message=f"Incremental file content mismatch: {test_file_path}"
+                    )
+            except Exception as e:
+                logger.error(f"[StepExecutor] ❌ Failed to verify incremental file content: {e}")
+                return StepResult(
+                    success=False,
+                    state=AgentState.FAILED,
+                    message=f"Failed to verify incremental file content: {test_file_path} - {e}"
+                )
+            
+            logger.info(f"[StepExecutor] ✅ Incremental test file written and verified - Path: {test_file_path}, Size: {file_size} bytes")
             
             self.agent_core.current_test_file = str(test_file_path.relative_to(self.agent_core.project_path))
             self.agent_core.working_memory.add_generated_test(
@@ -1837,12 +1924,28 @@ class StepExecutor:
             
             test_file_path.write_text(code, encoding='utf-8')
             
-            # Verify file was written
-            if test_file_path.exists():
-                file_size = test_file_path.stat().st_size
-                logger.info(f"[StepExecutor] ✅ Wrote test file successfully - Path: {test_file_path}, Size: {file_size} bytes")
-            else:
+            # Verify file was written correctly
+            if not test_file_path.exists():
                 logger.error(f"[StepExecutor] ❌ File write failed - file does not exist after write: {test_file_path}")
+                return
+            
+            file_size = test_file_path.stat().st_size
+            if file_size == 0:
+                logger.error(f"[StepExecutor] ❌ File write failed - file is empty after write: {test_file_path}")
+                return
+            
+            # Verify content was written correctly by reading it back
+            try:
+                with open(test_file_path, 'r', encoding='utf-8') as f:
+                    written_content = f.read()
+                if written_content != code:
+                    logger.error(f"[StepExecutor] ❌ File content mismatch - Expected: {len(code)} chars, Got: {len(written_content)} chars")
+                    return
+            except Exception as e:
+                logger.error(f"[StepExecutor] ❌ Failed to verify file content: {e}")
+                return
+            
+            logger.info(f"[StepExecutor] ✅ Wrote test file successfully and verified - Path: {test_file_path}, Size: {file_size} bytes")
         except PermissionError as e:
             logger.error(f"[StepExecutor] Permission denied writing test file: {e}")
             self.agent_core._update_state(AgentState.FAILED, f"Permission denied: {e}")
@@ -2085,7 +2188,10 @@ class StepExecutor:
                 logger.info(f"[StepExecutor] 🤖 Thinking engine result - Confidence: {thinking_result.confidence:.2f}, Conclusions: {len(thinking_result.conclusions)}")
                 if thinking_result.recovery_strategy:
                     logger.info(f"[StepExecutor] 🤖 Recovery strategy suggestion: {thinking_result.recovery_strategy}")
-            except Exception as e:
+            except asyncio.CancelledError:
+                logger.info("[StepExecutor] Thinking engine cancelled - user stopped the operation")
+                raise
+            except BaseException as e:
                 logger.warning(f"[StepExecutor] Thinking engine error (non-fatal): {e}")
         
         step_name = context.get("step", "")
@@ -2307,6 +2413,22 @@ class StepExecutor:
                         "reason": "LLM analysis recommends skipping",
                         "confidence": confidence
                     }
+            
+            invalid_actions = [
+                a for a in action_plan 
+                if not a.get("action") or 
+                a.get("action", "").lower() in ("unknown", "unknown action", "none", "")
+            ]
+            
+            if len(invalid_actions) >= len(action_plan) * 0.5 and len(action_plan) > 0:
+                logger.error(f"[StepExecutor] ❌ Too many invalid actions in plan ({len(invalid_actions)}/{len(action_plan)}), escalating directly without execution")
+                return {
+                    "should_continue": False,
+                    "action": "escalate",
+                    "reason": f"LLM returned {len(invalid_actions)} invalid actions out of {len(action_plan)}. Action plan is unusable.",
+                    "confidence": confidence,
+                    "error_type": "invalid_action_plan"
+                }
             
             execution_result = await error_recovery.execute_action_plan(
                 action_plan,

@@ -1002,6 +1002,42 @@ def is_retryable_error(error: Exception) -> bool:
     return get_error_classification_service().is_retryable(error)
 
 
+UNRECOVERABLE_ERROR_PATTERNS = [
+    "OutOfMemoryError",
+    "StackOverflowError", 
+    "NoClassDefFoundError",
+    "access denied",
+    "permission denied",
+    "AccessDeniedException",
+]
+
+def is_unrecoverable_error(error: Exception, context: Optional[Dict[str, Any]] = None) -> bool:
+    """判断错误是否不可恢复，无需重试。
+    
+    Args:
+        error: 错误对象
+        context: 上下文信息
+        
+    Returns:
+        True if the error is unrecoverable and should not be retried
+    """
+    error_message = str(error)
+    error_type = type(error).__name__
+    
+    if error_type in ("OutOfMemoryError", "StackOverflowError", "NoClassDefFoundError", 
+                      "java.lang.OutOfMemoryError", "java.lang.StackOverflowError", "java.lang.NoClassDefFoundError"):
+        logger.warning(f"[ErrorClassification] Detected unrecoverable error type: {error_type}")
+        return True
+    
+    error_lower = error_message.lower()
+    for pattern in UNRECOVERABLE_ERROR_PATTERNS:
+        if pattern.lower() in error_lower:
+            logger.warning(f"[ErrorClassification] Detected unrecoverable error pattern: {pattern}")
+            return True
+    
+    return False
+
+
 def get_recovery_strategy(error: Exception, attempt_count: int = 0) -> str:
     """Convenience function to get recovery strategy.
     
