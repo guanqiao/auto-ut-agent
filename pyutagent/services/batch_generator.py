@@ -1005,3 +1005,26 @@ class BatchGenerator:
             logger.info(f"[{file_name}] {log_msg}")
         
         self._update_progress(file_name, f"{status} {message}")
+
+    def get_batch_stats(self) -> Dict[str, Any]:
+        """获取批量生成统计信息，包括缓存命中率。
+        
+        Returns:
+            Dictionary with batch statistics
+        """
+        stats = {
+            "total_files": self._progress.total_files,
+            "completed": self._progress.completed_files,
+            "failed": self._progress.failed_files,
+            "success_rate": self._progress.success_rate,
+            "shared_knowledge_size": len(self.shared_failure_knowledge.knowledge) if self.shared_failure_knowledge else 0,
+            "failure_patterns": len(self.failure_tracker.patterns) if self.failure_tracker else 0,
+        }
+        
+        if hasattr(self, '_current_agent') and self._current_agent:
+            if hasattr(self._current_agent, 'get_cache_stats'):
+                stats['prompt_cache'] = self._current_agent.get_cache_stats()
+            if hasattr(self._current_agent, 'get_fix_cache_stats'):
+                stats['fix_cache'] = self._current_agent.get_fix_cache_stats()
+        
+        return stats
