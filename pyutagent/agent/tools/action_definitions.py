@@ -91,12 +91,12 @@ ACTION_DEFINITIONS: Dict[str, ActionDefinition] = {
                 name="imports",
                 param_type="list",
                 required=True,
-                description="List of import statements to add",
-                example="[\"import java.util.List;\", \"import org.example.MyClass;\"]"
+                description="List of fully qualified class names to import (without 'import' keyword)",
+                example="[\"java.sql.Connection\", \"javax.sql.DataSource\"]"
             )
         ],
         example_yaml="""- action: fix_imports
-  imports: ["import java.util.List;", "import org.example.MyClass;"]"""
+  imports: ["java.sql.Connection", "javax.sql.DataSource"]"""
     ),
     
     "add_dependency": ActionDefinition(

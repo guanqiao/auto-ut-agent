@@ -1093,6 +1093,19 @@ Analyze the compilation errors and provide a specific action plan to fix them.
 
 {generate_prompt_examples([ActionCategory.COMPILATION, ActionCategory.DEPENDENCY, ActionCategory.GENERAL])}
 
+## Important Notes for Import Statements
+
+When using fix_imports action:
+- Provide ONLY the fully qualified class names (e.g., "java.sql.Connection", NOT "import java.sql.Connection;")
+- Do NOT include the "import" keyword or semicolons
+- The system will automatically format them correctly
+
+Example:
+```yaml
+- action: fix_imports
+  imports: ["java.sql.Connection", "javax.sql.DataSource", "org.junit.jupiter.api.Test"]
+```
+
 ## Output Format
 Provide your analysis in this EXACT format:
 

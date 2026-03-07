@@ -353,21 +353,19 @@ class ActionExecutor:
             new_static_imports = []
             
             for imp in imports_to_add:
-                imp = imp.strip().rstrip(';')
-                if not imp:
+                cleaned_import = self._clean_import_statement(imp)
+                if not cleaned_import:
                     continue
                 
-                if 'import ' in imp:
-                    imp = re.sub(r'^import\s+', '', imp).rstrip(';')
+                is_static = cleaned_import.startswith('import static ')
+                import_content = cleaned_import.replace('import static ', '').replace('import ', '').rstrip(';')
                 
-                is_static = '.*' in imp or '.class' in imp or imp.startswith('static ')
                 if is_static:
-                    imp = imp.replace('static ', '')
-                    if imp not in existing_static_imports:
-                        new_static_imports.append(f"import static {imp};")
+                    if import_content not in existing_static_imports:
+                        new_static_imports.append(f"import static {import_content};")
                 else:
-                    if imp not in existing_regular_imports:
-                        new_regular_imports.append(f"import {imp};")
+                    if import_content not in existing_regular_imports:
+                        new_regular_imports.append(f"import {import_content};")
             
             all_new_imports = new_regular_imports + new_static_imports
             
@@ -428,6 +426,61 @@ class ActionExecutor:
                 success=False,
                 message=f"Failed to fix imports: {str(e)}"
             )
+    
+    def _clean_import_statement(self, imp: str) -> Optional[str]:
+        """Clean and normalize an import statement from various LLM output formats.
+        
+        Handles formats like:
+        - "import java.sql.Connection;"
+        - ["import java.sql.Connection;"]
+        - import "import java.sql.Connection;"];
+        - java.sql.Connection
+        - "java.sql.Connection"
+        
+        Args:
+            imp: Raw import statement from LLM
+            
+        Returns:
+            Cleaned import statement or None if invalid
+        """
+        if not imp:
+            return None
+        
+        imp = str(imp).strip()
+        
+        imp = imp.strip('"\'')
+        imp = imp.strip('"\'')
+        
+        imp = re.sub(r'^\[["\']?', '', imp)
+        imp = re.sub(r'["\']?\]$', '', imp)
+        
+        imp = re.sub(r'^["\']import\s+', 'import ', imp)
+        imp = re.sub(r';["\']$', ';', imp)
+        
+        if imp.startswith('import "import '):
+            imp = re.sub(r'^import\s+"import\s+', 'import ', imp)
+            imp = imp.rstrip('";') + ';'
+        
+        if imp.startswith('import "'):
+            imp = re.sub(r'^import\s+"', 'import ', imp)
+            imp = imp.rstrip('"') + ';'
+        
+        imp = re.sub(r';["\']?\]?\s*;?\s*$', ';', imp)
+        imp = re.sub(r'\s+', ' ', imp).strip()
+        
+        if not imp.startswith('import '):
+            if re.match(r'^[\w.]+\.\w+$', imp):
+                imp = f'import {imp};'
+            elif re.match(r'^static\s+[\w.]+', imp):
+                imp = f'import {imp};'
+            elif re.match(r'^[\w.]+\.\*(?:;)?$', imp):
+                imp = f'import {imp};' if not imp.endswith(';') else f'import {imp}'
+        
+        if not re.match(r'^import\s+(?:static\s+)?[\w.]+(?:\.\*)?;$', imp):
+            logger.warning(f"[ActionExecutor] Invalid import format after cleaning: '{imp}'")
+            return None
+        
+        return imp
     
     async def _add_dependency(
         self,
