@@ -16,6 +16,7 @@ import asyncio
 import logging
 import time
 import traceback
+from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -438,6 +439,12 @@ class ErrorRecoveryManager:
         self._same_error_count: int = 0
         self._thinking_results: List[Any] = []
 
+        # 错误修复结果缓存 (基于错误签名)
+        self._fix_cache: OrderedDict[str, str] = OrderedDict()
+        self._fix_cache_capacity = 100
+        self._fix_cache_hits = 0
+        self._fix_cache_misses = 0
+
     def categorize_error(self, error_message: str, error_details: Dict[str, Any]) -> ErrorCategory:
         return ErrorClassifier.categorize_error(error_message, error_details)
 
@@ -492,6 +499,46 @@ class ErrorRecoveryManager:
         """Reset error tracking state."""
         self._last_error_signature = None
         self._same_error_count = 0
+
+    def _make_fix_cache_key(
+        self,
+        error_signature: str,
+        current_test_code: str,
+        target_class_info: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """生成错误修复缓存key"""
+        import hashlib
+        class_name = target_class_info.get("name", "") if target_class_info else ""
+        code_hash = hashlib.sha256(current_test_code[:1000].encode()).hexdigest()[:16]
+        return f"{error_signature}:{class_name}:{code_hash}"
+
+    def _get_from_fix_cache(self, cache_key: str) -> Optional[str]:
+        """从修复缓存获取结果"""
+        if cache_key in self._fix_cache:
+            self._fix_cache_hits += 1
+            self._fix_cache.move_to_end(cache_key)
+            logger.info(f"[ErrorRecoveryManager] 📋 修复缓存命中! (命中: {self._fix_cache_hits})")
+            return self._fix_cache[cache_key]
+        self._fix_cache_misses += 1
+        return None
+
+    def _put_to_fix_cache(self, cache_key: str, fixed_code: str):
+        """放入修复缓存"""
+        if len(self._fix_cache) >= self._fix_cache_capacity:
+            self._fix_cache.popitem(last=False)
+        self._fix_cache[cache_key] = fixed_code
+
+    def get_fix_cache_stats(self) -> Dict[str, Any]:
+        """获取修复缓存统计"""
+        total = self._fix_cache_hits + self._fix_cache_misses
+        hit_rate = self._fix_cache_hits / total if total > 0 else 0.0
+        return {
+            "capacity": self._fix_cache_capacity,
+            "current_size": len(self._fix_cache),
+            "hits": self._fix_cache_hits,
+            "misses": self._fix_cache_misses,
+            "hit_rate": f"{hit_rate:.1%}"
+        }
 
     def get_thinking_results(self) -> List[Any]:
         """Get all thinking results from recovery sessions."""
@@ -1163,6 +1210,24 @@ class ErrorRecoveryManager:
                 "should_continue": True
             }
 
+        # 生成缓存key并检查缓存
+        error_signature = self._last_error_signature or context.error_message[:100]
+        cache_key = self._make_fix_cache_key(
+            error_signature,
+            context.current_test_code or "",
+            context.target_class_info
+        )
+        cached_fix = self._get_from_fix_cache(cache_key)
+        if cached_fix:
+            return {
+                "success": True,
+                "action": "fix",
+                "message": "使用缓存的修复代码",
+                "should_continue": True,
+                "fixed_code": cached_fix,
+                "strategy": "llm_fix_cached"
+            }
+
         try:
             # Phase 2: Use enhanced prompt if available
             if context.error_details and "enhanced_prompt" in context.error_details:
@@ -1190,6 +1255,10 @@ class ErrorRecoveryManager:
 
             response = await self.llm_client.agenerate(prompt)
             fixed_code = self._extract_java_code(response)
+
+            # 缓存修复结果
+            if fixed_code:
+                self._put_to_fix_cache(cache_key, fixed_code)
 
             return {
                 "success": True,
