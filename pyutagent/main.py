@@ -7,9 +7,16 @@ using qasync for seamless asyncio event loop integration with Qt.
 import asyncio
 import logging
 import sys
+import locale
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
+
+if sys.platform == 'win32':
+    try:
+        locale.setlocale(locale.LC_ALL, '')
+    except locale.Error:
+        pass
 
 try:
     import qasync
@@ -37,7 +44,8 @@ def setup_logging(settings):
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        datefmt='%Y-%m-%d %H:%M:%S',
+        encoding='utf-8'
     )
     logger.info(f"Logging configured with level: {settings.log_level}")
 

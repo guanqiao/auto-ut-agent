@@ -81,7 +81,7 @@ class TestGenerationService:
         package = class_info.get("package", "")
         methods = class_info.get("methods", [])
         method_sig = ";".join(sorted([
-            f"{m.get('name', '')}({','.join(m.get('parameters', []))})"
+            f"{m.get('name', '')}({','.join(str(p) if isinstance(p, str) else f'{p[0]} {p[1]}' for p in m.get('parameters', []))})"
             for m in methods
         ]))
         cache_data = f"{package}.{class_name}|{method_sig}"
